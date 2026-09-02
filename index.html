@@ -2135,7 +2135,7 @@ async function showMetaPreview(adId, fmt) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:4px;margin-top:8px;text-align:center;">
         ${stats.map(s => `<div title="${esc(range(s))}" style="background:${s.preset === 'prev_7d' ? '#fff7ed' : '#f8f9ff'};border-radius:8px;padding:6px 2px;">
           <div style="font-size:.68rem;color:#9ca3af;font-weight:700;">${LBL[s.preset] || s.preset}</div>
-          <div style="font-size:.76rem;font-weight:800;color:#1e1b4b;">${comma(Math.round(s.spend / 10000))}만</div>
+          <div style="font-size:.76rem;font-weight:800;color:#1e1b4b;">${s.spend >= 10000 ? comma(Math.round(s.spend / 10000)) + '만' : won(s.spend)}</div>
           <div style="font-size:.7rem;font-weight:700;color:${s.roas >= 2 ? '#15803d' : s.roas >= 1 ? '#92400e' : s.spend ? '#dc2626' : '#9ca3af'};">${s.spend ? s.roas.toFixed(2) : '—'}</div>
         </div>`).join('')}</div>`;
     mkChart('apstats', 'ap-chart', {
