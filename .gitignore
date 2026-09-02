@@ -1,2 +1,6 @@
 # 연동 키가 든 설정 — 공개 저장소에 올리지 말 것 (SETUP-광고관리자.md 참고)
 config.js
+
+# Supabase CLI 로컬 임시 파일
+supabase/.temp/
+.branches/
