@@ -275,8 +275,12 @@ Deno.serve(async (req) => {
     if (action === "preview") {
       const adId = url.searchParams.get("ad_id");
       if (!adId) return json({ error: "ad_id 필수" }, 400);
+      // fmt: feed(기본) / reels / story — 모달의 형식 전환 버튼. 거부되면 표준 → 데스크톱 피드 순으로 폴백
+      const fmtParam = url.searchParams.get("fmt") ?? "feed";
+      const fmt = fmtParam === "reels" ? "INSTAGRAM_REELS" : fmtParam === "story" ? "INSTAGRAM_STORY" : "INSTAGRAM_STANDARD";
       const [prev, meta] = await Promise.all([
-        graphGet(`${adId}/previews`, { ad_format: "INSTAGRAM_STANDARD" }, c.token)
+        graphGet(`${adId}/previews`, { ad_format: fmt }, c.token)
+          .catch(() => graphGet(`${adId}/previews`, { ad_format: "INSTAGRAM_STANDARD" }, c.token))
           .catch(() => graphGet(`${adId}/previews`, { ad_format: "DESKTOP_FEED_STANDARD" }, c.token)),
         graphGet(`${adId}`, { fields: "name,creative{thumbnail_url}", thumbnail_width: "512", thumbnail_height: "512" }, c.token)
           .catch(() => ({})),
@@ -525,6 +529,48 @@ Deno.serve(async (req) => {
         truncated: offAll.length > offIds.length,
         sets,
       };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ═══ 예산 변경 이력 (원본 budgethistory) — Meta 활동 로그에서 예산 이벤트만 추출, 60초 캐시 ═══
+    // 이벤트 타입 실측: update_ad_set_budget / update_campaign_budget 두 가지가 금액 변경.
+    // extra_data는 중첩 JSON: {old_value:{old_value:30000}, new_value:{new_value:50000, additional_value:"(일일 기준)"}}
+    // ⚠ object_type은 Meta 옛 명칭(CAMPAIGN=광고세트!) — 층 판정은 event_type으로 (가이드 §7-4). event_time은 UTC.
+    if (action === "budgethistory") {
+      const s = url.searchParams.get("start_date") ?? seoulToday();
+      const e = url.searchParams.get("end_date") ?? seoulToday();
+      const cacheKey = `meta:budgethist:${s}:${e}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+      const rows = await graphGetAll(`${c.account}/activities`, {
+        fields: "event_type,event_time,object_id,object_name,object_type,extra_data",
+        since: s,
+        until: addDays(e, 1),
+        limit: "500",
+      }, c.token, 4);
+      const events = rows
+        .filter((r) => /^update_(ad_set|campaign)_budget$/.test(String(r.event_type ?? "")))
+        .map((r) => {
+          let extra: Record<string, unknown> = {};
+          try {
+            const raw = r.extra_data;
+            extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {};
+          } catch { /* extra_data 없음/비JSON */ }
+          const ov = (extra.old_value ?? {}) as Record<string, unknown>;
+          const nv = (extra.new_value ?? {}) as Record<string, unknown>;
+          return {
+            time: String(r.event_time ?? ""),
+            level: String(r.event_type ?? "").startsWith("update_ad_set") ? "adset" : "campaign",
+            object_id: String(r.object_id ?? ""),
+            object_name: String(r.object_name ?? ""),
+            old_value: num(ov.old_value ?? extra.old_value),
+            new_value: num(nv.new_value ?? extra.new_value),
+            note: String(nv.additional_value ?? ""),
+          };
+        })
+        .filter((ev) => ev.old_value > 0 || ev.new_value > 0);
+      const body = { period: { start: s, end: e }, count: events.length, events };
       await cacheSet(cacheKey, body);
       return json(body);
     }

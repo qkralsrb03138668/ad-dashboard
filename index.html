@@ -562,8 +562,19 @@
   <div class="modal-box" style="max-width:520px;">
     <div class="modal-head"><b id="ap-title"></b>
       <button class="modal-x" onclick="closeModal('admgr-preview')">✕</button></div>
+    <div id="ap-fmt" class="filter-tabs" style="margin-bottom:8px;"></div>
     <div id="ap-body" style="text-align:center;min-height:200px;"></div>
     <div id="ap-stats" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- ═══ 예산 변경 히스토리 모달 (Meta 활동 로그 — 읽기 전용) ═══ -->
+<div class="modal" id="admgr-budget-modal" onclick="if(event.target===this)closeModal('admgr-budget-modal')">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-head"><b id="abm-title"></b>
+      <button class="modal-x" onclick="closeModal('admgr-budget-modal')">✕</button></div>
+    <div style="font-size:.72rem;color:#9ca3af;margin:-8px 0 10px;">예산 변경 히스토리 (한국 시간 기준)</div>
+    <div id="abm-body"></div>
   </div>
 </div>
 
@@ -1223,6 +1234,9 @@ const admgr = {
   test:  { data: null, state: new Map(), filter: 'all', showHidden: false, sel: new Set(), loaded: false, loading: false },
   offad: { data: null, loading: false, loaded: false, start: null, end: null },   // 기간은 첫 조회 때 최근 7일로
   best:  { rows: null, ads: null, loading: false, loaded: false },                 // rows=best_ads 테이블, ads=creatives 응답
+  /* '최근 변경' 열 — Meta 활동 로그의 오늘 예산 변경 이벤트 (byObj = Map(캠페인·세트 id → 이벤트[] 최신순)), seven = 최근 7일(모달) */
+  budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
+  chgFilter: 'all',          // 오늘 예산 변경 필터: all / changed / up / down
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
@@ -1260,6 +1274,8 @@ async function admgrFetch() {
   admgr.loading = true; admgr.demo = false; renderAdmgr();
   try {
     admgr.data = await metaGet({ action: 'hierarchy', preset: admgr.preset });
+    admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
+    if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
   } catch (e) {
     admgr.data = null;
     toast('Meta 불러오기 실패: ' + e.message);
@@ -1267,7 +1283,7 @@ async function admgrFetch() {
   admgr.loading = false; renderAdmgr();
 }
 function admgrSetPreset(p) {
-  admgr.preset = p;
+  admgr.preset = p; admgr.chgFilter = 'all';
   if (admgr.demo) { admgr.data = admgrDemoData(); renderAdmgr(); }
   else if (admgr.data) admgrFetch();
   else renderAdmgr();
@@ -1318,6 +1334,7 @@ function admgrVal(r, key) {
     case 'clicks':return r.clicks || 0;
     case 'purch': case 'purchases': return r.purchases || 0;
     case 'cpa':   return r.purchases ? r.spend / r.purchases : -1;   // 구매 0은 최하위
+    case 'cpc':   return r.clicks ? r.spend / r.clicks : -1;
     case 'value': return r.value || 0;
     case 'roas':  return r.spend ? r.value / r.spend : -1;
     default: return 0;
@@ -1494,27 +1511,50 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         ? '<b>Meta 불러오기</b>를 누르면 캠페인 → 광고세트 → 광고 현황이 나옵니다.'
         : '연동 전이라면 <b>데모 데이터로 보기</b>로 화면을 먼저 구경해 보세요.'}</p></div>`;
   }
-  const vis = admgr.view === 'camp' ? admgrVisible(R.camps)
-    : admgr.view === 'set' ? admgrVisible(setsInSel) : admgrVisible(adsInSel);
+  const isCamp = admgr.view === 'camp', isSet = admgr.view === 'set';
+  const VIEW_LABEL = isCamp ? '캠페인' : isSet ? '광고세트' : '광고';
+  let vis = isCamp ? admgrVisible(R.camps) : isSet ? admgrVisible(setsInSel) : admgrVisible(adsInSel);
+
+  /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
+  const bb = admgr.budget;
+  const showChg = admgr.preset === 'today' && (isCamp || isSet) && !admgr.demo;
+  let chgChips = '';
+  if (showChg && bb.byObj) {
+    const base = vis;
+    const changed = base.filter(r => (bb.byObj.get(r.id) || []).length);
+    const ups = changed.filter(r => admgrChgUp(bb.byObj.get(r.id))).length;
+    const chip = (k, label, n) => `<button class="filter-tab ${admgr.chgFilter === k ? 'active' : ''}" onclick="admgrChgSet('${k}')">${label} ${n}</button>`;
+    chgChips = `<div class="filter-tabs" style="margin-bottom:12px;"><span style="font-size:.75rem;font-weight:700;color:#6b7280;">오늘 예산:</span>
+      ${chip('all', '전체', base.length)}${chip('changed', '변경', changed.length)}${chip('up', '↑ 증액', ups)}${chip('down', '↓ 감액', changed.length - ups)}</div>`;
+    if (admgr.chgFilter !== 'all') {
+      vis = vis.filter(r => { const evs = bb.byObj.get(r.id); if (!evs || !evs.length) return false;
+        return admgr.chgFilter === 'changed' || ((admgr.chgFilter === 'up') === admgrChgUp(evs)); });
+    }
+  }
 
   /* 요약 타일 (표시분 기준) */
-  const tSpend = vis.reduce((s, r) => s + (r.spend || 0), 0);
-  const tPurch = vis.reduce((s, r) => s + (r.purchases || 0), 0);
-  const tValue = vis.reduce((s, r) => s + (r.value || 0), 0);
+  const tot = { spend: 0, purchases: 0, value: 0, clicks: 0 };
+  for (const r of vis) { tot.spend += r.spend || 0; tot.purchases += r.purchases || 0; tot.value += r.value || 0; tot.clicks += r.clicks || 0; }
   const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
-    ${admgrTile('지출 (표시분)', won(tSpend))}${admgrTile('구매', comma(tPurch))}
-    ${admgrTile('구매당 비용', tPurch ? won(tSpend / tPurch) : '—')}${admgrTile('구매 전환값', won(tValue))}
-    ${admgrTile('ROAS', tSpend ? (tValue / tSpend).toFixed(2) : '—')}
+    ${admgrTile('지출 (표시분)', won(tot.spend))}${admgrTile('구매', comma(tot.purchases))}
+    ${admgrTile('구매당 비용', admgrCpa(tot))}${admgrTile('구매 전환값', won(tot.value))}
+    ${admgrTile('ROAS', tot.spend ? (tot.value / tot.spend).toFixed(2) : '—')}${admgrTile('표시 중 ' + VIEW_LABEL, vis.length + '개')}
   </div>`;
+  const cpcTd = r => r.clicks ? won(r.spend / r.clicks) : '—';
+  const totalRow = (lead, extraCols) => `<tfoot><tr>
+    <td colspan="${lead}" style="text-align:left;">합계 <span style="font-weight:600;color:#9ca3af;font-size:.7rem;">${VIEW_LABEL} ${vis.length}개</span></td>
+    ${extraCols}
+    <td>${won(tot.spend)}</td>${isCamp || isSet ? '' : `<td class="m-hide">${comma(tot.clicks)}</td>`}<td>${comma(tot.purchases)}</td>
+    <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td class="m-hide">${cpcTd(tot)}</td>
+  </tr></tfoot>`;
 
   let table;
   if (!vis.length) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
-  } else if (admgr.view === 'camp' || admgr.view === 'set') {
-    const isCamp = admgr.view === 'camp';
+  } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th></th>${admgrTh('name', isCamp ? '캠페인' : '광고세트')}<th>상태</th>${admgrTh('budget', '예산', 'm-hide')}
-        ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}</tr></thead>
+      <thead><tr><th></th>${admgrTh('name', VIEW_LABEL)}<th>상태</th>${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+        ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr>
           <td><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
@@ -1526,18 +1566,21 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button></div></td>
           <td>${admgrStBadge(r.status)}</td>
           <td class="m-hide">${admgrBudget(r)}</td>
+          ${showChg ? `<td class="m-hide">${admgrChgCell(r)}</td>` : ''}
           <td><b>${admgrMoney(r.spend)}</b></td>
           <td>${comma(r.purchases || 0)}</td>
           <td class="m-hide">${admgrCpa(r)}</td>
           <td class="m-hide">${admgrMoney(r.value)}</td>
           <td>${admgrRoasTd(r)}</td>
+          <td class="m-hide">${cpcTd(r)}</td>
         </tr>`).join('')}</tbody>
+      ${totalRow(3, `<td class="m-hide">—</td>${showChg ? '<td class="m-hide">—</td>' : ''}`)}
     </table></div>
-    ${!isCamp ? '<p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">세트를 체크하고 위의 <b>베스트소재로</b> 버튼을 누르면 그 세트의 소재가 베스트소재 탭에 모여요.</p>' : ''}`;
+    <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">${isSet ? '세트를 체크하고 위의 <b>베스트소재로</b> 버튼을 누르면 그 세트의 소재가 베스트소재 탭에 모여요. ' : ''}${showChg ? "'최근 변경'은 오늘 바뀐 예산(변경 후 설정값·시각) — 클릭하면 히스토리." : ''}</p>`;
   } else {
     table = `<div class="table-wrap"><table>
       <thead><tr>${admgrTh('name', '광고')}<th>상태</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
-        ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}</tr></thead>
+        ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기">
           <td class="name-cell" style="text-align:left;">
@@ -1550,11 +1593,100 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${admgrCpa(r)}</td>
           <td class="m-hide">${admgrMoney(r.value)}</td>
           <td>${admgrRoasTd(r)}</td>
+          <td class="m-hide">${cpcTd(r)}</td>
         </tr>`).join('')}</tbody>
+      ${totalRow(2, '')}
     </table></div>
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">행 클릭 → 소재 미리보기 · 열 제목 클릭 = 정렬(오름→내림→해제, 먼저 누른 열이 1순위)</p>`;
   }
-  return tiles + table;
+  return chgChips + tiles + table;
+}
+
+/* ═══ 최근 변경 — 오늘 예산 변경 이력 (원본 admgrBudget* 이식, 읽기 전용 · 영향 분석은 제외) ═══ */
+const admgrKst = iso => { const t = new Date(iso); return isNaN(t.getTime()) ? null : new Date(t.getTime() + 9 * 3600 * 1000); };
+const admgrPad2 = n => String(n).padStart(2, '0');
+const admgrKstLabel = iso => { const k = admgrKst(iso); return k ? `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${admgrPad2(k.getUTCHours())}:${admgrPad2(k.getUTCMinutes())}` : '—'; };
+async function admgrBudgetFetch() {
+  const b = admgr.budget;
+  if (b.loading || b.byObj || b.error) return;
+  b.loading = true;
+  try {
+    const d = await metaGet({ action: 'budgethistory' });   // 기본 = 오늘
+    const m = new Map();
+    for (const ev of (d.events || [])) { if (!m.has(ev.object_id)) m.set(ev.object_id, []); m.get(ev.object_id).push(ev); }
+    for (const list of m.values()) list.sort((x, y) => y.time.localeCompare(x.time));   // 최신순
+    b.byObj = m;
+  } catch (e) { b.error = true; }
+  b.loading = false; renderAdmgr(true);
+}
+const admgrChgUp = evs => evs[0].new_value >= evs[0].old_value;   // 최신 이벤트 방향 (분류 칩 기준)
+function admgrChgSet(k) { admgr.chgFilter = k; renderAdmgr(); }
+/* 셀: 오늘 변경 전부 — 맨 위 '시작 N'(첫 조정 직전 예산), 그 아래 ↑파랑(증액)/↓빨강(감액) + 변경 후 설정 예산 + 시각 (원본 규칙) */
+function admgrChgCell(r) {
+  const b = admgr.budget;
+  const evs = b.byObj && b.byObj.get(r.id);
+  if (evs && evs.length) {
+    const first = evs[evs.length - 1];
+    const startTxt = first && first.old_value > 0
+      ? `<div title="오늘 첫 조정 직전 예산" style="font-size:.62rem;color:#9ca3af;font-weight:700;white-space:nowrap;">시작 ${comma(first.old_value)}</div>` : '';
+    const badges = evs.slice().reverse().map(ev => {
+      const up = ev.new_value >= ev.old_value;
+      const k = admgrKst(ev.time);
+      const hm = k ? `${admgrPad2(k.getUTCHours())}:${admgrPad2(k.getUTCMinutes())}` : '';
+      return `<span class="status-badge ${up ? 'badge-blue' : 'badge-red'}" style="font-size:.68rem;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.58rem;"></i> ${comma(ev.new_value)} <span style="opacity:.65;font-weight:600;">${hm}</span></span>`;
+    }).join('');
+    return `<div onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리" style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;">${startTxt}${badges}</div>`;
+  }
+  if (b.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#e5e7eb;font-size:.65rem;"></i>';
+  return '<span style="color:#d1d5db;">—</span>';
+}
+const admgrBM = { id: null, name: '', range: 'today' };
+function admgrBudgetModal(id) {
+  const R = admgrRows();
+  const node = R.camps.find(x => x.id === id) || R.sets.find(x => x.id === id);
+  const evs = (admgr.budget.byObj && admgr.budget.byObj.get(id)) || [];
+  admgrBM.id = id; admgrBM.name = node ? node.name : (evs[0] ? evs[0].object_name : id); admgrBM.range = 'today';
+  $('admgr-budget-modal').classList.add('show');
+  admgrBudgetModalRender();
+}
+function admgrBudgetRange(rg) {
+  admgrBM.range = rg;
+  if (rg === 'week' && !admgr.budget.seven && !admgr.budget.sevenLoading) admgrBudgetSeven();
+  admgrBudgetModalRender();
+}
+async function admgrBudgetSeven() {
+  const b = admgr.budget;
+  b.sevenLoading = true; admgrBudgetModalRender();
+  try {
+    const d = await metaGet({ action: 'budgethistory', start_date: todayStr(-6), end_date: todayStr(0) });
+    b.seven = d.events || [];
+  } catch (e) { toast('조회 실패: ' + e.message); b.seven = []; }
+  b.sevenLoading = false; admgrBudgetModalRender();
+}
+function admgrBudgetModalRender() {
+  $('abm-title').textContent = admgrBM.name;
+  const b = admgr.budget;
+  let evs;
+  if (admgrBM.range === 'today') evs = (b.byObj && b.byObj.get(admgrBM.id)) || [];
+  else if (b.sevenLoading) evs = null;
+  else evs = (b.seven || []).filter(e => e.object_id === admgrBM.id).slice().sort((x, y) => y.time.localeCompare(x.time));
+  let html = `<div class="filter-tabs" style="margin-bottom:10px;">
+    <button class="filter-tab ${admgrBM.range === 'today' ? 'active' : ''}" onclick="admgrBudgetRange('today')">오늘</button>
+    <button class="filter-tab ${admgrBM.range === 'week' ? 'active' : ''}" onclick="admgrBudgetRange('week')">최근 7일</button></div>`;
+  if (evs === null) html += '<div class="empty-state" style="padding:20px;"><p>불러오는 중…</p></div>';
+  else if (!evs.length) html += '<div class="empty-state" style="padding:20px;"><p>이 기간에 예산 변경 기록이 없어요.</p></div>';
+  else {
+    html += evs.map(ev => {
+      const up = ev.new_value >= ev.old_value, diff = ev.new_value - ev.old_value;
+      return `<div style="border:1.5px solid #e7e8ee;border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:.74rem;color:#6b7280;font-weight:700;white-space:nowrap;">${admgrKstLabel(ev.time)}</span>
+        <span style="font-size:.82rem;font-weight:700;color:#1e1b4b;">${won(ev.old_value)} → ${won(ev.new_value)}</span>
+        <span class="status-badge ${up ? 'badge-blue' : 'badge-red'}"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.6rem;"></i> ${up ? '증액' : '감액'} ${up ? '+' : '−'}${won(Math.abs(diff))}</span>
+        ${ev.note ? `<span style="font-size:.68rem;color:#9ca3af;">${esc(ev.note)}</span>` : ''}
+      </div>`; }).join('');
+    html += `<div style="font-size:.68rem;color:#9ca3af;margin-top:4px;">기록은 Meta 활동 로그 기준(약 90일 보관) · 시각은 한국 시간</div>`;
+  }
+  $('abm-body').innerHTML = html;
 }
 
 /* ═══ 테스트 소재 탭 (2단계 — 원본 admgrTest* 이식) ═══
@@ -1958,11 +2090,18 @@ function renderAdmgrBest() {
     <div class="cre-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));">${tiles || `<div class="empty-state"><p>${admgr.q ? '검색 결과가 없어요.' : '담은 세트에 표시할 소재가 없어요.'}</p></div>`}</div>`;
 }
 
-/* ── 소재 미리보기 (원본 showMetaPreview — iframe + 기간 7종 성과) ── */
-async function showMetaPreview(adId) {
-  $('ap-title').textContent = '소재 미리보기';
-  $('ap-stats').innerHTML = '';
+/* ── 소재 미리보기 (원본 showMetaPreview — iframe + 형식 전환(피드/릴스/스토리) + 기간 7종 성과 차트) ── */
+const apCur = { id: null, fmt: 'feed' };
+const AP_FMTS = [['feed', '피드'], ['reels', '릴스'], ['story', '스토리']];
+async function showMetaPreview(adId, fmt) {
+  const sameAd = apCur.id === adId;          // 형식만 바꿀 때는 성과를 다시 조회하지 않는다
+  apCur.id = adId; apCur.fmt = fmt || 'feed';
+  const myFmt = apCur.fmt;
   $('admgr-preview').classList.add('show');
+  if (!sameAd) { $('ap-title').textContent = '소재 미리보기'; $('ap-stats').innerHTML = ''; }
+  $('ap-fmt').innerHTML = AP_FMTS.map(([k, l]) =>
+    `<button class="filter-tab ${myFmt === k ? 'active' : ''}" style="padding:4px 12px;font-size:.75rem;" onclick="showMetaPreview('${adId}','${k}')">${l}</button>`).join('')
+    + '<span style="font-size:.7rem;color:#9ca3af;margin-left:4px;">미리보기 형식</span>';
   if (admgr.demo) {
     $('ap-body').innerHTML = `<div class="empty-state" style="padding:32px;">
       <div class="es-icon"><i class="fa-regular fa-image"></i></div>
@@ -1970,32 +2109,50 @@ async function showMetaPreview(adId) {
     return;
   }
   $('ap-body').innerHTML = `<p style="padding:40px 0;color:#9ca3af;font-size:.82rem;">불러오는 중…</p>`;
-  try {
-    const [prev, stats] = await Promise.all([
-      metaGet({ action: 'preview', ad_id: adId }),
-      metaGet({ action: 'adstats', ad_id: adId }).catch(() => null),
-    ]);
+  /* 미리보기와 기간별 성과를 병렬로 — 하나가 실패해도 나머지는 표시 (원본 방식) */
+  metaGet({ action: 'preview', ad_id: adId, fmt: myFmt }).then(prev => {
+    if (apCur.id !== adId || apCur.fmt !== myFmt) return;   // 그 사이 다른 소재·형식으로 바뀜
     $('ap-title').textContent = prev.name || '소재 미리보기';
     $('ap-body').innerHTML = prev.iframe || (prev.thumbnail
       ? `<img src="${prev.thumbnail}" style="max-width:100%;border-radius:10px;" />`
       : '<p style="padding:30px 0;color:#9ca3af;">미리보기를 가져오지 못했어요.</p>');
     const ifr = $('ap-body').querySelector('iframe');
     if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
-    if (stats && stats.stats) {
-      const LBL = { today:'오늘', yesterday:'어제', last_3d:'최근 3일', last_7d:'최근 7일', prev_7d:'이전 7일', last_14d:'최근 14일', last_30d:'최근 30일' };
-      $('ap-stats').innerHTML = `<div class="sub-title">기간별 지출 · ROAS</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;">
-        ${stats.stats.map(s => `
-          <div style="border:1px solid #e7e8ee;border-radius:9px;padding:8px 6px;text-align:center;" title="${esc(s.start)} ~ ${esc(s.end)}">
-            <div style="font-size:.68rem;color:#9ca3af;font-weight:700;">${LBL[s.preset] || s.preset}</div>
-            <div style="font-size:.78rem;font-weight:800;margin-top:2px;">${won(s.spend)}</div>
-            <div style="font-size:.7rem;font-weight:700;color:${s.roas >= 2 ? '#15803d' : s.roas >= 1 ? '#92400e' : s.spend ? '#dc2626' : '#9ca3af'};">
-              ROAS ${s.spend ? s.roas.toFixed(2) : '—'}</div>
-          </div>`).join('')}</div>`;
-    }
-  } catch (e) {
-    $('ap-body').innerHTML = `<p style="padding:30px 0;color:#dc2626;font-size:.82rem;">불러오기 실패: ${esc(e.message)}</p>`;
-  }
+  }).catch(e => {
+    if (apCur.id === adId) $('ap-body').innerHTML = `<p style="padding:30px 0;color:#dc2626;font-size:.82rem;">불러오기 실패: ${esc(e.message)}</p>`;
+  });
+  if (sameAd) return;
+
+  $('ap-stats').innerHTML = `<p style="padding:10px 0;color:#9ca3af;font-size:.78rem;">기간별 성과 조회 중…</p>`;
+  metaGet({ action: 'adstats', ad_id: adId }).then(d => {
+    if (apCur.id !== adId) return;
+    const stats = (d.stats || []).filter(Boolean);
+    if (!stats.length) { $('ap-stats').innerHTML = ''; return; }
+    const LBL = { today:'오늘', yesterday:'어제', last_3d:'최근 3일', last_7d:'최근 7일', prev_7d:'이전 7일', last_14d:'최근 14일', last_30d:'최근 30일' };
+    const range = s => s.start && s.end ? `${s.start} ~ ${s.end}` : '';
+    $('ap-stats').innerHTML = `<div class="sub-title">기간별 지출 · ROAS <span style="font-weight:400;text-transform:none;letter-spacing:0;">(오늘 외에는 어제까지 · 이전 7일 = 최근 7일의 직전 7일)</span></div>
+      <div style="height:180px;"><canvas id="ap-chart"></canvas></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:4px;margin-top:8px;text-align:center;">
+        ${stats.map(s => `<div title="${esc(range(s))}" style="background:${s.preset === 'prev_7d' ? '#fff7ed' : '#f8f9ff'};border-radius:8px;padding:6px 2px;">
+          <div style="font-size:.68rem;color:#9ca3af;font-weight:700;">${LBL[s.preset] || s.preset}</div>
+          <div style="font-size:.76rem;font-weight:800;color:#1e1b4b;">${comma(Math.round(s.spend / 10000))}만</div>
+          <div style="font-size:.7rem;font-weight:700;color:${s.roas >= 2 ? '#15803d' : s.roas >= 1 ? '#92400e' : s.spend ? '#dc2626' : '#9ca3af'};">${s.spend ? s.roas.toFixed(2) : '—'}</div>
+        </div>`).join('')}</div>`;
+    mkChart('apstats', 'ap-chart', {
+      data: {
+        labels: stats.map(s => LBL[s.preset] || s.preset),
+        datasets: [
+          { type: 'bar', label: '지출 (만원)', data: stats.map(s => Math.round(s.spend / 10000)), backgroundColor: 'rgba(99,102,241,.55)', borderRadius: 6, yAxisID: 'y' },
+          { type: 'line', label: 'ROAS', data: stats.map(s => +s.roas.toFixed(2)), borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: .3, pointRadius: 4, yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { font: { size: 11 } } }, tooltip: { callbacks: { afterTitle: it => range(stats[it[0].dataIndex]) } } },
+        scales: { y: { position: 'left' }, y1: { position: 'right', grid: { drawOnChartArea: false } } },
+      },
+    });
+  }).catch(() => { if (apCur.id === adId) $('ap-stats').innerHTML = ''; });
 }
 
 /* ── 데모 데이터 (연동 전 화면 구경용) ── */
