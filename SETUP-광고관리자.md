@@ -9,8 +9,9 @@
 
 ## 1. Supabase 프로젝트 (무료, ~10분)
 
-1. [supabase.com](https://supabase.com) 가입 → **New project** (리전: Seoul 권장)
-2. **SQL Editor** → `supabase/migrations/0001_init.sql` 내용 붙여넣고 Run
+1. [supabase.com](https://supabase.com) 가입 → **New project** (리전: Seoul 권장, Security의 'Automatically expose new tables'는 **끄기** 권장)
+2. **SQL Editor** → `supabase/migrations/0001_init.sql` 내용 붙여넣고 Run → 이어서 **`0002_grants.sql`도 Run**
+   (서버 역할 권한 부여 — 이걸 빼먹으면 판정 저장이 "permission denied"로 실패하고 캐시가 조용히 안 돈다)
 3. **Settings → API**에서 두 값을 복사해 둔다: `Project URL`, `anon public key`
 
 ## 2. Meta 시스템 사용자 토큰 (~20분)
@@ -58,10 +59,18 @@ GitHub Pages 대신 로컬 파일로 열거나, config.js만 따로 넣은 사�
 - 반복 새로고침해도 Meta 호출은 60초에 1번만 나간다 (서버 캐시 — 호출 한도 방어선, 지우지 말 것)
 - 광고 탭에서 행 클릭 = 소재 미리보기 + 기간 7종 성과
 
+## 광고관리자 탭 구성 (2026-09-02 기준 — 이식 1~3단계 완료)
+
+| 탭 | 내용 | 서버 액션 |
+|---|---|---|
+| 캠페인 / 광고세트 / 광고 | 계층 드릴다운, 체크 선택 연동, 다중 정렬, 행 클릭 미리보기 | `hierarchy`·`preview`·`adstats` |
+| 테스트 소재 | **세트명에 `test`가 든 세트의 소재 자동 수집**, 판정([애매]/[우수], OFF·검토중은 Meta 상태로 자동), 추가소재 요청/제작완료 체크, 메모, 목록에서 제거/복원, 테스트 종료(세트명에서 test 제거 후 60일 보관), 엑셀 추출 | `testads`·`state_list`·`state_save` |
+| 기존광고 중 OFF | 기간 내 OFF로 바뀐 광고세트(테스트 세트 제외) + 등록 이후 누적 성과. 세트를 직접 끈 것 기준(캠페인 통째 OFF는 안 잡힘) | `offsets` |
+| 베스트소재 | 광고세트 탭에서 세트 체크 → '베스트소재로' → 소재 썸네일 격자, 타일 클릭 미리보기 | `creatives`·`best_list`·`best_add`·`best_del` |
+
+운영 규칙 (안 지키면 기능이 빈다): **테스트 소재는 광고세트명에 `test`를 넣어야 자동으로 잡힌다.** 테스트 끝 = 세트명에서 test 제거.
+
 ## 다음 단계 (원하면)
 
-이식 가이드의 순서대로:
-- **2단계** 테스트 소재 탭 (세트명에 `test` 넣는 운영 규칙 + 판정 저장)
-- **3단계** 기존광고 중 OFF·베스트소재 격자·엑셀 추출
 - **4단계** 예산 변경 — ⚠ **실돈이 움직이는 기능.** 원본은 서버 5중 안전장치(관리자+허용 id+PIN+일예산 상한+전 기록)를
-  달았고, 가이드도 그대로 가져가라고 강력 권장. 붙이고 싶어지면 그때 같이 하자.
+  달았고, 가이드도 그대로 가져가라고 강력 권장. 별도 쓰기 토큰(ads_management)도 필요. 붙이고 싶어지면 그때 같이 하자.

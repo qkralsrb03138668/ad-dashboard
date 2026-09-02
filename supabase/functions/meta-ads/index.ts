@@ -14,7 +14,7 @@
 //   ② 60초 캐시 = 호출 한도 방어선 (원본에서 "User request limit reached" 실사고)
 //   ③ 하향식 조립 — /ads 무필터 500 한도 잘림으로 캠페인 통째 누락 사고를 피하는 구조
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, checkDashKey, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheSet, checkDashKey, dbRest, handleOptions, json } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 
@@ -37,10 +37,45 @@ async function graphGet(path: string, params: Record<string, string>, token: str
   return body;
 }
 
+// 페이지네이션 — Meta는 한 번에 최대 500개. paging.next를 따라가며 모은다 (maxPages 상한 = 호출 폭주 방지)
+async function graphGetAll(path: string, params: Record<string, string>, token: string, maxPages = 6): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  let body = await graphGet(path, params, token);
+  for (let i = 0; i < maxPages; i++) {
+    out.push(...((body.data ?? []) as Record<string, unknown>[]));
+    const next = (body.paging as { next?: string } | undefined)?.next;
+    if (!next) break;
+    const res = await fetch(next);   // next에는 access_token이 이미 포함돼 있다
+    body = await res.json();
+    if (!res.ok) throw new Error(`Meta API ${res.status}: ${String((body as { error?: { message?: string } })?.error?.message ?? "").slice(0, 300)}`);
+  }
+  return out;
+}
+
 const num = (v: unknown) => {
   const n = parseFloat(String(v ?? "0"));
   return isFinite(n) ? n : 0;
 };
+
+// ad_test_state 행 정제 — 클라이언트가 보낸 값 중 허용 필드만, 타입 강제 (판정 저장 API용)
+function sanitizeState(r: Record<string, unknown>): Record<string, unknown> | null {
+  const adId = String(r.ad_id ?? "");
+  if (!/^\d{5,25}$/.test(adId)) return null;
+  const iso = (v: unknown) => { const s = v == null ? "" : String(v); return s && !isNaN(new Date(s).getTime()) ? new Date(s).toISOString() : null; };
+  const verdict = r.verdict === "good" || r.verdict === "meh" ? r.verdict : null;
+  return {
+    ad_id: adId,
+    ad_name: String(r.ad_name ?? "").slice(0, 300),
+    hidden: !!r.hidden,
+    recommend: false,
+    memo: r.memo == null || r.memo === "" ? null : String(r.memo).slice(0, 500),
+    verdict,
+    asset_req_at: iso(r.asset_req_at),
+    asset_done_at: iso(r.asset_done_at),
+    updated_by: String(r.updated_by ?? "dashboard").slice(0, 60),
+    updated_at: new Date().toISOString(),
+  };
+}
 
 // 광고계정 시간대(한국) 기준 오늘 — date_preset도 계정 시간대로 계산되므로 UTC를 쓰면 하루 어긋난다 (가이드 §7-9)
 function seoulToday(): string {
@@ -254,6 +289,291 @@ Deno.serve(async (req) => {
         iframe,
         thumbnail: String(creative.thumbnail_url ?? ""),
       });
+    }
+
+    // ═══ 이식 2단계 — 테스트 소재 (원본 testads 그대로) ═══
+    // 광고세트명에 kw(기본 'test')가 들어간 세트의 광고 전부(꺼진 것 포함) + 등록 이후 누적 성과.
+    // 본 소재는 test_ad_snap에 스냅샷으로 남겨, 세트명에서 test를 지워 목록에서 사라져도 60일간 '테스트 종료'(gone)로 함께 돌려준다.
+    if (action === "testads") {
+      const today = seoulToday();
+      const kw = (url.searchParams.get("kw") ?? "test").slice(0, 30);
+      const cacheKey = `meta:testads:${kw.toLowerCase()}:${today}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+
+      const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
+      const testSets = allSets.filter((r) => kwRe.test(String(r.name ?? "")));
+      const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
+      const setIds = [...setName.keys()].slice(0, 200);   // IN 필터 값 개수·URL 길이 방어
+      if (!setIds.length) {
+        const empty = { fetched_at: new Date().toISOString(), until: today, adset_count: 0, truncated: false, ads: [] };
+        await cacheSet(cacheKey, empty);
+        return json(empty);
+      }
+
+      const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
+      const insParams = {
+        time_range: JSON.stringify({ since: "2024-01-01", until: today }),
+        level: "ad",
+        fields: "ad_id,adset_id,spend,actions,action_values",
+        limit: "500",
+      };
+      const [adRows, insRows] = await Promise.all([
+        graphGetAll(`${c.account}/ads`, {
+          fields: "id,name,status,effective_status,created_time,adset_id",
+          filtering: adsetFilter,
+          limit: "500",
+        }, c.token),
+        // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
+        graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilter }, c.token)
+          .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
+      ]);
+
+      const metric = new Map(insRows
+        .filter((r) => setName.has(String(r.adset_id ?? "")))
+        .map((r) => [String(r.ad_id ?? ""), r]));
+      const regDate = (ct: string) => {
+        const d = new Date(ct);
+        return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
+      };
+      const ads = adRows.map((a) => {
+        const id = String(a.id ?? "");
+        const m = metric.get(id);
+        return {
+          id,
+          name: String(a.name ?? ""),
+          adset_id: String(a.adset_id ?? ""),
+          adset_name: setName.get(String(a.adset_id ?? "")) ?? "",
+          status: String(a.status ?? ""),                       // 소재 자체 스위치
+          effective_status: String(a.effective_status ?? ""),   // 실제 상태 (상위 꺼짐·검토중·거부 포함)
+          created_time: String(a.created_time ?? ""),
+          reg_date: regDate(String(a.created_time ?? "")),
+          spend: m ? num(m.spend) : 0,
+          purchases: m ? pickPurchase(m.actions) : 0,
+          value: m ? pickPurchase(m.action_values) : 0,
+        };
+      });
+
+      let goneAds: Record<string, unknown>[] = [];
+      try {
+        if (ads.length) {
+          await dbRest(`test_ad_snap?on_conflict=ad_id`, {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify(ads.map((a) => ({
+              ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
+              status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
+              spend: a.spend, purchases: a.purchases, value: a.value,
+              last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (본문에서 제외)
+            }))),
+          });
+        }
+        const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString();
+        const res2 = await dbRest(`test_ad_snap?last_seen=gte.${encodeURIComponent(cutoff)}&select=*`);
+        const snaps = res2.ok ? (await res2.json()) as Record<string, unknown>[] : [];
+        const liveIds = new Set(ads.map((a) => a.id));
+        goneAds = snaps
+          .filter((s) => !liveIds.has(String(s.ad_id)))
+          .map((s) => ({
+            id: String(s.ad_id), name: String(s.name ?? ""),
+            adset_id: String(s.adset_id ?? ""), adset_name: String(s.adset_name ?? ""),
+            status: String(s.status ?? ""), effective_status: String(s.effective_status ?? ""),
+            created_time: "", reg_date: String(s.reg_date ?? ""),
+            spend: num(s.spend), purchases: num(s.purchases), value: num(s.value),
+            gone: true, gone_since: String(s.last_seen ?? ""),
+          }));
+      } catch { /* 보관 실패해도 본 목록은 정상 반환 */ }
+
+      const body = {
+        fetched_at: new Date().toISOString(),
+        until: today,
+        adset_count: setIds.length,
+        truncated: setName.size > setIds.length,
+        ads: [...ads, ...goneAds],
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ═══ 이식 3단계 — 베스트소재 썸네일 (원본 creatives) ═══
+    // creative의 thumbnail_url은 기본 64px라 field 수정자로 600px 요청, 거부되면 기본 필드 폴백. 10분 캐시.
+    if (action === "creatives") {
+      const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
+      if (!ids.length) return json({ ads: [] });
+      const cacheKey = `meta:creatives:${[...ids].sort().join(",")}`;
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
+      const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]);
+      const baseParams = { filtering: setFilter, limit: "500" };
+      let rows: Record<string, unknown>[];
+      try {
+        rows = await graphGetAll(`${c.account}/ads`, {
+          ...baseParams,
+          fields: "id,name,adset_id,status,effective_status,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id}",
+        }, c.token);
+      } catch {
+        rows = await graphGetAll(`${c.account}/ads`, {
+          ...baseParams,
+          fields: "id,name,adset_id,status,effective_status,creative{thumbnail_url,image_url,object_type,video_id}",
+        }, c.token);
+      }
+      const body = {
+        fetched_at: new Date().toISOString(),
+        ads: rows.map((a) => {
+          const cr = (a.creative ?? {}) as Record<string, unknown>;
+          return {
+            id: String(a.id ?? ""),
+            name: String(a.name ?? ""),
+            adset_id: String(a.adset_id ?? ""),
+            status: String(a.status ?? ""),
+            effective_status: String(a.effective_status ?? ""),
+            thumb: String(cr.thumbnail_url ?? ""),
+            image: String(cr.image_url ?? ""),
+            is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO",
+          };
+        }),
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ═══ 이식 3단계 — 기존광고 중 OFF (원본 offsets) ═══
+    // Meta 활동 로그(약 90일)의 update_ad_set_run_status 이벤트: new_value 1=활성, 그 외=비활성.
+    // activities는 최신순이라 세트별 첫 이벤트 = 기간 내 마지막 상태. 마지막이 비활성인 세트만(껐다 켠 세트 제외), 테스트 세트 제외.
+    // 한계: 세트 스위치를 직접 끈 것 기준 — 캠페인을 통째로 끈 경우는 세트 이벤트가 없어 안 잡힌다 (가이드 §7-4).
+    if (action === "offsets") {
+      const s = url.searchParams.get("start_date") ?? addDays(seoulToday(), -7);
+      const e = url.searchParams.get("end_date") ?? seoulToday();
+      const cacheKey = `meta:offsets:${s}:${e}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+
+      const [acts, allSets] = await Promise.all([
+        graphGetAll(`${c.account}/activities`, {
+          fields: "event_type,event_time,object_id,extra_data",
+          since: s,
+          until: addDays(e, 1),   // until은 그 날 0시 기준 → 하루 더해 종료일 포함
+          limit: "500",
+        }, c.token, 8),
+        // ids 배치 조회는 삭제 세트가 섞이면 통째로 실패 → 전체 목록 (삭제분은 목록에 없어 자연히 걸러짐)
+        graphGetAll(`${c.account}/adsets`, { fields: "id,name,status,effective_status,created_time", limit: "500" }, c.token),
+      ]);
+
+      const last = new Map<string, { off: boolean; time: string }>();
+      for (const r of acts) {
+        if (String(r.event_type ?? "") !== "update_ad_set_run_status") continue;
+        const id = String(r.object_id ?? "");
+        if (last.has(id)) continue;
+        let nv = 0;
+        try {
+          const raw = r.extra_data;
+          const extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {};
+          nv = num(((extra.run_status ?? {}) as Record<string, unknown>).new_value);
+        } catch { /* extra_data 없음/비JSON — 건너뜀 */ }
+        if (!nv) continue;
+        last.set(id, { off: nv !== 1, time: String(r.event_time ?? "") });
+      }
+
+      const info = new Map(allSets.map((r) => [String(r.id), r]));
+      const offAll = [...last.entries()]
+        .filter(([id, v]) => v.off && info.has(id) && !/test/i.test(String(info.get(id)?.name ?? "")))
+        .map(([id]) => id);
+      const offIds = offAll.slice(0, 200);
+
+      const kstDate = (iso: string) => {
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
+      };
+
+      let metric = new Map<string, Record<string, unknown>>();
+      if (offIds.length) {
+        const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: offIds }]);
+        const insParams = {
+          time_range: JSON.stringify({ since: "2024-01-01", until: seoulToday() }),   // 등록 이후 누적 (테스트 소재와 같은 기준)
+          level: "adset",
+          fields: "adset_id,spend,actions,action_values",
+          limit: "500",
+        };
+        const insRows = await graphGetAll(`${c.account}/insights`, { ...insParams, filtering: setFilter }, c.token)
+          .catch(() => [] as Record<string, unknown>[]);
+        metric = new Map(insRows.map((r) => [String(r.adset_id ?? ""), r]));
+      }
+
+      const sets = offIds.map((id) => {
+        const d0 = info.get(id) ?? {};
+        const ev = last.get(id)!;
+        const m = metric.get(id);
+        return {
+          id,
+          name: String(d0.name ?? ""),
+          created_time: String(d0.created_time ?? ""),
+          reg_date: kstDate(String(d0.created_time ?? "")),
+          off_time: ev.time,
+          off_date: kstDate(ev.time),
+          reactivated: String(d0.effective_status ?? "") === "ACTIVE",   // 기간 내 마지막은 OFF였지만 이후 다시 켜진 세트
+          spend: m ? num(m.spend) : 0,
+          purchases: m ? pickPurchase(m.actions) : 0,
+          value: m ? pickPurchase(m.action_values) : 0,
+        };
+      });
+
+      const body = {
+        fetched_at: new Date().toISOString(),
+        period: { start: s, end: e },
+        count: sets.length,
+        truncated: offAll.length > offIds.length,
+        sets,
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ═══ 대시보드 상태 저장소 (ad_test_state · best_ads) ═══
+    // 원본은 별도 db 프록시 함수를 썼지만(가이드 §5-2 어댑터 지점) 이 프로젝트는 함수 하나로 — DASH_KEY 인증 뒤에서만 접근.
+    // ⚠ DASH_KEY를 안 설정하면 anon key만으로 판정 기록을 바꿀 수 있으니 반드시 설정할 것.
+    if (action === "state_list") {
+      const r = await dbRest("ad_test_state?select=*");
+      return json(r.ok ? await r.json() : []);
+    }
+    if (action === "state_save" && req.method === "POST") {
+      const raw = await req.json();
+      const list = (Array.isArray(raw) ? raw : [raw]).map((x) => sanitizeState(x as Record<string, unknown>)).filter(Boolean).slice(0, 200);
+      if (!list.length) return json({ error: "저장할 행이 없습니다" }, 400);
+      const r = await dbRest("ad_test_state?on_conflict=ad_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(list),
+      });
+      if (!r.ok) return json({ error: "DB 저장 실패: " + (await r.text()).slice(0, 200) }, 500);
+      return json({ ok: true, rows: await r.json() });
+    }
+    if (action === "best_list") {
+      const r = await dbRest("best_ads?select=*&order=created_at.desc");
+      return json(r.ok ? await r.json() : []);
+    }
+    if (action === "best_add" && req.method === "POST") {
+      const raw = await req.json();
+      const rows = (Array.isArray(raw) ? raw : [raw])
+        .map((x) => x as Record<string, unknown>)
+        .filter((x) => /^\d{5,25}$/.test(String(x.adset_id ?? "")))
+        .map((x) => ({ adset_id: String(x.adset_id), adset_name: String(x.adset_name ?? "").slice(0, 300), added_by: String(x.added_by ?? "dashboard").slice(0, 60), created_at: new Date().toISOString() }))
+        .slice(0, 100);
+      if (!rows.length) return json({ error: "adset_id가 없습니다" }, 400);
+      const r = await dbRest("best_ads?on_conflict=adset_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(rows),
+      });
+      if (!r.ok) return json({ error: "DB 저장 실패: " + (await r.text()).slice(0, 200) }, 500);
+      return json({ ok: true, count: rows.length });
+    }
+    if (action === "best_del" && req.method === "POST") {
+      const { adset_id } = await req.json() as { adset_id?: unknown };
+      if (!/^\d{5,25}$/.test(String(adset_id ?? ""))) return json({ error: "adset_id 형식 오류" }, 400);
+      const r = await dbRest(`best_ads?adset_id=eq.${adset_id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      if (!r.ok) return json({ error: "DB 삭제 실패: " + (await r.text()).slice(0, 200) }, 500);
+      return json({ ok: true });
     }
 
     return json({ error: "unknown action" }, 400);

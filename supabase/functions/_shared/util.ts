@@ -34,7 +34,7 @@ export function checkDashKey(req: Request): boolean {
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-async function rest(path: string, init: RequestInit = {}): Promise<Response> {
+export async function dbRest(path: string, init: RequestInit = {}): Promise<Response> {
   return await fetch(`${SB_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -45,6 +45,8 @@ async function rest(path: string, init: RequestInit = {}): Promise<Response> {
     },
   });
 }
+
+const rest = dbRest;   // (아래 캐시 코드가 쓰는 짧은 이름 — dbRest는 meta-ads의 상태 저장 액션도 함께 쓴다)
 
 // ── 조회 결과 캐시 (api_cache 테이블) ──
 // Meta 호출 한도(rate limit)의 방어선 — 반복 조회 실사고가 있었으니 캐시 없이 돌리지 말 것 (이식 가이드 §7-1).
