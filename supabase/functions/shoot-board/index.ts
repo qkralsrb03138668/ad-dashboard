@@ -37,7 +37,7 @@ async function pg(path: string, method = "GET", body?: unknown, prefer = "return
   if (!res.ok) throw new Error(`DB ${res.status}: ${t.slice(0, 300)}`);
   return t ? JSON.parse(t) : null;
 }
-const TRIP_SEL = "shoot_trips?deleted=eq.false&select=id,name,start_date,days,models&order=start_date.desc";
+const TRIP_SEL = "shoot_trips?deleted=eq.false&select=id,name,start_date,days,models,locations&order=start_date.desc";
 
 async function run(op: any): Promise<unknown> {
   switch (op?.action) {
@@ -52,6 +52,8 @@ async function run(op: any): Promise<unknown> {
         id: t.id, name: String(t.name ?? "").slice(0, 200), start_date: t.start || null,
         days: Math.max(1, Math.min(30, Number(t.days) || 1)),
         models: Array.isArray(t.models) ? t.models.map((m: unknown) => String(m).slice(0, 40)).slice(0, 20) : [],
+        locations: Object.fromEntries(Object.entries(t.locations && typeof t.locations === "object" ? t.locations : {})
+          .filter(([k]) => /^\d{1,2}$/.test(k)).map(([k, v]) => [k, String(v).slice(0, 200)])),   // 일차별 촬영 장소
         updated_at: now(), deleted: false,
       };
       await pg("shoot_trips?on_conflict=id", "POST", row, "resolution=merge-duplicates,return=minimal");
