@@ -1808,6 +1808,7 @@ async function admgrBudgetCancel(pid) {
 /* ═══ 표 열 너비 조절 (원본 admgrColResize) — 머리글 오른쪽 가장자리 드래그, 더블클릭 = 원래대로. 탭별 localStorage 저장. 마우스 전용 ═══ */
 function admgrColKey() { return 'adc_admgr_colw_' + admgr.view; }
 function admgrColLoad() { try { return JSON.parse(localStorage.getItem(admgrColKey()) || '{}'); } catch { return {}; } }
+function admgrColSave(obj) { try { localStorage.setItem(admgrColKey(), JSON.stringify(obj)); } catch { /* 저장 불가 환경이면 이번 세션만 적용 */ } }
 function admgrColLabel(th) { return th.textContent.replace(/[▲▼]\s*\d*/g, '').replace(/\s+/g, ' ').trim(); }
 function admgrColApply(table, idx, w) {   // 해당 열의 머리글+본문 셀 전부에 너비 강제 (인라인 min-width 제압)
   table.querySelectorAll('tr').forEach(tr => {
@@ -1833,7 +1834,7 @@ function admgrColResize() {
     h.ondblclick = e => {
       e.stopPropagation();
       const s0 = admgrColLoad(); delete s0[key];
-      localStorage.setItem(admgrColKey(), JSON.stringify(s0));
+      admgrColSave(s0);
       renderAdmgr(true);
     };
     h.onmousedown = e => {
@@ -1849,7 +1850,7 @@ function admgrColResize() {
         const w = parseInt(th.style.width) || Math.round(startW);
         admgrColApply(table, idx, w);   // 놓는 순간 본문 셀까지 반영
         const s0 = admgrColLoad(); s0[key] = w;
-        localStorage.setItem(admgrColKey(), JSON.stringify(s0));
+        admgrColSave(s0);
       };
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
