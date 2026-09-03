@@ -1640,12 +1640,14 @@ function admgrChgCell(r) {
   if (b.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#e5e7eb;font-size:.65rem;"></i>';
   return '<span style="color:#d1d5db;">—</span>';
 }
-const admgrBM = { id: null, name: '', range: 'today' };
+const admgrKstDate = iso => { const k = admgrKst(iso); return k ? `${k.getUTCFullYear()}-${admgrPad2(k.getUTCMonth() + 1)}-${admgrPad2(k.getUTCDate())}` : ''; };
+const admgrBM = { id: null, name: '', range: 'today', hourly: null, hourlyId: null, _evs: [] };   // hourly = 영향 분석용 시간대별 성과 캐시
 function admgrBudgetModal(id) {
   const R = admgrRows();
   const node = R.camps.find(x => x.id === id) || R.sets.find(x => x.id === id);
   const evs = (admgr.budget.byObj && admgr.budget.byObj.get(id)) || [];
   admgrBM.id = id; admgrBM.name = node ? node.name : (evs[0] ? evs[0].object_name : id); admgrBM.range = 'today';
+  if (admgrBM.hourlyId !== id) { admgrBM.hourly = null; admgrBM.hourlyId = null; }   // 다른 대상이면 시간대 캐시 비움
   $('admgr-budget-modal').classList.add('show');
   admgrBudgetModalRender();
 }
@@ -1676,17 +1678,67 @@ function admgrBudgetModalRender() {
   if (evs === null) html += '<div class="empty-state" style="padding:20px;"><p>불러오는 중…</p></div>';
   else if (!evs.length) html += '<div class="empty-state" style="padding:20px;"><p>이 기간에 예산 변경 기록이 없어요.</p></div>';
   else {
-    html += evs.map(ev => {
+    const t0 = todayStr(0), y0 = todayStr(-1);
+    html += evs.map((ev, i) => {
       const up = ev.new_value >= ev.old_value, diff = ev.new_value - ev.old_value;
-      return `<div style="border:1.5px solid #e7e8ee;border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:.74rem;color:#6b7280;font-weight:700;white-space:nowrap;">${admgrKstLabel(ev.time)}</span>
-        <span style="font-size:.82rem;font-weight:700;color:#1e1b4b;">${won(ev.old_value)} → ${won(ev.new_value)}</span>
-        <span class="status-badge ${up ? 'badge-blue' : 'badge-red'}"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.6rem;"></i> ${up ? '증액' : '감액'} ${up ? '+' : '−'}${won(Math.abs(diff))}</span>
-        ${ev.note ? `<span style="font-size:.68rem;color:#9ca3af;">${esc(ev.note)}</span>` : ''}
-      </div>`; }).join('');
-    html += `<div style="font-size:.68rem;color:#9ca3af;margin-top:4px;">기록은 Meta 활동 로그 기준(약 90일 보관) · 시각은 한국 시간</div>`;
+      const canImpact = [t0, y0].includes(admgrKstDate(ev.time));   // 시간대별 데이터가 어제~오늘뿐
+      return `<div style="border:1.5px solid #e7e8ee;border-radius:12px;padding:10px 12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:.74rem;color:#6b7280;font-weight:700;white-space:nowrap;">${admgrKstLabel(ev.time)}</span>
+          <span style="font-size:.82rem;font-weight:700;color:#1e1b4b;">${won(ev.old_value)} → ${won(ev.new_value)}</span>
+          <span class="status-badge ${up ? 'badge-blue' : 'badge-red'}"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.6rem;"></i> ${up ? '증액' : '감액'} ${up ? '+' : '−'}${won(Math.abs(diff))}</span>
+          ${ev.note ? `<span style="font-size:.68rem;color:#9ca3af;">${esc(ev.note)}</span>` : ''}
+          ${canImpact ? `<button class="filter-tab" style="margin-left:auto;color:#4338ca;border-color:#c7d2fe;padding:3px 10px;font-size:.72rem;" onclick="admgrBudgetImpact(${i})" title="변경 전 3시간 vs 적용 후 3시간 비교">영향 분석</button>` : ''}
+        </div>
+        <div id="abm-imp-${i}"></div></div>`; }).join('');
+    html += `<div style="font-size:.68rem;color:#9ca3af;margin-top:4px;">기록은 Meta 활동 로그 기준(약 90일 보관) · 시각은 한국 시간 · 영향 분석은 어제·오늘 변경만 가능(시간대별 데이터 범위)</div>`;
   }
   $('abm-body').innerHTML = html;
+  admgrBM._evs = evs || [];
+}
+/* 영향 분석 (원본 admgrBudgetImpact 그대로) — 변경 전 3시간 vs 적용 후 3시간, 어제 같은 시간대 참조.
+   Meta 예산 반영 지연(~1시간)을 고려해 변경 시간대와 다음 1시간은 건너뛴다. 완결된 시간대만 사용.
+   판정: 적용 후 완결 2h+ 이고 전후 지출이 있으면 ROAS ±10% 기준 긍정/부정/중립, 그 외 판단 보류. */
+async function admgrBudgetImpact(i) {
+  const ev = (admgrBM._evs || [])[i]; if (!ev) return;
+  const box = $('abm-imp-' + i); if (!box) return;
+  box.innerHTML = '<p style="padding:8px;color:#9ca3af;font-size:.72rem;">시간대별 성과 조회 중…</p>';
+  try {
+    if (!admgrBM.hourly || admgrBM.hourlyId !== admgrBM.id) {
+      admgrBM.hourly = await metaGet({ action: 'hourlystats', object_id: admgrBM.id });
+      admgrBM.hourlyId = admgrBM.id;
+    }
+  } catch (e) { box.innerHTML = `<p style="padding:8px;color:#dc2626;font-size:.72rem;">조회 실패: ${esc(e.message)}</p>`; return; }
+  const h = admgrBM.hourly;
+  const evDate = admgrKstDate(ev.time);
+  const cH = admgrKst(ev.time).getUTCHours();
+  const dayRows = h.rows.filter(r => r.date === evDate);
+  const refRows = evDate === h.today ? h.rows.filter(r => r.date === h.yesterday) : [];
+  const nowK = new Date(Date.now() + 9 * 3600 * 1000);
+  const maxH = evDate === todayStr(0) ? nowK.getUTCHours() - 1 : 23;   // 완결된 시간대만
+  const beforeH = [cH - 3, cH - 2, cH - 1].filter(x => x >= 0);
+  const afterH = [cH + 2, cH + 3, cH + 4].filter(x => x <= maxH && x <= 23);   // 변경 시간대 + 반영 1시간 건너뜀
+  const agg = (rows, hs) => { const s0 = { spend: 0, purchases: 0, value: 0, h: hs.length }; for (const r of rows) if (hs.includes(r.hour)) { s0.spend += r.spend; s0.purchases += r.purchases; s0.value += r.value; } return s0; };
+  const B = agg(dayRows, beforeH), A = agg(dayRows, afterH), R = refRows.length ? agg(refRows, afterH) : null;
+  let verdict, vCls, vNote;
+  const rb = B.spend > 0 ? B.value / B.spend : 0, ra = A.spend > 0 ? A.value / A.spend : 0;
+  if (A.h < 2) { verdict = '판단 보류'; vCls = 'badge-gray'; vNote = '적용 후 완결된 시간이 2시간 미만 — 시간이 더 지난 뒤 다시 확인하세요'; }
+  else if (B.spend <= 0 || A.spend <= 0) { verdict = '판단 보류'; vCls = 'badge-gray'; vNote = '비교할 지출 데이터가 부족해요'; }
+  else if (!B.purchases && !A.purchases) { verdict = '판단 보류'; vCls = 'badge-gray'; vNote = '전후 모두 구매 0건 — 구매 기준 판단 불가'; }
+  else if (!B.purchases && A.purchases) { verdict = '긍정 신호'; vCls = 'badge-green'; vNote = '변경 전 구매 0건 → 적용 후 구매 발생'; }
+  else if (ra >= rb * 1.1) { verdict = '긍정 신호'; vCls = 'badge-green'; vNote = `ROAS ${rb.toFixed(2)} → ${ra.toFixed(2)} (+10% 이상)`; }
+  else if (ra <= rb * 0.9) { verdict = '부정 신호'; vCls = 'badge-red'; vNote = `ROAS ${rb.toFixed(2)} → ${ra.toFixed(2)} (−10% 이상)`; }
+  else { verdict = '중립'; vCls = 'badge-gray'; vNote = `ROAS 비슷 (${rb.toFixed(2)} → ${ra.toFixed(2)})`; }
+  const hRange = hs => hs.length ? `${admgrPad2(hs[0])}~${admgrPad2(hs[hs.length - 1] + 1)}시` : '—';
+  const row = (label, hs, s0) => s0 ? `<tr><td style="text-align:left;font-weight:600;">${label}</td><td>${hRange(hs)}</td><td>${admgrMoney(s0.spend)}</td><td>${comma(s0.purchases)}</td><td>${admgrRoasTd(s0)}</td></tr>` : '';
+  box.innerHTML = `<div style="margin-top:10px;background:#f8f9fb;border-radius:10px;padding:10px 12px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      <span class="status-badge ${vCls}" style="font-size:.78rem;">${verdict}</span>
+      <span style="font-size:.72rem;color:#6b7280;">${vNote}</span></div>
+    <div class="table-wrap"><table style="font-size:.76rem;">
+      <thead><tr><th style="text-align:left;">구간</th><th>시간대</th><th>지출</th><th>구매</th><th>ROAS</th></tr></thead>
+      <tbody>${row('변경 전', beforeH, B)}${row('적용 후', afterH, A)}${R ? row('어제 같은 시간', afterH, R) : ''}</tbody></table></div>
+    <div style="font-size:.66rem;color:#9ca3af;margin-top:6px;">Meta 예산 반영 지연(~1시간)을 고려해 변경 시간대와 다음 1시간은 뺐어요 · 참고용 — 시간대·요일 효과가 섞여 있어 확정 판단은 금물</div></div>`;
 }
 
 /* ═══ 테스트 소재 탭 (2단계 — 원본 admgrTest* 이식) ═══

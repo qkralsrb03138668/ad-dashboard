@@ -533,6 +533,34 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // ═══ 시간대별 성과 (원본 hourlystats) — 예산 변경 '영향 분석'용: 어제~오늘 시간별 지출·구매 ═══
+    // breakdowns=hourly_stats_aggregated_by_advertiser_time_zone = 광고계정 시간대(한국) 기준 시간 버킷. time_increment=1로 날짜 분리 → 최대 48행. 5분 캐시.
+    if (action === "hourlystats") {
+      const objId = url.searchParams.get("object_id") ?? "";
+      if (!/^\d{5,25}$/.test(objId)) return json({ error: "object_id 필수 (광고세트/캠페인 id)" }, 400);
+      const t = seoulToday(), y = addDays(t, -1);
+      const cacheKey = `meta:hourly:${objId}:${t}`;
+      const hit = await cacheGet(cacheKey, 5 * 60 * 1000);
+      if (hit) return json(hit);
+      const body = await graphGet(`${objId}/insights`, {
+        time_range: JSON.stringify({ since: y, until: t }),
+        time_increment: "1",
+        breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone",
+        fields: "spend,actions,action_values",
+        limit: "100",
+      }, c.token);
+      const rows = ((body.data ?? []) as Record<string, unknown>[]).map((r) => ({
+        date: String(r.date_start ?? ""),
+        hour: parseInt(String(r.hourly_stats_aggregated_by_advertiser_time_zone ?? "0").slice(0, 2), 10) || 0,
+        spend: num(r.spend),
+        purchases: pickPurchase(r.actions),
+        value: pickPurchase(r.action_values),
+      }));
+      const out = { today: t, yesterday: y, rows };
+      await cacheSet(cacheKey, out);
+      return json(out);
+    }
+
     // ═══ 예산 변경 이력 (원본 budgethistory) — Meta 활동 로그에서 예산 이벤트만 추출, 60초 캐시 ═══
     // 이벤트 타입 실측: update_ad_set_budget / update_campaign_budget 두 가지가 금액 변경.
     // extra_data는 중첩 JSON: {old_value:{old_value:30000}, new_value:{new_value:50000, additional_value:"(일일 기준)"}}
