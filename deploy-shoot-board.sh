@@ -9,7 +9,7 @@ REF=pydxcqfztjogmztvayux
 CODE="$1"
 if [ -z "$CODE" ]; then echo "사용법: ./deploy-shoot-board.sh <초대코드>"; exit 1; fi
 echo "▶ DB 테이블·사진 버킷 만들기"
-$SB db query --project-ref $REF -f supabase/migrations/0004_shoot_board.sql
+$SB db query --linked --project-ref $REF -f supabase/migrations/0004_shoot_board.sql
 echo "▶ 초대코드 등록"
 $SB secrets set SHOOT_CODE="$CODE" --project-ref $REF
 echo "▶ 서버 함수 배포"
