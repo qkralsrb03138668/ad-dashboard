@@ -578,6 +578,9 @@
   </div>
 </div>
 
+<!-- 예산 변경 팝오버 (body 직속 — fixed 기준 보장) -->
+<div id="admgr-bpop" style="display:none;position:fixed;z-index:260;width:270px;background:#fff;border:1px solid #e7e8ee;border-radius:12px;padding:12px;box-shadow:0 10px 30px rgba(15,23,42,.18);"></div>
+
 <div id="toast"></div>
 
 <script>
@@ -1237,6 +1240,8 @@ const admgr = {
   /* '최근 변경' 열 — Meta 활동 로그의 오늘 예산 변경 이벤트 (byObj = Map(캠페인·세트 id → 이벤트[] 최신순)), seven = 최근 7일(모달) */
   budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
   chgFilter: 'all',          // 오늘 예산 변경 필터: all / changed / up / down
+  /* 예산 쓰기(4단계): st = meta-budget status 응답, pin = 인증된 PIN(메모리만 — 저장 금지), pendingByObj = Map(대상 id → 자정 예약 행), midMode = idle/setting/done */
+  write: { st: null, pin: null, pendingByObj: null, midMode: 'idle' },
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
@@ -1269,6 +1274,18 @@ async function metaPost(params, payload) {
   return body;
 }
 
+/* meta-budget 함수 (예산 쓰기) — 읽기 함수와 분리된 별도 엔드포인트. payload 있으면 POST */
+async function metaBudgetCall(params, payload) {
+  const cfg = admgrCfg();
+  const qs = new URLSearchParams(params);
+  const res = await fetch(cfg.SUPABASE_URL + '/functions/v1/meta-budget?' + qs, payload === undefined
+    ? { headers: metaHeaders(cfg) }
+    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const body = await res.json();
+  if (!res.ok || body.error) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+
 async function admgrFetch() {
   if (!admgrCfg()) { toast('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)'); return; }
   admgr.loading = true; admgr.demo = false; renderAdmgr();
@@ -1276,6 +1293,7 @@ async function admgrFetch() {
     admgr.data = await metaGet({ action: 'hierarchy', preset: admgr.preset });
     admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
     if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
+    admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
   } catch (e) {
     admgr.data = null;
     toast('Meta 불러오기 실패: ' + e.message);
@@ -1464,6 +1482,7 @@ function renderAdmgr(keepScroll) {
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;">
         <input type="checkbox" ${admgr.activeOnly ? 'checked' : ''} onchange="admgrToggleActive()" /> 활성만</label>`}
       <input class="inp" id="admgr-q" style="max-width:200px;background:#fff;" placeholder="${own ? '세트명·소재명 검색' : '이름 검색'}" value="${esc(admgr.q)}" oninput="admgrSearch(this.value)" />
+      ${!own && !admgr.demo && admgr.write.st ? `<span style="display:inline-flex;gap:6px;flex-wrap:wrap;">${admgrWriteCtrlHtml()}</span>` : ''}
       <span style="flex:1;"></span>
       ${cfg && !admgr.demo ? `<button class="btn-analyze" onclick="admgrRefresh()" ${busy ? 'disabled' : ''}>
           <i class="fa-solid ${own ? 'fa-rotate' : 'fa-cloud-arrow-down'}"></i> ${busy ? '불러오는 중…' : own ? '새로고침' : 'Meta 불러오기'}</button>` : ''}
@@ -1501,6 +1520,7 @@ function renderAdmgr(keepScroll) {
   body.innerHTML = banner + controls + tabs + main;
   if (sc) { const w = body.querySelector('.table-wrap'); if (w) { w.scrollTop = sc.t; w.scrollLeft = sc.l; } }
   if (hadFocus) { const i = $('admgr-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+  admgrColResize();   // 표를 새로 그릴 때마다 핸들 재부착 + 저장된 너비 재적용 (원본 규칙)
 }
 
 /* ═══ 계층 3탭 (1단계) ═══ */
@@ -1565,7 +1585,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
             <div><button class="btn-ghost" style="padding:2px 8px;font-size:.68rem;margin-top:3px;"
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button></div></td>
           <td>${admgrStBadge(r.status)}</td>
-          <td class="m-hide">${admgrBudget(r)}</td>
+          <td class="m-hide">${admgrBudgetCell(r, isCamp ? 'campaign' : 'adset')}</td>
           ${showChg ? `<td class="m-hide">${admgrChgCell(r)}</td>` : ''}
           <td><b>${admgrMoney(r.spend)}</b></td>
           <td>${comma(r.purchases || 0)}</td>
@@ -1600,6 +1620,242 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">행 클릭 → 소재 미리보기 · 열 제목 클릭 = 정렬(오름→내림→해제, 먼저 누른 열이 1순위)</p>`;
   }
   return chgChips + tiles + table;
+}
+
+/* ═══ 예산 직접 변경 + 자정 예약 (이식 4단계 — 원본 admgrWrite·admgrBudgetPop·admgrBudgetWrite 그대로) ═══
+   ⚠ 실제 돈이 움직이는 기능. 서버(meta-budget)가 DASH_KEY·PIN·상한(30만원)·총예산 거부·전 기록을 강제하고,
+   화면은 편의 장치일 뿐이다. PIN은 메모리에만 두고(새로고침하면 다시 인증) 절대 저장하지 않는다. */
+async function admgrWriteInit() {
+  if (admgr.demo || admgr.write.st) return;
+  try {
+    admgr.write.st = await metaBudgetCall({ action: 'status' });
+    await admgrWritePending();
+  } catch { /* 쓰기 기능 없이 표시 (조회 실패는 치명적이지 않음) */ }
+}
+async function admgrWritePending() {
+  try {
+    const d = await metaBudgetCall({ action: 'pending' });
+    admgr.write.pendingByObj = new Map((d.pending || []).map(p => [p.object_id, p]));
+    renderAdmgr(true);
+  } catch { /* 무시 */ }
+}
+/* 예산 셀 — 일예산 있는 행은 클릭 편집(연필), 자정 예약이 있으면 배지 */
+function admgrBudgetCell(r, level) {
+  const w = admgr.write;
+  let base = admgrBudget(r);
+  if (w.st && w.st.allowed && r.budget > 0 && !admgr.demo) {
+    base = `<span onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')" title="클릭해서 예산 변경" style="cursor:pointer;white-space:nowrap;">${admgrBudget(r)} <i class="fa-solid fa-pen" style="font-size:.55rem;color:#a5b4fc;"></i></span>`;
+  }
+  const pend = w.pendingByObj && w.pendingByObj.get(r.id);
+  if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="자정(${pend.apply_date} 00:00)에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 자정 ${won(pend.new_budget)}</span></div>`;
+  return base;
+}
+/* 메뉴 컨트롤: 'PIN 인증'(한 번 인증하면 세션 동안 유효) + '자정 반영 세팅' 3단계 버튼 */
+function admgrWriteCtrlHtml() {
+  const w = admgr.write;
+  const pinBtn = w.pin
+    ? `<button class="filter-tab" style="color:#15803d;border-color:#86efac;background:#f0fdf4;" onclick="admgrPinClear()" title="클릭하면 인증 해제"><i class="fa-solid fa-lock-open"></i> 인증됨</button>`
+    : `<button class="filter-tab" style="color:#4338ca;border-color:#c7d2fe;background:#eef2ff;" onclick="admgrPinPrompt()"><i class="fa-solid fa-lock"></i> PIN 인증</button>`;
+  const n = w.pendingByObj ? w.pendingByObj.size : 0;
+  const mid = w.midMode === 'setting'
+    ? `<button class="filter-tab" style="background:#f59e0b;color:#fff;border-color:transparent;" onclick="admgrMidBtn()"><i class="fa-regular fa-clock"></i> 자정 반영 세팅중${n ? ` · ${n}건` : ''} — 완료하기</button>`
+    : w.midMode === 'done'
+      ? `<button class="filter-tab" style="background:#16a34a;color:#fff;border-color:transparent;" onclick="admgrMidBtn()"><i class="fa-solid fa-check"></i> 자정 반영 세팅 완료 · ${n}건 보기</button>`
+      : `<button class="filter-tab" style="color:#b45309;border-color:#fcd34d;background:#fffbeb;" onclick="admgrMidBtn()"><i class="fa-regular fa-clock"></i> 자정 반영 세팅 시작${n ? ` (예약 ${n}건)` : ''}</button>`;
+  return pinBtn + mid;
+}
+const admgrBP = { id: null, level: null, name: '', after: null };
+function admgrPinPrompt(after) {
+  admgrBP.after = after || null;
+  const pop = $('admgr-bpop');
+  pop.innerHTML = `
+    <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:8px;"><i class="fa-solid fa-lock" style="color:#4f46e5;"></i> 예산 변경 PIN 인증</div>
+    <input id="bpop-pin" class="inp" type="password" inputmode="numeric" placeholder="PIN 입력 후 Enter" style="margin-bottom:6px;" onkeydown="if(event.key==='Enter')admgrPinVerify()" />
+    <div id="bpop-err" style="display:none;font-size:.68rem;color:#dc2626;margin-bottom:6px;"></div>
+    <button class="btn-analyze" style="width:100%;justify-content:center;" onclick="admgrPinVerify()">인증</button>
+    <div style="font-size:.64rem;color:#9ca3af;margin-top:6px;">한 번 인증하면 이 화면을 열어두는 동안 계속 유효 · 5회 오류 시 15분 잠금</div>`;
+  pop.style.display = 'block';
+  pop.style.left = Math.max(8, (window.innerWidth - 270) / 2) + 'px';
+  pop.style.top = '150px';
+  setTimeout(() => { const p = $('bpop-pin'); if (p) p.focus(); }, 0);
+}
+async function admgrPinVerify() {
+  const pin = (($('bpop-pin') || {}).value || '').trim();
+  if (!pin) { admgrBpopErr('PIN을 입력하세요'); return; }
+  try {
+    await metaBudgetCall({ action: 'verify' }, { pin });
+    admgr.write.pin = pin;
+    $('admgr-bpop').style.display = 'none';
+    toast('PIN 인증 완료 — 예산 수정 기능이 켜졌어요');
+    const after = admgrBP.after; admgrBP.after = null;
+    renderAdmgr(true);
+    if (after) after();
+  } catch (e) { admgrBpopErr(e.message); }
+}
+function admgrPinClear() { admgr.write.pin = null; toast('PIN 인증을 해제했어요'); renderAdmgr(true); }
+function admgrMidBtn() {
+  const w = admgr.write;
+  if (w.midMode === 'setting') { w.midMode = 'done'; toast('자정 반영 세팅 완료 — 버튼을 누르면 예약 목록이 열려요'); renderAdmgr(true); }
+  else if (w.midMode === 'done') admgrMidList();
+  else {
+    if (!w.pin) { admgrPinPrompt(admgrMidBtn); return; }   // 인증부터
+    w.midMode = 'setting';
+    toast('자정 반영 세팅 시작 — 예산을 클릭해 자정에 반영될 금액을 입력하세요');
+    renderAdmgr(true);
+  }
+}
+function admgrMidList() {   // 자정 예약 목록 (히스토리 모달 껍데기 재사용)
+  const w = admgr.write;
+  const rows = [...(w.pendingByObj ? w.pendingByObj.values() : [])];
+  $('abm-title').textContent = '자정 반영 예약 목록';
+  $('abm-body').innerHTML = (rows.length ? `<div class="table-wrap"><table style="font-size:.78rem;">
+      <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>자정 반영값</th><th>적용</th><th></th></tr></thead>
+      <tbody>${rows.map(p => `<tr>
+        <td class="name-cell" style="text-align:left;">${esc(p.object_name || p.object_id)}<div style="font-size:.64rem;color:#9ca3af;">${p.level === 'campaign' ? '캠페인' : '광고세트'}</div></td>
+        <td style="white-space:nowrap;">${p.old_budget ? won(Math.round(p.old_budget)) : '—'}</td>
+        <td style="white-space:nowrap;font-weight:800;color:#b45309;">${won(Math.round(p.new_budget))}</td>
+        <td style="white-space:nowrap;">${p.apply_date} 00:00</td>
+        <td><button class="btn-ghost btn-danger-ghost" style="padding:2px 10px;font-size:.7rem;" onclick="admgrMidCancel(${p.id})">취소</button></td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty-state" style="padding:20px;"><p>자정 반영 예약이 없어요.</p></div>')
+    + `<div style="display:flex;gap:6px;margin-top:10px;">
+      <button class="btn-ghost" style="flex:1;justify-content:center;color:#b45309;border-color:#fcd34d;" onclick="admgr.write.midMode='setting';closeModal('admgr-budget-modal');renderAdmgr(true);toast('자정 반영 세팅을 다시 시작해요')">새 세팅 시작</button>
+      <button class="btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+async function admgrMidCancel(pid) {
+  if (!admgr.write.pin) { toast('먼저 PIN 인증을 해주세요'); return; }
+  try {
+    await metaBudgetCall({ action: 'cancel' }, { id: pid, pin: admgr.write.pin });
+    toast('예약을 취소했어요');
+    await admgrWritePending();
+    admgrMidList();
+  } catch (e) { toast('취소 실패: ' + e.message); }
+}
+function admgrBudgetPop(ev, id, level) {
+  const w = admgr.write;
+  const R = admgrRows();
+  const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
+  admgrBP.id = id; admgrBP.level = level; admgrBP.name = node ? node.name : '';
+  const cur = node ? node.budget : 0;
+  const pend = w.pendingByObj && w.pendingByObj.get(id);
+  const pop = $('admgr-bpop');
+  const setting = w.midMode === 'setting';
+  const warn = w.st.token_set ? '' :
+    `<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#92400e;font-size:.68rem;padding:6px 8px;margin-bottom:8px;">Meta 쓰기 토큰이 아직 설정되지 않았어요 — 즉시 적용 불가, 예약도 토큰 설정 전엔 자정 반영이 실패해요.</div>`;
+  const needPin = !w.pin
+    ? `<div class="info-bar" style="font-size:.7rem;padding:6px 8px;margin-bottom:8px;">먼저 PIN 인증이 필요해요 <button class="btn-analyze" style="padding:2px 10px;font-size:.7rem;margin-left:6px;" onclick="admgrPinPrompt()">PIN 인증</button></div>` : '';
+  const canApply = w.st.token_set && w.pin;
+  const btns = setting
+    ? `<button id="bpop-sched" class="btn-analyze" style="flex:1;justify-content:center;background:#f59e0b;" onclick="admgrBudgetWrite('schedule')" ${w.pin ? '' : 'disabled'}><i class="fa-regular fa-clock"></i> 자정 반영으로 저장</button>`
+    : `<button id="bpop-apply" class="btn-analyze" style="flex:1;justify-content:center;${canApply ? '' : 'opacity:.45;cursor:not-allowed;'}" onclick="admgrBudgetWrite('apply')" ${canApply ? '' : 'disabled'}>즉시 적용</button>
+      <button id="bpop-sched" class="btn-ghost" style="flex:1;justify-content:center;color:#b45309;border-color:#fcd34d;background:#fffbeb;" onclick="admgrBudgetWrite('schedule')" ${w.pin ? '' : 'disabled'}><i class="fa-regular fa-clock"></i> 자정에 자동 반영</button>`;
+  pop.innerHTML = `
+    <div style="font-size:.74rem;font-weight:700;color:#1e1b4b;word-break:break-all;margin-bottom:6px;">${esc(admgrBP.name)}</div>
+    ${setting ? '<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#b45309;font-size:.68rem;font-weight:700;padding:4px 8px;margin-bottom:8px;"><i class="fa-regular fa-clock"></i> 자정 반영 세팅중 — 저장하면 자정 예약으로 등록돼요</div>' : ''}
+    ${warn}${needPin}
+    <div style="font-size:.7rem;color:#6b7280;margin-bottom:6px;">현재 일예산 <b>${won(cur)}</b>${pend ? ` · <span style="color:#b45309;">자정 예약 ${won(pend.new_budget)}</span>` : ''}</div>
+    <input id="bpop-amount" class="inp" type="number" min="1000" max="${w.st.max_budget}" step="1000" value="${pend ? pend.new_budget : cur}" style="margin-bottom:4px;" />
+    <div style="font-size:.64rem;color:#9ca3af;margin-bottom:8px;">1,000원 ~ ${comma(w.st.max_budget)}원 (상한선 서버 강제)</div>
+    <div id="bpop-err" style="display:none;font-size:.68rem;color:#dc2626;margin-bottom:6px;"></div>
+    <div style="display:flex;gap:6px;">${btns}</div>
+    ${pend ? `<button class="btn-ghost" style="width:100%;justify-content:center;margin-top:6px;font-size:.72rem;" onclick="admgrBudgetCancel(${pend.id})">자정 예약 취소</button>` : ''}`;
+  const r0 = ev.target.closest('td').getBoundingClientRect();
+  pop.style.display = 'block';
+  const pw = 270, ph = pop.offsetHeight || 230;
+  pop.style.left = Math.max(8, Math.min(r0.left, window.innerWidth - pw - 12)) + 'px';
+  pop.style.top = (r0.bottom + 6 + ph > window.innerHeight - 10 ? Math.max(10, r0.top - ph - 6) : r0.bottom + 6) + 'px';
+  setTimeout(() => { const a = $('bpop-amount'); if (a) { a.focus(); a.select(); } }, 0);
+}
+document.addEventListener('click', e => {   // 팝업 바깥 클릭 닫기 (여는 클릭은 표시 전이라 무해)
+  const pop = document.getElementById('admgr-bpop');
+  if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) pop.style.display = 'none';
+}, true);
+function admgrBpopErr(m) { const el = $('bpop-err'); if (el) { el.textContent = m; el.style.display = 'block'; } }
+async function admgrBudgetWrite(mode) {
+  const w = admgr.write;
+  const amount = Math.round(Number(($('bpop-amount') || {}).value || 0));
+  if (!(amount >= 1000 && amount <= w.st.max_budget)) { admgrBpopErr(`1,000원 ~ ${comma(w.st.max_budget)}원 사이로 입력하세요`); return; }
+  if (!w.pin) { admgrBpopErr('먼저 PIN 인증을 해주세요 (메뉴의 PIN 인증 버튼)'); return; }
+  if (mode === 'apply' && !confirm(`'${admgrBP.name}'의 일예산을 ${comma(amount)}원으로 지금 바로 바꿀까요?\n(Meta에 즉시 반영되는 실제 예산 변경이에요)`)) return;
+  const btn = $(mode === 'apply' ? 'bpop-apply' : 'bpop-sched');
+  btn.disabled = true;
+  try {
+    const d = await metaBudgetCall({ action: mode }, { object_id: admgrBP.id, object_name: admgrBP.name, level: admgrBP.level, new_budget: amount, pin: w.pin });
+    $('admgr-bpop').style.display = 'none';
+    if (mode === 'apply') { toast(`일예산을 ${comma(amount)}원으로 변경했어요`); admgrFetch(); }
+    else toast(`${d.apply_date} 00:00(자정)에 ${comma(amount)}원으로 변경 예약했어요`);
+    admgrWritePending();
+  } catch (e) {
+    if (String(e.message).includes('PIN')) { w.pin = null; renderAdmgr(true); }
+    admgrBpopErr(e.message);
+    btn.disabled = false;
+  }
+}
+async function admgrBudgetCancel(pid) {
+  const w = admgr.write;
+  if (!w.pin) { admgrBpopErr('먼저 PIN 인증을 해주세요'); return; }
+  try {
+    await metaBudgetCall({ action: 'cancel' }, { id: pid, pin: w.pin });
+    $('admgr-bpop').style.display = 'none';
+    toast('자정 예약을 취소했어요');
+    admgrWritePending();
+  } catch (e) {
+    if (String(e.message).includes('PIN')) { w.pin = null; renderAdmgr(true); }
+    admgrBpopErr(e.message);
+  }
+}
+
+/* ═══ 표 열 너비 조절 (원본 admgrColResize) — 머리글 오른쪽 가장자리 드래그, 더블클릭 = 원래대로. 탭별 localStorage 저장. 마우스 전용 ═══ */
+function admgrColKey() { return 'adc_admgr_colw_' + admgr.view; }
+function admgrColLoad() { try { return JSON.parse(localStorage.getItem(admgrColKey()) || '{}'); } catch { return {}; } }
+function admgrColLabel(th) { return th.textContent.replace(/[▲▼]\s*\d*/g, '').replace(/\s+/g, ' ').trim(); }
+function admgrColApply(table, idx, w) {   // 해당 열의 머리글+본문 셀 전부에 너비 강제 (인라인 min-width 제압)
+  table.querySelectorAll('tr').forEach(tr => {
+    const c = tr.children[idx]; if (!c) return;
+    c.style.width = c.style.minWidth = c.style.maxWidth = w + 'px';
+    c.style.overflow = 'hidden';
+  });
+}
+function admgrColResize() {
+  if (window.innerWidth <= 900) return;   // 모바일은 미지원
+  const table = $('admgr-body').querySelector('table');
+  if (!table) return;
+  const saved = admgrColLoad();
+  table.querySelectorAll('thead th').forEach((th, idx) => {
+    const key = admgrColLabel(th);
+    if (!key) return;   // 체크박스 열 등 무명 열은 제외
+    if (saved[key]) admgrColApply(table, idx, saved[key]);
+    th.style.position = 'relative';
+    const h = document.createElement('span');
+    h.title = '드래그 = 열 너비 조절 · 더블클릭 = 원래대로';
+    h.style.cssText = 'position:absolute;top:0;right:-5px;width:10px;height:100%;cursor:col-resize;z-index:5;';
+    h.onclick = e => e.stopPropagation();   // 정렬 클릭으로 안 새게
+    h.ondblclick = e => {
+      e.stopPropagation();
+      const s0 = admgrColLoad(); delete s0[key];
+      localStorage.setItem(admgrColKey(), JSON.stringify(s0));
+      renderAdmgr(true);
+    };
+    h.onmousedown = e => {
+      e.preventDefault(); e.stopPropagation();
+      const startX = e.clientX, startW = th.getBoundingClientRect().width;
+      const move = ev => {
+        const w = Math.max(46, Math.round(startW + ev.clientX - startX));
+        th.style.width = th.style.minWidth = th.style.maxWidth = w + 'px';   // 드래그 중엔 머리글만 (가볍게)
+      };
+      const up = () => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        const w = parseInt(th.style.width) || Math.round(startW);
+        admgrColApply(table, idx, w);   // 놓는 순간 본문 셀까지 반영
+        const s0 = admgrColLoad(); s0[key] = w;
+        localStorage.setItem(admgrColKey(), JSON.stringify(s0));
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    };
+    th.appendChild(h);
+  });
 }
 
 /* ═══ 최근 변경 — 오늘 예산 변경 이력 (원본 admgrBudget* 이식, 읽기 전용 · 영향 분석은 제외) ═══ */
