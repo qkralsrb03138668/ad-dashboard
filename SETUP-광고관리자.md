@@ -63,14 +63,37 @@ GitHub Pages 대신 로컬 파일로 열거나, config.js만 따로 넣은 사�
 
 | 탭 | 내용 | 서버 액션 |
 |---|---|---|
-| 캠페인 / 광고세트 / 광고 | 계층 드릴다운, 체크 선택 연동, 다중 정렬, CPC 열·합계 행, **최근 변경 열**(오늘 칩 + 캠페인/세트 탭: Meta 활동 로그의 예산 변경 ↑↓ 배지, 클릭 → 오늘/최근 7일 히스토리 모달, 어제·오늘 변경 건은 **영향 분석**: 변경 전 3h vs 적용 후 3h(반영 지연 1h 건너뜀) + 어제 같은 시간대, ROAS ±10%로 긍정/부정/중립·조건 미달 시 판단 보류) + 오늘 예산 변경/증액/감액 필터 칩, 행 클릭 미리보기(피드/릴스/스토리 형식 전환 + 기간 7종 지출·ROAS 차트) | `hierarchy`·`budgethistory`·`hourlystats`·`preview`·`adstats` |
+| 캠페인 / 광고세트 / 광고 | 계층 드릴다운, 체크 선택 연동, 다중 정렬, **열 너비 드래그 조절**(더블클릭 초기화), CPC 열·합계 행, **예산 셀 연필 → 즉시 변경/자정 예약**(§6 셋업 후), **최근 변경 열**(오늘 칩 + 캠페인/세트 탭: Meta 활동 로그의 예산 변경 ↑↓ 배지, 클릭 → 오늘/최근 7일 히스토리 모달, 어제·오늘 변경 건은 **영향 분석**: 변경 전 3h vs 적용 후 3h(반영 지연 1h 건너뜀) + 어제 같은 시간대, ROAS ±10%로 긍정/부정/중립·조건 미달 시 판단 보류) + 오늘 예산 변경/증액/감액 필터 칩, 행 클릭 미리보기(피드/릴스/스토리 형식 전환 + 기간 7종 지출·ROAS 차트) | `hierarchy`·`budgethistory`·`hourlystats`·`preview`·`adstats` |
 | 테스트 소재 | **세트명에 `test`가 든 세트의 소재 자동 수집**, 판정([애매]/[우수], OFF·검토중은 Meta 상태로 자동), 추가소재 요청/제작완료 체크, 메모, 목록에서 제거/복원, 테스트 종료(세트명에서 test 제거 후 60일 보관), 엑셀 추출 | `testads`·`state_list`·`state_save` |
 | 기존광고 중 OFF | 기간 내 OFF로 바뀐 광고세트(테스트 세트 제외) + 등록 이후 누적 성과. 세트를 직접 끈 것 기준(캠페인 통째 OFF는 안 잡힘) | `offsets` |
 | 베스트소재 | 광고세트 탭에서 세트 체크 → '베스트소재로' → 소재 썸네일 격자, 타일 클릭 미리보기 | `creatives`·`best_list`·`best_add`·`best_del` |
 
 운영 규칙 (안 지키면 기능이 빈다): **테스트 소재는 광고세트명에 `test`를 넣어야 자동으로 잡힌다.** 테스트 끝 = 세트명에서 test 제거.
 
+## 6. 예산 직접 변경 (4단계 — ⚠ 실제 돈이 움직이는 기능)
+
+코드(함수 `meta-budget`·표 `budget_writes`·화면)는 준비돼 있고, 아래 **셋업 3가지**를 하면 켜진다. 안 하면 예산 셀에 연필이 안 뜨고 읽기 전용으로만 동작.
+
+1. **Meta 쓰기 토큰** — 비즈니스 설정 → 시스템 사용자 → (자산 할당에서 광고계정 권한을 **'광고 계정 관리'(전체 제어)** 로 올린 뒤) 토큰 생성 → 권한 `ads_management` + `ads_read` → 만료 없음. 읽기 토큰과 **다른 토큰**을 새로 만든다 (읽기 함수엔 절대 넣지 않는다).
+2. **시크릿 등록** (Supabase → Edge Functions → Secrets, 또는 아래 CLI):
+   ```bash
+   ~/.local/bin/supabase secrets set META_WRITE_TOKEN=<쓰기토큰> WRITE_PIN=<숫자 6자리> CRON_SECRET=<아무 긴 문자열> --project-ref pydxcqfztjogmztvayux
+   ~/.local/bin/supabase functions deploy meta-budget --project-ref pydxcqfztjogmztvayux --no-verify-jwt
+   ```
+3. **자정 예약 실행 잡** (SQL Editor에서 1회 — `<CRON_SECRET>` 자리에 2번과 같은 값):
+   ```sql
+   select cron.schedule('budget-midnight-kst', '0 15 * * *', $$
+     select net.http_post(
+       url := 'https://pydxcqfztjogmztvayux.supabase.co/functions/v1/meta-budget?action=run',
+       headers := '{"Content-Type":"application/json","x-cron-secret":"<CRON_SECRET>"}'::jsonb,
+       body := '{}'::jsonb);
+   $$);
+   ```
+   (00:00 KST = 15:00 UTC. `select * from cron.job;`로 등록 확인, 실행 기록은 `cron.job_run_details`)
+
+안전장치(전부 서버 강제): DASH_KEY 접근키 + **PIN 매 요청 검증(15분 5회 실패 잠금)** + **일예산 1,000원~300,000원** + 총예산(lifetime) 대상 거부 + 모든 실행·예약·취소·실패를 `budget_writes`에 기록. PIN은 화면 메모리에만(새로고침하면 재인증).
+사용: 캠페인/광고세트 탭 → 상단 **PIN 인증** → 예산 셀의 연필 클릭 → [즉시 적용] 또는 [자정에 자동 반영]. **자정 반영 세팅 시작** 버튼을 켜면 팝업이 예약 전용이 되어 여러 건을 한 번에 세팅할 수 있다.
+
 ## 다음 단계 (원하면)
 
-- **4단계** 예산 변경 — ⚠ **실돈이 움직이는 기능.** 원본은 서버 5중 안전장치(관리자+허용 id+PIN+일예산 상한+전 기록)를
-  달았고, 가이드도 그대로 가져가라고 강력 권장. 별도 쓰기 토큰(ads_management)도 필요. 붙이고 싶어지면 그때 같이 하자.
+- **4단계** 예산 변경 — 코드 이식 완료(§6). 셋업 3가지만 남음.
