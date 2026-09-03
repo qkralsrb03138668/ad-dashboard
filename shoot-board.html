@@ -256,7 +256,7 @@ function render(){ const app=$('#app'); const sy=window.scrollY;
   if(!S.code||S.auth==='bad'){ app.innerHTML=loginView(); return; }
   const keep=new Map(); app.querySelectorAll('img[src]').forEach(im=>{ if(!keep.has(im.src)) keep.set(im.src,im); });
   app.innerHTML=header()+`<div class="main">${({today,outfits:outfitsTab,reels:reelsTab,product:productTab,more:moreTab})[S.tab]()}</div>`+fab()+tabs()+sheet();
-  app.querySelectorAll('img[src]').forEach(im=>{ const old=keep.get(im.src); if(old&&old!==im&&old.complete&&old.naturalWidth){ old.className=im.className; im.replaceWith(old); } });
+  app.querySelectorAll('img[src]').forEach(im=>{ const old=keep.get(im.src); if(old&&old!==im&&old.complete&&old.naturalWidth){ keep.delete(im.src); old.className=im.className; im.replaceWith(old); } });
   window.scrollTo(0,sy); }
 function statusText(){ const pend=S.queue.length; let cls='',txt='';
   if(!S.online||S.netErr){cls='off';txt='오프라인'+(pend?` · 대기 ${pend}`:'');}
