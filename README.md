@@ -18,13 +18,28 @@
 | 데이터 관리 | Meta 광고관리자 CSV 업로드, 성과 직접 입력, 기록 관리, JSON 백업/복원, 샘플 데이터 |
 | 광고관리자 (Meta) | **API 실시간 연동** (dnrb-dashboard 이식 1단계) — 캠페인/광고세트/광고 3계층 탭, 선택 드릴다운, 소재 미리보기 + 기간 7종 성과. 연동 전엔 데모 모드. **셋업: [SETUP-광고관리자.md](SETUP-광고관리자.md)** |
 
+## 출장촬영 보드 (`shoot-board.html`)
+
+MD·포토·모델이 현장에서 폰으로 같이 보는 촬영 계획판. 대시보드 사이드바 **현장 > 출장촬영 보드**, 또는
+`https://qkralsrb03138668.github.io/ad-dashboard/shoot-board.html` 로 바로 연다 (Claude·GitHub 계정 불필요).
+
+- 처음 한 번 **이름 + 초대코드** 입력 → 이 폰에 기억. 링크와 초대코드를 같이 쓸 사람에게 보내면 끝.
+- 탭: **현장**(오늘 코디·릴스 체크) / **코디**(일차·모델별 사진, ＋로 폰 카메라 업로드) / **릴스**(레퍼런스 링크·참고 컷·메모·연결 코디) / **제품컷**(일정·착 수) / **더보기**(출장 만들기·복제, 내보내기, 오프라인 상태)
+- **오프라인**: 인터넷 있을 때 한 번 열면 데이터·사진이 폰에 저장(서비스워커). 끊겨도 보고 체크 가능, 재연결 시 자동 전송. 홈 화면에 추가하면 앱처럼 열린다.
+- 데이터: Supabase `shoot_trips`·`shoot_items` + 사진 버킷 `shoot-photos`. 접근은 Edge Function `shoot-board`(초대코드 검증)로만 — 광고 데이터와 분리.
+- 서버 배포/초대코드 변경: `./deploy-shoot-board.sh <초대코드>` (최초 1회 `~/.local/bin/supabase login`)
+
 ## 구조
 
 ```
 index.html                        대시보드 전체 (정적 파일)
+shoot-board.html                 출장촬영 보드 (+ shoot-sw.js 오프라인, shoot-board.webmanifest, shoot-icon-*.png)
+deploy-shoot-board.sh            촬영 보드 서버 배포 스크립트
 config.js                        Meta 연동 설정 ← 직접 입력 (공개 레포엔 커밋 금지)
 supabase/
   migrations/0001_init.sql       DB 스키마 (캐시 + 2~4단계용 테이블)
+  migrations/0004_shoot_board.sql 촬영 보드 테이블 + 사진 버킷
+  functions/shoot-board/index.ts 촬영 보드 API (초대코드 인증)
   functions/meta-ads/index.ts    Meta API 프록시 (hierarchy·adstats·preview, 60초 캐시)
   functions/_shared/util.ts      CORS·캐시·DASH_KEY 인증
 ```
