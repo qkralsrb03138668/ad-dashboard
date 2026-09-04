@@ -2177,7 +2177,15 @@ function admgrBudgetCell(r, level) {
   const w = admgr.write;
   let base = admgrBudget(r);
   if (w.st && w.st.allowed && r.budget > 0 && !admgr.demo) {
-    base = `<span onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')" title="클릭해서 예산 변경" style="cursor:pointer;white-space:nowrap;">${admgrBudget(r)} <i class="fa-solid fa-pen" style="font-size:.55rem;color:#a5b4fc;"></i></span>`;
+    /* 인라인 편집: 입력칸 + [임시저장](브라우저에만 보관) + [즉각반영](지금 Meta 적용) + 연필(자정 예약 등 팝업) — 2026-09-05 사용자 요청 */
+    const d = admgrDraft[r.id];
+    const dirty = d && d !== r.budget;
+    base = `<div style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;">
+      <input class="inp" type="number" step="1000" min="1000" value="${d || r.budget}" style="width:88px;padding:3px 6px;font-size:.72rem;background:#fff;${dirty ? 'border-color:#fbbf24;' : ''}" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.stopPropagation();admgrDraftSave('${r.id}',this.value)}" />
+      <button class="filter-tab" style="padding:3px 8px;font-size:.68rem;" title="입력값을 이 브라우저에만 보관 — Meta엔 반영 안 됨" onclick="event.stopPropagation();admgrDraftSave('${r.id}',this.previousElementSibling.value)">임시저장</button>
+      <button class="filter-tab" style="padding:3px 8px;font-size:.68rem;color:#4f46e5;border-color:#a5b4fc;" title="지금 바로 Meta에 반영" onclick="event.stopPropagation();admgrApplyNow('${r.id}','${level}',this.previousElementSibling.previousElementSibling.value)">즉각반영</button>
+      <i class="fa-solid fa-pen" title="자정 예약 · 취소" style="font-size:.6rem;color:#a5b4fc;cursor:pointer;" onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')"></i>
+    </div>${dirty ? `<div style="font-size:.6rem;color:#b45309;">임시 ${comma(d)} · 현재 ${comma(r.budget)}</div>` : ''}`;
   }
   const pend = w.pendingByObj && w.pendingByObj.get(r.id);
   if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="자정(${pend.apply_date} 00:00)에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 자정 ${won(pend.new_budget)}</span></div>`;
@@ -2224,6 +2232,27 @@ async function admgrMidQuick(id, level, amountStr) {
     if (String(e.message).includes('PIN')) admgrPinInvalidate();
     toast('예약 실패: ' + e.message);
   }
+}
+/* 임시저장 = 브라우저에만 보관하는 예산 메모 (id → 금액). 즉각반영하면 지워진다 */
+const admgrDraft = lsGet('adc_admgr_draft', {});
+function admgrDraftSave(id, val) {
+  const n = Math.round(Number(val));
+  if (!(n >= 1000)) { toast('1,000원 이상 입력하세요'); return; }
+  admgrDraft[id] = n; lsSet('adc_admgr_draft', admgrDraft);
+  toast(`임시저장 ${comma(n)}원 — Meta엔 아직 반영 안 됐어요`); renderAdmgr(true);
+}
+async function admgrApplyNow(id, level, val) {
+  const w = admgr.write;
+  if (!w.pin) { admgrPinPrompt(() => admgrApplyNow(id, level, val)); return; }
+  const node = (level === 'campaign' ? admgrRows().camps : admgrRows().sets).find(x => x.id === id); if (!node) return;
+  const amount = Math.round(Number(val));
+  if (!(amount >= 1000 && amount <= w.st.max_budget)) { toast(`1,000원 ~ ${comma(w.st.max_budget)}원 사이로 입력하세요`); return; }
+  if (!confirm(`'${node.name}'의 일예산을 ${comma(amount)}원으로 지금 바로 바꿀까요?\n(Meta에 즉시 반영되는 실제 예산 변경이에요)`)) return;
+  try {
+    await metaBudgetCall({ action: 'apply' }, { object_id: id, object_name: node.name, level, new_budget: amount, pin: w.pin });
+    delete admgrDraft[id]; lsSet('adc_admgr_draft', admgrDraft);
+    toast(`일예산을 ${comma(amount)}원으로 변경했어요`); admgrFetch(); admgrWritePending();
+  } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('반영 실패: ' + e.message); }
 }
 /* 메뉴 컨트롤: 'PIN 인증'(한 번 인증하면 세션 동안 유효) + '자정 반영 세팅' 3단계 버튼 */
 function admgrWriteCtrlHtml() {
