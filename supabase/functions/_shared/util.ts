@@ -74,3 +74,28 @@ export async function cacheSet(key: string, payload: unknown): Promise<void> {
     });
   } catch { /* 캐시는 실패해도 기능에 영향 없음 */ }
 }
+
+// ── 외부 API OAuth 토큰 (api_tokens 테이블 — 카페24 판매 성과용, 이식 패키지 그대로) ──
+export interface TokenRow {
+  provider: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_at: string | null;
+  refresh_expires_at: string | null;
+}
+
+export async function getToken(provider: string): Promise<TokenRow | null> {
+  const res = await rest(`api_tokens?provider=eq.${provider}&select=*`);
+  if (!res.ok) throw new Error(`token read failed: ${res.status}`);
+  const rows = await res.json();
+  return rows[0] ?? null;
+}
+
+export async function saveToken(row: TokenRow): Promise<void> {
+  const res = await rest(`api_tokens?on_conflict=provider`, {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ ...row, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`token save failed: ${res.status} ${await res.text()}`);
+}

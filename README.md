@@ -17,6 +17,7 @@
 | 테스트 소재 | 판정 워크플로(평가중 → 우수/애매/OFF), 우수 소재 추가소재 요청·제작완료 체크 |
 | 데이터 관리 | Meta 광고관리자 CSV 업로드, 성과 직접 입력, 기록 관리, JSON 백업/복원, 샘플 데이터 |
 | 광고관리자 (Meta) | **API 실시간 연동** (dnrb-dashboard 이식 1단계) — 캠페인/광고세트/광고 3계층 탭, 선택 드릴다운, 소재 미리보기 + 기간 7종 성과. 연동 전엔 데모 모드. **셋업: [SETUP-광고관리자.md](SETUP-광고관리자.md)** |
+| 판매 성과 (카페24) | **카페24 API 실시간** (dnrb-dashboard 판매 성과 이식) — 기간별 상품 판매 표(결제·환불·순판매·판매합계·공급가·마진율), 순반품률(배송완료일 기준) 우수/주의/위험 판정·옵션별, 상품명 클릭 → 반품 사유 TOP5, 오늘 조회 시 어제 대비 순위 등락, 결과 저장 → 기간별 비교, 직전 3개월 월별 추이. **셋업: [SETUP-판매성과.md](SETUP-판매성과.md)** |
 
 ## 출장촬영 보드 (`shoot-board.html`)
 
@@ -35,12 +36,16 @@ MD·포토·모델이 현장에서 폰으로 같이 보는 촬영 계획판. 대
 index.html                        대시보드 전체 (정적 파일)
 shoot-board.html                 출장촬영 보드 (+ shoot-sw.js 오프라인, shoot-board.webmanifest, shoot-icon-*.png)
 deploy-shoot-board.sh            촬영 보드 서버 배포 스크립트
+deploy-cafe24-perf.sh            판매 성과(카페24) 서버 배포 스크립트
 config.js                        Meta 연동 설정 ← 직접 입력 (공개 레포엔 커밋 금지)
 supabase/
   migrations/0001_init.sql       DB 스키마 (캐시 + 2~4단계용 테이블)
   migrations/0004_shoot_board.sql 촬영 보드 테이블 + 사진 버킷
   functions/shoot-board/index.ts 촬영 보드 API (초대코드 인증)
   functions/meta-ads/index.ts    Meta API 프록시 (hierarchy·adstats·preview, 60초 캐시)
+  functions/cafe24-oauth/index.ts 카페24 OAuth 최초 인증·토큰 저장
+  functions/cafe24-perf/index.ts  카페24 판매 성과 (performance·netreturns·returnreasons + 저장 기록 archive_*, 10분 캐시)
+  migrations/0006_cafe24_perf.sql 카페24 토큰·판매 성과 저장 테이블
   functions/_shared/util.ts      CORS·캐시·DASH_KEY 인증
 ```
 
