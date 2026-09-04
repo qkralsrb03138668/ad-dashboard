@@ -56,6 +56,12 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .bar b{display:block;height:100%;background:var(--ok);border-radius:3px;transition:width .25s}
 .empty{color:var(--ink3);font-size:13.5px;padding:20px 0;text-align:center}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.grid.small{grid-template-columns:repeat(5,1fr);gap:5px}
+.grid.small .card{border-radius:8px}
+.grid.small .chk{width:22px;height:22px;right:4px;top:4px;font-size:12px}
+.grid.small .no{left:5px;bottom:4px;font-size:10px}
+.grid.small .zoom{width:20px;height:20px;font-size:11px;right:4px;bottom:4px;border-radius:6px}
+.grid.small .memo{left:18px;bottom:3px;font-size:10px}
 .card{position:relative;border-radius:12px;overflow:hidden;background:var(--surface2);aspect-ratio:3/4;box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .card img{width:100%;height:100%;object-fit:cover;display:block}
 .card,.shots .s{contain:content}
@@ -184,7 +190,8 @@ function dayDate(i){ if(!S.trip||!S.trip.start) return null; const d=new Date(S.
 const fmtD=d=>d?`${d.getMonth()+1}/${d.getDate()} (${WD[d.getDay()]})`:'';
 function todayIndex(){ const t=new Date(); t.setHours(0,0,0,0); for(let i=1;i<=dayCount();i++){const d=dayDate(i); if(d&&d.getTime()===t.getTime()) return i;} return null; }
 const byOrder=(a,b)=>(a.day-b.day)||(a.order-b.order)||(a.id>b.id?1:-1);
-const outfitsOf=(day,model)=>S.outfits.filter(o=>o.day===day&&(model==='all'||o.model===model)).sort(byOrder);
+const live=()=>S.outfits.filter(o=>!o.trashed);
+const outfitsOf=(day,model)=>live().filter(o=>o.day===day&&(model==='all'||o.model===model)).sort(byOrder);
 const outfitLabel=o=>`${o.model} ${o.day}일차-${o.order}`;
 const photoUrl=id=>id?(S.localPhotos[id]||(CFG.PHOTO+id+'.jpg')):'';
 const thumbUrl=id=>id?(S.localPhotos[id]||(CFG.PHOTO+id+'_t.jpg')):'';
@@ -289,7 +296,7 @@ function dayPills(cur,key,withAny){ let h='<div class="pills">';
   return h+'</div>'; }
 function outfitCard(o,mode){ const done=!!o.done; return `<div class="card ${done?'done':''}" data-a="${mode==='check'?'toggleOutfit':'openOutfit'}" data-id="${o.id}">${imgTag(o.photoId)}<span class="no num">${o.order}</span>${o.note?'<span class="memo">📝</span>':''}${mode==='check'?'':`<span class="lbl">${esc(o.model)}</span>`}<span class="chk">✓</span>${mode==='check'?`<button class="zoom" data-a="openOutfit" data-id="${o.id}" aria-label="크게 보기">⤢</button>`:''}</div>`; }
 function reelCard(r){ const shots=(r.shotIds||[]).map(id=>`<div class="s">${imgTag(id)}</div>`).join('');
-  const linked=(r.outfitIds||[]).map(id=>S.outfits.find(o=>o.id===id)).filter(Boolean).map(o=>`<div class="s o">${imgTag(o.photoId)}<span>${esc(o.model)} ${o.day}-${o.order}</span></div>`).join('');
+  const linked=(r.outfitIds||[]).map(id=>S.outfits.find(o=>o.id===id)).filter(o=>o&&!o.trashed).map(o=>`<div class="s o">${imgTag(o.photoId)}<span>${esc(o.model)} ${o.day}-${o.order}</span></div>`).join('');
   const links=(r.refs||[]).map((u,i)=>`<a class="lnk" href="${esc(u)}" target="_blank" rel="noopener">▶ 레퍼런스${r.refs.length>1?' '+(i+1):''}</a>`).join('');
   return `<div class="reel ${r.done?'done':''}"><div class="top"><div style="flex:1;min-width:0"><span class="tag ${r.day?'':'any'}">${r.day?r.day+'일차':'틈틈이'}</span><div class="ttl" data-a="openReel" data-id="${r.id}">${esc(r.title)}</div></div><button class="tick ${r.done?'on':''}" data-a="toggleReel" data-id="${r.id}" aria-label="촬영 완료">✓</button></div>
   ${links?`<div class="links">${links}</div>`:''}${(shots||linked)?`<div class="shots">${shots}${linked}</div>`:''}${r.note?`<div class="note">${esc(r.note)}</div>`:''}${r.props?`<div class="props">준비물 · ${esc(r.props)}</div>`:''}</div>`; }
@@ -303,15 +310,19 @@ function today(){ if(!S.trip) return noTrip(); const ti=todayIndex(); const d=S.
   h+=`<div class="loc">📍 ${locOf(d)?`<b>${esc(locOf(d))}</b>`:'<span>촬영 장소 미정</span>'}<button data-a="editLoc" data-day="${d}">${locOf(d)?'수정':'장소 입력'}</button></div>`;
   h+=`<div class="stat"><div><b class="num">${done}<span style="font-size:14px;color:var(--ink3)"> / ${list.length}</span></b><span>코디 촬영 완료</span></div><div><b class="num">${reels.filter(r=>r.done).length}<span style="font-size:14px;color:var(--ink3)"> / ${reels.length}</span></b><span>오늘 릴스 완료</span></div></div>`;
   for(const m of models()){ const l=list.filter(o=>o.model===m); if(!l.length) continue; const dn=l.filter(o=>o.done).length;
-    h+=`<div class="sec"><h2>${esc(m)}</h2><span class="meta num">${dn} / ${l.length}착</span></div><div class="bar"><b style="width:${l.length?dn/l.length*100:0}%"></b></div><div class="grid">${l.map(o=>outfitCard(o,'check')).join('')}</div>`; }
+    h+=`<div class="sec"><h2>${esc(m)}</h2><span class="meta num">${dn} / ${l.length}착</span></div><div class="bar"><b style="width:${l.length?dn/l.length*100:0}%"></b></div><div class="grid small">${l.map(o=>outfitCard(o,'check')).join('')}</div>`; }
   if(!list.length) h+=`<div class="empty">이 날짜에 등록된 코디가 없습니다. 코디 탭에서 추가하세요.</div>`;
   h+=`<p class="hint">카드를 누르면 촬영 완료로 표시됩니다. ⤢ 는 크게 보기.</p>`;
   h+=`<div class="sec"><h2>오늘 릴스</h2><span class="meta num">${reels.length}개</span></div>`+(reels.length?reels.map(reelCard).join(''):`<div class="empty">이 날짜에 배정된 릴스가 없습니다.</div>`);
   h+=`<div class="sec"><h2>틈틈이 촬영</h2><span class="meta">일정 무관, 기회 될 때</span></div>`+(any.map(reelCard).join('')||`<div class="empty">없음</div>`);
   return h; }
-function outfitsTab(){ if(!S.trip) return noTrip(); const d=S.day; const memos=S.outfits.filter(o=>o.note&&o.note.trim()).sort(byOrder);
+function outfitsTab(){ if(!S.trip) return noTrip(); const d=S.day; const memos=live().filter(o=>o.note&&o.note.trim()).sort(byOrder); const trash=S.outfits.filter(o=>o.trashed).sort((a,b)=>(b.trashedAt||'').localeCompare(a.trashedAt||''));
   let h=S.model==='memo'?'':dayPills(d,'day',false);
-  h+=`<div class="chips"><button class="chip ${S.model==='all'?'on':''}" data-a="set" data-k="model" data-v="all">전체</button>`+models().map(m=>`<button class="chip ${S.model===m?'on':''}" data-a="set" data-k="model" data-v="${esc(m)}">${esc(m)}</button>`).join('')+`<button class="chip ${S.model==='memo'?'on':''}" data-a="set" data-k="model" data-v="memo">📝 메모 ${memos.length}</button></div>`;
+  h+=`<div class="chips"><button class="chip ${S.model==='all'?'on':''}" data-a="set" data-k="model" data-v="all">전체</button>`+models().map(m=>`<button class="chip ${S.model===m?'on':''}" data-a="set" data-k="model" data-v="${esc(m)}">${esc(m)}</button>`).join('')+`<button class="chip ${S.model==='memo'?'on':''}" data-a="set" data-k="model" data-v="memo">📝 메모 ${memos.length}</button>${trash.length?`<button class="chip ${S.model==='trash'?'on':''}" data-a="set" data-k="model" data-v="trash">🗑 삭제됨 ${trash.length}</button>`:''}</div>`;
+  if(S.model==='trash'){ h+=`<div class="sec"><h2>삭제한 코디</h2><span class="meta num">${trash.length}착</span></div>`;
+    h+=trash.length?trash.map(o=>`<div class="mrow"><div class="mth">${imgTag(o.photoId)}</div><div class="mbody"><div class="mlbl">${esc(outfitLabel(o))}</div><div class="mnote" style="font-size:12.5px;color:var(--ink3)">${o.trashedBy?esc(o.trashedBy)+' · ':''}${o.trashedAt?new Date(o.trashedAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''}${o.note?'<br>'+esc(o.note):''}</div><div class="btnrow" style="margin-top:8px"><button class="btn sm pri" data-a="restoreOutfit" data-id="${o.id}">복원</button><button class="btn sm danger" data-a="purgeOutfit" data-id="${o.id}">완전 삭제</button></div></div></div>`).join(''):`<div class="empty">삭제한 코디가 없습니다.</div>`;
+    return h; }
+  if(S.model==='trash') S.model='all';
   if(S.model==='memo'){ const dn=memos.filter(o=>o.noteDone).length;
     h+=`<div class="sec"><h2>메모 남긴 코디</h2><span class="meta num">처리 ${dn} / ${memos.length}</span></div>`;
     h+=memos.length?memos.map(o=>`<div class="mrow ${o.noteDone?'done':''}"><div class="mth" data-a="openOutfit" data-id="${o.id}">${imgTag(o.photoId)}</div><div class="mbody" data-a="openOutfit" data-id="${o.id}"><div class="mlbl">${esc(outfitLabel(o))}${o.done?' · 촬영완료':''}</div><div class="mnote">${esc(o.note)}</div></div><button class="tick ${o.noteDone?'on':''}" data-a="toggleNote" data-id="${o.id}" aria-label="메모 처리 완료">✓</button></div>`).join(''):`<div class="empty">메모를 남긴 코디가 없습니다.<br>코디 카드를 눌러 메모를 적으면 여기에 모입니다.</div>`;
@@ -328,8 +339,8 @@ function reelsTab(){ if(!S.trip) return noTrip(); const f=S.reelDay; const list=
 function productTab(){ if(!S.trip) return noTrip(); const list=[...S.schedule].sort((a,b)=>(a.order||0)-(b.order||0));
   let h=`<div class="sec" style="margin-top:8px"><h2>제품컷 일정</h2><span class="meta num">${list.filter(s=>s.done).length} / ${list.length}</span></div>`;
   h+=list.map(s=>`<div class="sch ${s.done?'done':''}"><button class="tick ${s.done?'on':''}" data-a="toggleSch" data-id="${s.id}">✓</button><div style="flex:1;min-width:0" data-a="openSch" data-id="${s.id}"><div class="when">${esc(s.when)}</div><div class="t">${esc(s.title)}</div>${s.note?`<div class="note" style="margin-top:2px">${esc(s.note)}</div>`:''}</div></div>`).join('')||`<div class="empty">일정이 없습니다.</div>`;
-  const tot=models().map(m=>`${esc(m)} ${S.outfits.filter(o=>o.model===m).length}착`).join(' · ');
-  h+=`<div class="panel"><h3>전체 코디 수</h3><div class="kv"><span>합계</span><span class="num">${S.outfits.length}착</span></div><div class="kv"><span>모델별</span><span class="num">${tot}</span></div>${Array.from({length:dayCount()},(_,i)=>i+1).map(d=>`<div class="kv"><span>${d}일차</span><span class="num">${outfitsOf(d,'all').length}착</span></div>`).join('')}</div>`; return h; }
+  const tot=models().map(m=>`${esc(m)} ${live().filter(o=>o.model===m).length}착`).join(' · ');
+  h+=`<div class="panel"><h3>전체 코디 수</h3><div class="kv"><span>합계</span><span class="num">${live().length}착</span></div><div class="kv"><span>모델별</span><span class="num">${tot}</span></div>${Array.from({length:dayCount()},(_,i)=>i+1).map(d=>`<div class="kv"><span>${d}일차</span><span class="num">${outfitsOf(d,'all').length}착</span></div>`).join('')}</div>`; return h; }
 function moreTab(){ const sync=S.lastSync?new Date(S.lastSync).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'없음';
   let h=`<div class="panel"><h3>내 이름</h3><input class="in" data-f="me" value="${esc(S.me)}" placeholder="예: 진주, 포토 김OO"><p class="hint">촬영 완료 체크에 누가 했는지 남습니다.</p></div>`;
   h+=`<div class="panel"><h3>연결 · 오프라인</h3><div class="kv"><span>상태</span><span>${S.online&&!S.netErr?'연결됨':'오프라인'}</span></div><div class="kv"><span>마지막 동기화</span><span>${sync}</span></div><div class="kv"><span>보내지 못한 변경</span><span class="num">${S.queue.length}건</span></div><div class="kv"><span>기기에 저장된 사진</span><span class="num">${S.pp.done} / ${S.pp.total}${S.pp.err?` (실패 ${S.pp.err})`:''}</span></div>
@@ -340,13 +351,13 @@ function moreTab(){ const sync=S.lastSync?new Date(S.lastSync).toLocaleString('k
   else h+=`<div class="panel"><h3>출장</h3><div class="btnrow"><button class="btn pri" data-a="newTrip">새 출장 만들기</button></div></div>`;
   if(S.trips.length>1) h+=`<div class="panel"><h3>다른 출장</h3>${S.trips.map(t=>`<div class="kv"><span>${esc(t.name)}</span><span>${t.id===S.tripId?'현재':`<button class="btn sm" data-a="switchTrip" data-id="${t.id}">열기</button>`}</span></div>`).join('')}</div>`;
   h+=`<div class="panel"><h3>내보내기</h3><div class="btnrow"><button class="btn" data-a="exportMd">촬영 계획 요약 (.md)</button><button class="btn" data-a="exportJson">백업 (.json)</button></div></div>`;
-  h+=`<div class="panel"><h3>사용법</h3><div class="note" style="margin:0">현장 탭 — 오늘 찍을 코디와 릴스를 한 화면에서 보고 체크합니다.
+  h+=`<div class="panel"><h3>사용법</h3><div class="note" style="margin:0">오버뷰 탭 — 오늘 찍을 코디와 릴스를 한 화면에서 보고 체크합니다.
 코디 탭 — 일차·모델별 코디 사진. ＋로 폰에서 바로 촬영·업로드.
 릴스 탭 — 레퍼런스 링크, 참고 컷, 연출 메모, 연결된 코디.
 제품컷 탭 — 제품 촬영 일정과 전체 착 수.</div></div>`; return h; }
 function fab(){ if(S.sheet||!S.trip) return ''; const m={outfits:['＋ 코디 추가','addOutfit'],reels:['＋ 릴스 기획','addReel'],product:['＋ 일정','addSch']}[S.tab]; return m?`<button class="fab" data-a="${m[1]}">${m[0]}</button>`:''; }
 function tabs(){ const I={today:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',outfits:'<svg viewBox="0 0 24 24"><path d="M9 4l3 2 3-2 5 3-2 4-2-1v10H8V10l-2 1-2-4z"/></svg>',reels:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 4l3 5M13 4l3 5M11 12l4 2.5-4 2.5z"/></svg>',product:'<svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v9l-8 4-8-4z M4 8l8 4 8-4M12 12v9"/></svg>',more:'<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>'};
-  const L={today:'현장',outfits:'코디',reels:'릴스',product:'제품컷',more:'더보기'};
+  const L={today:'오버뷰',outfits:'코디',reels:'릴스',product:'제품컷',more:'더보기'};
   return `<nav class="tabs"><div class="w">${Object.keys(L).map(k=>`<button class="tab ${S.tab===k?'on':''}" data-a="tab" data-v="${k}">${I[k]}${L[k]}</button>`).join('')}</div></nav>`; }
 
 /* ---------- 시트 ---------- */
@@ -400,7 +411,7 @@ async function login(){ const name=($('#li-name')||{}).value||'', code=(($('#li-
   S.me=name.trim(); localStorage.setItem(ME_KEY,S.me); S.code=code; S.loginBusy=true; S.loginErr=''; render();
   try{ await api('ping'); S.auth='ok'; localStorage.setItem(CODE_KEY,code); S.loginBusy=false; render(); sync(); flush(); }
   catch(e){ S.loginBusy=false; S.loginErr=e.code==='unauthorized'?'초대코드가 맞지 않습니다':'연결할 수 없습니다. 인터넷을 확인하세요'; if(e.code!=='unauthorized') S.auth='unknown'; render(); } }
-document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]'); if(!el) return; if(el.dataset.a==='close'&&e.target.closest('[data-stop]')) return; const a=el.dataset.a, id=el.dataset.id; e.stopPropagation();
+document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]'); if(!el) return; if(el.classList.contains('ov')&&e.target.closest('[data-stop]')) return; const a=el.dataset.a, id=el.dataset.id; e.stopPropagation();
   switch(a){
     case 'login': login(); break;
     case 'logout': S.auth='bad'; S.loginErr=''; render(); break;
@@ -411,7 +422,9 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'toggleNote': { const o=S.outfits.find(x=>x.id===id); if(o) setItem('outfit',id,{...o,noteDone:!o.noteDone,noteBy:o.noteDone?'':(S.me||'')}); break; }
     case 'openOutfit': { const o=S.outfits.find(x=>x.id===id); if(o) open({type:'outfit',id,draft:{...o}}); break; }
     case 'saveOutfit': { const s=S.sheet, o=S.outfits.find(x=>x.id===s.id); if(!o) break; const d=s.draft; const day=+d.day, model=d.model; let order=+d.order||o.order; if((day!==o.day||model!==o.model)&&+d.order===o.order) order=Math.max(0,...outfitsOf(day,model).map(x=>x.order))+1; S.sheet=null; setItem('outfit',o.id,{...o,day,model,order,note:d.note||'',noteDone:(d.note||'').trim()?o.noteDone:false}); toast('저장됨'); break; }
-    case 'delOutfit': if(confirm('이 코디를 삭제할까요?')){ S.sheet=null; delItem('outfit',id); } break;
+    case 'delOutfit': { const o=S.outfits.find(x=>x.id===id); if(!o) break; S.sheet=null; setItem('outfit',id,{...o,trashed:true,trashedAt:new Date().toISOString(),trashedBy:S.me||''}); toast('삭제됨 · 코디 탭 🗑 에서 복원 가능'); break; }
+    case 'restoreOutfit': { const o=S.outfits.find(x=>x.id===id); if(o){ setItem('outfit',id,{...o,trashed:false,trashedAt:'',trashedBy:''}); toast('복원됨'); } break; }
+    case 'purgeOutfit': if(confirm('완전히 삭제할까요? 되돌릴 수 없습니다.')) delItem('outfit',id); break;
     case 'addOutfit': open({type:'addOutfit',draft:{day:S.day,model:S.model==='all'?models()[0]:S.model}}); break;
     case 'pickOutfitPhotos': fileTarget='outfit'; $('#fileIn').click(); break;
     case 'toggleReel': { const r=S.reels.find(x=>x.id===id); if(r) setItem('reel',id,{...r,...stamp(!r.done)}); break; }
@@ -447,7 +460,7 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'exportJson': download((S.trip?S.trip.name:'trip')+'.json',JSON.stringify({trip:S.trip,outfits:S.outfits,reels:S.reels,schedule:S.schedule},null,2),'application/json'); break;
   } });
 function download(name,data,type){ const b=new Blob([data],{type}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); }
-function exportMd(){ const t=S.trip; if(!t) return; let m=`# ${t.name}\n${fmtD(dayDate(1))} ~ ${fmtD(dayDate(dayCount()))} · 모델: ${models().join(', ')}\n\n## 코디 (${S.outfits.length}착)\n`;
+function exportMd(){ const t=S.trip; if(!t) return; let m=`# ${t.name}\n${fmtD(dayDate(1))} ~ ${fmtD(dayDate(dayCount()))} · 모델: ${models().join(', ')}\n\n## 코디 (${live().length}착)\n`;
   for(let d=1;d<=dayCount();d++){ const l=outfitsOf(d,'all'); if(!l.length) continue; m+=`\n### ${d}일차 ${fmtD(dayDate(d))}\n`; for(const mo of models()){ const x=l.filter(o=>o.model===mo); if(x.length) m+=`- ${mo}: ${x.length}착 (완료 ${x.filter(o=>o.done).length})${x.filter(o=>o.note).map(o=>`\n  - ${o.order}번: ${o.note}${o.noteDone?' ✅':''}`).join('')}\n`; } }
   m+=`\n## 릴스 기획 (${S.reels.length})\n`; for(const r of [...S.reels].sort(byOrder)){ m+=`\n### ${r.day?r.day+'일차':'틈틈이'} · ${r.title}${r.done?' ✅':''}\n${(r.refs||[]).map(u=>`- ${u}`).join('\n')}${r.note?`\n- 메모: ${r.note}`:''}${r.props?`\n- 준비물: ${r.props}`:''}${(r.outfitIds||[]).length?`\n- 코디: ${r.outfitIds.map(id=>{const o=S.outfits.find(x=>x.id===id);return o?outfitLabel(o):''}).filter(Boolean).join(', ')}`:''}\n`; }
   m+=`\n## 제품컷 일정\n`+S.schedule.map(s=>`- ${s.when}: ${s.title}${s.note?` (${s.note})`:''}${s.done?' ✅':''}`).join('\n')+'\n';
