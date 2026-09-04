@@ -409,7 +409,8 @@
           <button class="btn-ghost" id="pt-import-btn" onclick="ptImportCafe24()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24에서 불러오기</button>
           <span class="divider" style="width:1px;height:28px;background:#e5e7eb;"></span>
           <button class="btn-ghost" onclick="ptAddType()"><i class="fa-solid fa-table-columns"></i> 소재 유형 추가</button>
-          <button class="btn-ghost btn-danger-ghost" style="margin-left:auto;" onclick="ptDelAll()"><i class="fa-solid fa-trash"></i> 상품 전체 삭제</button>
+          <button class="btn-ghost btn-danger-ghost" style="margin-left:auto;" id="pt-del-sel" onclick="ptDelSel()" disabled><i class="fa-solid fa-square-check"></i> 선택 삭제</button>
+          <button class="btn-ghost btn-danger-ghost" onclick="ptDelAll()"><i class="fa-solid fa-trash"></i> 상품 전체 삭제</button>
         </div>
         <div id="pt-summary"></div>
         <div class="filter-tabs" id="pt-tabs"></div>
@@ -1245,7 +1246,7 @@ function toggleAsset(id, field, on) {
    칸 클릭 순환: 없음 → made(제작완료) → run(진행중) → 없음                              */
 let pt = lsGet(LS.pt, null);
 if (!pt) { pt = ptSampleData(); lsSet(LS.pt, pt); }   // 최초 1회 예시 데이터
-let ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
+let ptSel = new Set(), ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
 
 function ptSave() { lsSet(LS.pt, pt); }
 function ptSampleData() {
@@ -1341,10 +1342,24 @@ function ptDone(p) { return pt.types.filter(t => p.cells[t] && p.cells[t].st ===
 function setPtFilter(v) { ptFilter = v; ptPage = 1; renderPTest(); }
 function setPtPer(v) { ptPer = Number(v); lsSet('adc_pt_per', ptPer); ptPage = 1; renderPTest(); }
 function setPtPage(n) { ptPage = n; renderPTest(); }
+function ptSelToggle(id, on) { on ? ptSel.add(id) : ptSel.delete(id); ptSelBtn(); }
+function ptSelPage(on) {   // 현재 페이지 행 전체 선택/해제
+  for (const cb of document.querySelectorAll('#pt-body tbody input[type=checkbox]')) { cb.checked = on; on ? ptSel.add(cb.value) : ptSel.delete(cb.value); }
+  ptSelBtn();
+}
+function ptSelBtn() {
+  const b = $('pt-del-sel'); b.disabled = !ptSel.size;
+  b.innerHTML = `<i class="fa-solid fa-square-check"></i> 선택 삭제${ptSel.size ? ` (${ptSel.size})` : ''}`;
+}
+function ptDelSel() {
+  if (!ptSel.size || !confirm(`선택한 상품 ${ptSel.size}개를 삭제할까요?`)) return;
+  pt.products = pt.products.filter(p => !ptSel.has(p.id));
+  ptSel.clear(); ptSave(); renderPTest(); toast('선택한 상품을 삭제했어요');
+}
 function ptDelAll() {
   if (!pt.products.length) return;
   if (!confirm(`상품 ${pt.products.length}개를 전부 삭제할까요? 체크 기록도 모두 지워져요.`)) return;
-  pt.products = []; ptPage = 1;
+  pt.products = []; ptPage = 1; ptSel.clear();
   ptSave(); renderPTest(); toast('상품을 전부 삭제했어요');
 }
 
@@ -1383,6 +1398,7 @@ function renderPTest() {
   else if (ptFilter === 'done') rows = rows.filter(p => N && ptDone(p) === N);
 
   const body = $('pt-body');
+  ptSelBtn();
   if (!pt.products.length) {
     body.innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-clipboard-check"></i></div>
       <p>위에서 <b>상품을 추가</b>하면 소재 유형별 체크보드가 만들어져요.</p></div>`;
@@ -1414,6 +1430,7 @@ function renderPTest() {
 
   body.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>
+      <th style="width:28px;"><input type="checkbox" title="이 페이지 전체 선택" onchange="ptSelPage(this.checked)" /></th>
       <th style="text-align:left;">상품명</th>
       ${pt.types.map(t => `<th>${esc(t)}<button class="pt-th-x" title="'${esc(t)}' 유형 삭제" onclick="ptDelType('${esc(t)}')"><i class="fa-solid fa-xmark"></i></button></th>`).join('')}
       <th>진행률</th><th></th>
@@ -1421,6 +1438,7 @@ function renderPTest() {
     <tbody>${rows.map(p => {
       const done = ptDone(p);
       return `<tr>
+        <td><input type="checkbox" value="${p.id}" ${ptSel.has(p.id)?'checked':''} onchange="ptSelToggle(this.value, this.checked)" /></td>
         <td class="name-cell" style="font-weight:700;">${esc(p.name)}</td>
         ${pt.types.map(t => `<td class="pt-cell" onclick="ptCycle('${p.id}','${esc(t)}')">${cellHtml(p, t)}</td>`).join('')}
         <td><span class="pt-prog-wrap"><span class="pt-prog-bar"><span class="pt-prog-fill" style="width:${N ? done / N * 100 : 0}%;"></span></span>
@@ -1431,6 +1449,7 @@ function renderPTest() {
   <p style="font-size:.75rem;color:#9ca3af;margin-top:10px;line-height:1.7;">
     칸을 클릭할 때마다 <b>— → 제작완료 → 진행중 → 해제</b> 순서로 바뀌고, 바꾼 날짜가 함께 기록돼요.
     소재 유형 열은 위의 <b>소재 유형 추가</b>로 자유롭게 늘릴 수 있어요 (예: 후킹영상, 카드뉴스).</p>`;
+  ptSelBtn();
 }
 
 /* ═══════════ ④-3 광고관리자 (Meta) — DNRB 이식 1단계: 읽기 전용 계층 뷰 ═══════════
