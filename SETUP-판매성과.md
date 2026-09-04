@@ -1,7 +1,8 @@
 # 판매 성과 (카페24) 연동 준비 — 직접 해야 하는 것들
 
 > 친구(danarobe)의 [판매 성과 이식 패키지](https://github.com/danarobe/dnrb-dashboard/tree/main/docs/이식/판매성과)를
-> 이 대시보드에 이식했다. 코드·테이블·함수는 준비됐고(2026-09-04 배포 완료), **카페24 앱 등록과 인증 1회**만 하면 실데이터가 나온다.
+> 이 대시보드에 이식했다. **2026-09-04 셋업 전부 완료** — 앱 "판매성과 대시보드"(개발자센터 주식회사 디앤알비 계정, 몰 wnqka5000), 시크릿 등록, OAuth 인증까지 끝나 실데이터가 나온다.
+> 아래는 재설정이 필요할 때(시크릿 재발급, 다른 몰 연결, 2주 미사용으로 토큰 만료)를 위한 기록이다.
 >
 > 원리: 브라우저 → Supabase 함수 `cafe24-perf`(DASH_KEY 인증, 10분 캐시) → 카페24 API. 카페24 키는 서버에만 있다.
 > 계산 정의·카페24 함정 목록은 패키지 README §1·§5 참고 (코드 주석에도 있음 — 지우지 말 것).
@@ -22,8 +23,11 @@
 
 ```bash
 cd ~/Desktop/클ㄹ드/ad-creative-dashboard
-./deploy-cafe24-perf.sh <몰아이디> <클라이언트ID> <클라이언트시크릿>
+./deploy-cafe24-perf.sh <몰아이디> <클라이언트ID>          # 시크릿은 개발자센터 [복사] 버튼 → 클립보드에서 읽음
+./deploy-cafe24-perf.sh <몰아이디> <클라이언트ID> <시크릿>   # 또는 직접 지정
 ```
+
+- **API 버전**: 앱을 새로 만들면 카페24가 그 시점의 API 버전을 배정한다(이 앱은 2026-09-01). `cafe24-perf/index.ts`의 `API_VERSION`이 그보다 낮으면 `"… version you requested is not available"` 400이 난다 → 상수를 개발정보 화면의 버전으로 맞춰 재배포.
 
 이 스크립트가 하는 일: 테이블 2개(`api_tokens`·`perf_archive`) 생성 → 시크릿 3개 등록 → 함수 2개(`cafe24-oauth`·`cafe24-perf`) 배포.
 (테이블·함수는 이미 한 번 배포돼 있어서, 시크릿만 등록하려면 `supabase secrets set ...` 줄만 따로 실행해도 된다.)
@@ -34,7 +38,7 @@ cd ~/Desktop/클ㄹ드/ad-creative-dashboard
 https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cafe24-oauth?action=start
 ```
 
-를 열면 카페24 로그인·동의 화면 → 동의하면 "✅ 카페24 연동 완료!" 문구. 확인은
+를 열면 카페24 쇼핑몰 관리자 로그인 → (앱 개발자와 몰 운영자가 같은 계정이면 **동의 화면 없이 바로 통과**) → "✅ 카페24 연동 완료!" 문구. 확인은
 
 ```
 https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cafe24-oauth?action=status

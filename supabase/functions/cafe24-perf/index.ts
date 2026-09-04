@@ -26,7 +26,7 @@ const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
 const CLIENT_SECRET = Deno.env.get("CAFE24_CLIENT_SECRET")!;
 const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 const DATA_BASE = "https://ca-api.cafe24data.com";
-const API_VERSION = "2026-03-01";
+const API_VERSION = "2026-09-01";   // 앱 등록 시 배정된 버전 (2026-03-01은 이 앱에서 거부됨 — 카페24가 폐기하면 올릴 것)
 
 // ── 액세스 토큰 확보 (만료 임박 시 refresh) — cafe24-claims와 동일 로직 ──
 // force=true: 저장된 만료시각과 무관하게 강제 재발급 (401 복구용 — 동시 갱신 경쟁으로
