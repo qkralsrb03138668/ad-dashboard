@@ -1831,12 +1831,11 @@ async function admgrFetch() {
   }
   admgr.loading = false; renderAdmgr();
 }
-/* 메뉴 진입: 마지막으로 받아둔 데이터를 먼저 보여주고, 연동돼 있으면 뒤에서 자동으로 새로 받는다 (서버 60초 캐시라 가벼움) */
+/* 메뉴 진입: 마지막으로 받아둔 데이터만 보여준다. Meta 조회는 사용자가 'Meta 불러오기'를 누를 때만 (2026-09-05 사용자 지정 — 자동 갱신 안 함) */
 function admgrOpen() {
   if (!admgr.data && !admgr.demo && admgrCfg()) {
     const c = lsGet('adc_admgr_last', null);
-    if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; }
-    admgrFetch(); return;
+    if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; admgrWriteInit(); }   // 예산 편집 버튼용 상태만 (우리 서버, Meta 호출 아님)
   }
   renderAdmgr();
 }
@@ -1850,21 +1849,18 @@ function admgrSetPreset(p) {
 function admgrSetView(v) {
   admgr.view = v;
   const t = admgr.test, o = admgr.offad, b = admgr.best;
-  /* 첫 진입: 마지막에 받아둔 데이터가 있으면 먼저 보여주고, 뒤에서 새로 받는다 (새로고침해도 유지 — 2026-09-05) */
-  if (v === 'test' && !t.loaded && !t.loading) {
+  /* 첫 진입: 마지막에 받아둔 데이터만 보여준다. 새로 받는 건 '새로고침'을 누를 때만 (자동 조회 없음 — 2026-09-05 사용자 지정) */
+  if (v === 'test' && !t.loaded) {
     const c = lsGet('adc_admgr_test', null);
     if (c && c.data) { t.data = c.data; t.state = new Map(c.state || []); t.loaded = true; }
-    admgrTestFetch(); return;
   }
-  if (v === 'offad' && !o.loaded && !o.loading) {
+  if (v === 'offad' && !o.loaded) {
     const c = lsGet('adc_admgr_off', null);
     if (c && c.data) { o.data = c.data; o.start = c.start; o.end = c.end; o.loaded = true; }
-    admgrOffFetch(); return;
   }
-  if (v === 'best' && !b.loaded && !b.loading) {
+  if (v === 'best' && !b.loaded) {
     const c = lsGet('adc_admgr_best', null);
     if (c && c.rows) { b.rows = c.rows; b.ads = c.ads || []; b.loaded = true; }
-    admgrBestFetch(); return;
   }
   renderAdmgr();
 }
@@ -2832,7 +2828,7 @@ function renderAdmgrTest() {
       <p>연동 후에는 <b>광고세트명에 'test'</b>가 들어간 세트의 소재가 여기에 자동으로 모여요.<br/>지금은 <b>데모 데이터로 보기</b>로 화면을 구경할 수 있어요.</p></div>`;
   }
   if (!t.loaded) {
-    return `<div class="empty-state"><p>${t.loading ? '테스트 소재를 불러오는 중… (전체 세트를 훑어서 10초쯤 걸려요)' : '조회하지 못했어요 — 새로고침을 눌러주세요.'}</p></div>`;
+    return `<div class="empty-state"><p>${t.loading ? '테스트 소재를 불러오는 중… (전체 세트를 훑어서 10초쯤 걸려요)' : '<b>새로고침</b>을 누르면 테스트 소재를 불러와요.'}</p></div>`;
   }
   const d = t.data;
   const { vis, hid, rows } = admgrTestRowSets();
@@ -3017,7 +3013,7 @@ function renderAdmgrBest() {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-star"></i></div>
       <p>실제 Meta 연동 후, 광고세트 탭에서 세트를 체크하고 <b>베스트소재로</b>를 누르면 그 소재들이 여기에 격자로 모여요 (데모 모드에서는 제공되지 않아요).</p></div>`;
   }
-  if (!b.loaded) return `<div class="empty-state"><p>${b.loading ? '베스트소재를 불러오는 중…' : '조회하지 못했어요 — 새로고침을 눌러주세요.'}</p></div>`;
+  if (!b.loaded) return `<div class="empty-state"><p>${b.loading ? '베스트소재를 불러오는 중…' : '<b>새로고침</b>을 누르면 베스트소재를 불러와요.'}</p></div>`;
   if (!(b.rows || []).length) {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div>
       <p>아직 담은 세트가 없어요.<br/><b>광고세트</b> 탭에서 세트를 체크하고 <b>베스트소재로</b> 버튼을 누르면 여기에 소재가 모여요.</p></div>`;
