@@ -145,6 +145,10 @@ textarea.in{min-height:80px;resize:vertical}
 .loc button{font-size:12px;color:var(--accent);font-weight:600;padding:4px 8px;border-radius:7px;background:var(--accent-soft)}
 .lchip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 8px;color:var(--ink);font-weight:600;font-size:13px}
 .lchip a{font-size:11px;color:var(--accent);text-decoration:none;background:var(--accent-soft);padding:1px 6px;border-radius:5px}
+.sug{margin-top:6px}
+.sug button{display:block;width:100%;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-size:14px}
+.sug button small{display:block;font-size:11.5px;color:var(--ink3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sug .busy{font-size:12px;color:var(--ink3);padding:6px 10px}
 .loclist{margin-bottom:12px}
 .locitem{display:flex;align-items:center;gap:8px;padding:9px 10px;background:var(--bg);border:1px solid var(--line);border-radius:10px;margin-bottom:6px}
 .locitem button{color:var(--danger);font-weight:700;padding:4px 8px}
@@ -207,9 +211,11 @@ const photoUrl=id=>id?(S.localPhotos[id]||(CFG.PHOTO+id+'.jpg')):'';
 const thumbUrl=id=>id?(S.localPhotos[id]||(CFG.PHOTO+id+'_t.jpg')):'';
 const normTrip=t=>t?({id:t.id,name:t.name,start:t.start_date||t.start||'',days:t.days,models:t.models||[],locations:t.locations||{}}):null;
 const locOf=d=>(S.trip&&S.trip.locations&&S.trip.locations[d])||'';
-const locList=d=>locOf(d).split('\n').map(x=>x.trim()).filter(Boolean);
-const mapUrl=q=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q);
-const locChips=d=>locList(d).map(l=>`<span class="lchip">📍 ${esc(l)}<a href="${mapUrl(l)}" target="_blank" rel="noopener" title="지도">지도</a></span>`).join('');
+const parseLoc=line=>{ const m=/^(.*?)\s*@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(line); return m?{name:m[1].trim(),ll:m[2]+','+m[3]}:{name:line.trim(),ll:''}; };
+const locList=d=>locOf(d).split('\n').map(x=>x.trim()).filter(Boolean).map(parseLoc);
+const locNames=d=>locList(d).map(l=>l.name);
+const mapUrl=l=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(l.ll||l.name);
+const locChips=d=>locList(d).map(l=>`<span class="lchip">📍 ${esc(l.name)}<a href="${mapUrl(l)}" target="_blank" rel="noopener" title="지도">지도</a></span>`).join('');
 
 /* ---------- API ---------- */
 async function api(action,body){ let r; try{ r=await fetch(CFG.API,{method:'POST',headers:{'Content-Type':'application/json','x-shoot-code':S.code||''},body:JSON.stringify({action,...(body||{})})}); }
@@ -344,7 +350,7 @@ function outfitsTab(){ if(!S.trip) return noTrip(); const d=S.day; const memos=l
     h+=`<p class="hint">✓ 는 메모 처리 완료. 행을 누르면 메모를 고칠 수 있습니다.</p>`; return h; }
   const list=outfitsOf(d,S.model);
   const cnt=models().map(m=>`${esc(m)} ${outfitsOf(d,m).length}착`).join(' · ');
-  h+=`<div class="sec"><h2>${d}일차 코디${locList(d).length?` <span style="font-weight:500;color:var(--ink2);font-size:13px">· 📍 ${esc(locList(d).join(' · '))}</span>`:''}</h2><span class="meta num">${cnt}</span></div>`;
+  h+=`<div class="sec"><h2>${d}일차 코디${locList(d).length?` <span style="font-weight:500;color:var(--ink2);font-size:13px">· 📍 ${esc(locNames(d).join(' · '))}</span>`:''}</h2><span class="meta num">${cnt}</span></div>`;
   h+=list.length?`<div class="grid">${list.map(o=>outfitCard(o,'view')).join('')}</div>`:`<div class="empty">아직 코디가 없습니다.<br>아래 ＋ 버튼으로 사진을 올리세요.</div>`;
   h+=`<p class="hint">카드를 누르면 메모, 번호, 일차/모델 이동, 삭제가 가능합니다.</p>`; return h; }
 function reelsTab(){ if(!S.trip) return noTrip(); const f=S.reelDay; const list=S.reels.filter(r=>f==='all'||r.day===f).sort(byOrder);
@@ -404,12 +410,26 @@ function sheet(){ if(!S.sheet) return ''; const s=S.sheet; let body='';
     body+=`<div class="btnrow" style="margin-top:14px"><button class="btn pri" data-a="doneSel">선택 완료 (${sel.size})</button></div>`; }
   if(s.type==='sch'){ const d=s.draft; body=`<h2>${s.id?'일정 수정':'일정 추가'}</h2><div class="field"><label>언제</label><input class="in" data-f="when" value="${esc(d.when)}" placeholder="예: 9/9 저녁 또는 9/10 오전"></div><div class="field"><label>내용</label><input class="in" data-f="title" value="${esc(d.title)}" placeholder="예: 3~4일차 코디 제품컷 (총 26착)"></div><div class="field"><label>메모</label><textarea class="in" data-f="note">${esc(d.note)}</textarea></div><div class="btnrow"><button class="btn pri" data-a="saveSch">저장</button><button class="btn" data-a="close">닫기</button></div>${s.id?`<div class="btnrow"><button class="btn danger" data-a="delSch" data-id="${s.id}">삭제</button></div>`:''}`; }
   if(s.type==='loc'){ const d=s.draft; body=`<h2>${s.day}일차 촬영 장소</h2><p class="hint" style="margin:-6px 0 10px">${fmtD(dayDate(s.day))}</p>
-    ${d.list.length?`<div class="loclist">${d.list.map((l,i)=>`<div class="locitem"><span class="num" style="color:var(--ink3);width:18px">${i+1}</span><span style="flex:1">${esc(l)}</span><button data-a="rmLoc" data-i="${i}" aria-label="삭제">✕</button></div>`).join('')}</div>`:'<p class="hint" style="margin:0 0 10px">아직 등록된 장소가 없습니다.</p>'}
-    <div class="row"><input class="in" id="loc-in" data-f="input" value="${esc(d.input||'')}" placeholder="예: 오도리 공원" style="flex:1"><button class="btn pri" data-a="addLoc">＋ 추가</button></div>
+    ${d.list.length?`<div class="loclist">${d.list.map((l,i)=>`<div class="locitem"><span class="num" style="color:var(--ink3);width:18px">${i+1}</span><span style="flex:1">${esc(l.name)}${l.ll?' <span style="font-size:11px;color:var(--ok)">📍 지도 확인됨</span>':''}</span><button data-a="rmLoc" data-i="${i}" aria-label="삭제">✕</button></div>`).join('')}</div>`:'<p class="hint" style="margin:0 0 10px">아직 등록된 장소가 없습니다.</p>'}
+    <div class="row"><input class="in" id="loc-in" data-f="input" value="${esc(d.input||'')}" placeholder="장소명을 입력하면 지도에서 찾아줍니다" style="flex:1" autocomplete="off"><button class="btn pri" data-a="addLoc">＋ 추가</button></div>
+    <div id="loc-sug" class="sug">${sugHtml(d.sug)}</div>
+    <p class="hint">목록에서 고르면 지도 버튼이 정확한 위치로 열립니다. 없으면 ＋ 추가로 이름만 저장됩니다.</p>
     <div class="btnrow" style="margin-top:14px"><button class="btn pri" data-a="saveLoc">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
   if(s.type==='trip'){ const d=s.draft; const locs=s.isNew?'':`<p class="hint" style="margin:-4px 0 12px">촬영 장소는 오버뷰 화면에서 일차별로 등록합니다.</p>`;
     body=`<h2>${s.isNew?'새 출장':'출장 정보 수정'}</h2><div class="field"><label>이름</label><input class="in" data-f="name" value="${esc(d.name)}" placeholder="예: 2026 삿포로 출장 촬영"></div><div class="two"><div class="field"><label>시작일</label><input class="in" type="date" data-f="start" value="${esc(d.start)}"></div><div class="field"><label>일수</label><input class="in" type="number" min="1" max="30" data-f="days" value="${esc(d.days)}"></div></div><div class="field"><label>모델 (쉼표로 구분)</label><input class="in" data-f="modelsText" value="${esc(d.modelsText)}" placeholder="다나, 진주"></div>${locs}${s.isNew&&S.reels.length?`<div class="field"><label><input type="checkbox" data-f="copyReels" ${d.copyReels?'checked':''}> 현재 출장의 릴스 기획 ${S.reels.length}개를 복사 (완료 표시는 초기화)</label></div>`:''}<div class="btnrow"><button class="btn pri" data-a="saveTrip">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
   return `<div class="ov" data-a="close"><div class="sheet" data-stop="1"><div class="grip"></div>${body}</div></div>`; }
+
+/* ---------- 장소 검색 (OpenStreetMap) ---------- */
+function sugHtml(list){ if(list==='busy') return '<div class="busy">지도에서 찾는 중…</div>'; if(list==='none') return '<div class="busy">지도에서 못 찾았습니다. ＋ 추가로 이름만 저장할 수 있습니다.</div>'; if(!Array.isArray(list)) return ''; return list.map((r,i)=>`<button data-a="pickLoc" data-i="${i}">📍 ${esc(r.name)}<small>${esc(r.addr)}</small></button>`).join(''); }
+let sugTimer=null, sugCtl=null;
+function searchLoc(q){ clearTimeout(sugTimer); if(sugCtl) sugCtl.abort(); const d=S.sheet&&S.sheet.draft; if(!d) return; q=q.trim(); const box=$('#loc-sug');
+  if(q.length<2){ d.sug=null; if(box) box.innerHTML=''; return; }
+  d.sug='busy'; if(box) box.innerHTML=sugHtml('busy');
+  sugTimer=setTimeout(async()=>{ sugCtl=new AbortController(); try{
+      const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=ko&q='+encodeURIComponent(q),{signal:sugCtl.signal}); const rows=await r.json(); const seen=new Set();
+      const list=rows.map(x=>{ const parts=x.display_name.split(',').map(t=>t.trim()); return {name:parts[0],addr:parts.slice(1,5).join(', '),ll:(+x.lat).toFixed(5)+','+(+x.lon).toFixed(5)}; }).filter(x=>{ const k=x.name+'|'+x.addr; if(seen.has(k)) return false; seen.add(k); return true; });
+      if(S.sheet&&S.sheet.draft===d){ d.sug=list.length?list:'none'; const b=$('#loc-sug'); if(b) b.innerHTML=sugHtml(d.sug); }
+    }catch(e){ if(e.name!=='AbortError'&&S.sheet&&S.sheet.draft===d){ d.sug='none'; const b=$('#loc-sug'); if(b) b.innerHTML=sugHtml('none'); } } },450); }
 
 /* ---------- 동작 ---------- */
 let toastT=null; function toast(m){ let el=$('#toast'); if(!el){ el=document.createElement('div'); el.id='toast'; el.className='toast'; document.body.appendChild(el); } el.textContent=m; el.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{el.hidden=true;},2600); }
@@ -423,7 +443,7 @@ $('#fileIn').addEventListener('change',async e=>{ const files=[...e.target.files
     S.sheet=null; S.day=day; S.tab='outfits'; toast(`코디 ${files.length}착 추가됨`); }
   if(t==='shots'&&S.sheet&&S.sheet.type==='reel'){ S.sheet.busy=true; render(); await prepFiles(files,async id=>{ S.sheet.draft.shotIds.push(id); }); S.sheet.busy=false; render(); } });
 
-document.addEventListener('input',e=>{ const f=e.target.dataset.f; if(!f) return; if(f==='me'){ S.me=e.target.value; localStorage.setItem(ME_KEY,S.me); return; } if(S.sheet&&S.sheet.draft) S.sheet.draft[f]=e.target.type==='checkbox'?e.target.checked:e.target.value; });
+document.addEventListener('input',e=>{ const f=e.target.dataset.f; if(!f) return; if(f==='me'){ S.me=e.target.value; localStorage.setItem(ME_KEY,S.me); return; } if(S.sheet&&S.sheet.draft) S.sheet.draft[f]=e.target.type==='checkbox'?e.target.checked:e.target.value; if(f==='input'&&S.sheet.type==='loc') searchLoc(e.target.value); });
 document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.id==='li-code'||e.target.id==='li-name')) login(); if(e.key==='Enter'&&e.target.id==='loc-in'){ e.preventDefault(); document.querySelector('[data-a="addLoc"]').click(); } });
 async function login(){ const name=($('#li-name')||{}).value||'', code=(($('#li-code')||{}).value||'').trim(); if(!code){ S.loginErr='초대코드를 입력하세요'; render(); return; }
   S.me=name.trim(); localStorage.setItem(ME_KEY,S.me); S.code=code; S.loginBusy=true; S.loginErr=''; render();
@@ -464,7 +484,7 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'editTrip': open({type:'trip',isNew:false,draft:{name:S.trip.name,start:S.trip.start,days:S.trip.days,modelsText:models().join(', ')}}); break;
     case 'copySummary': { const d=S.day, list=outfitsOf(d,'all'), reels=S.reels.filter(r=>r.day===d), any=S.reels.filter(r=>!r.day);
       const und=m=>list.filter(o=>o.model===m&&!o.done).map(o=>o.order).join(', ');
-      let t=`[${S.trip.name}] ${d}일차 ${fmtD(dayDate(d))} 마감\n`; if(locList(d).length) t+=`장소: ${locList(d).join(', ')}\n`;
+      let t=`[${S.trip.name}] ${d}일차 ${fmtD(dayDate(d))} 마감\n`; if(locList(d).length) t+=`장소: ${locNames(d).join(', ')}\n`;
       t+=`코디: ${list.filter(o=>o.done).length}/${list.length} 완료\n`+models().map(m=>{const l=list.filter(o=>o.model===m); return l.length?`- ${m} ${l.filter(o=>o.done).length}/${l.length}${und(m)?` (미완료: ${und(m)})`:''}`:''}).filter(Boolean).join('\n')+'\n';
       t+=`릴스: ${reels.filter(r=>r.done).length}/${reels.length} 완료${reels.some(r=>!r.done)?` (미완료: ${reels.filter(r=>!r.done).map(r=>r.title).join(', ')})`:''}\n틈틈이: ${any.filter(r=>r.done).length}/${any.length}\n`;
       const memos=list.filter(o=>o.note&&o.note.trim()); if(memos.length) t+=`메모:\n`+memos.map(o=>`- ${outfitLabel(o)}: ${o.note.trim()}${o.noteDone?' (처리됨)':''}`).join('\n')+'\n';
@@ -473,9 +493,10 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
       const next={}; for(const m of models()) next[m]=Math.max(0,...outfitsOf(d+1,m).map(o=>o.order));
       for(const o of und){ next[o.model]=(next[o.model]||0)+1; await setItem('outfit',o.id,{...o,day:d+1,order:next[o.model]}); } toast(`${und.length}착을 ${d+1}일차로 옮겼습니다`); break; }
     case 'editLoc': { const day=+el.dataset.day; open({type:'loc',day,draft:{list:locList(day),input:''}}); break; }
-    case 'addLoc': { const d=S.sheet.draft; const v=(d.input||'').trim(); if(!v){ toast('장소를 입력하세요'); break; } d.list.push(v); d.input=''; render(); const i=$('#loc-in'); if(i) i.focus(); break; }
+    case 'addLoc': { const d=S.sheet.draft; const v=(d.input||'').trim(); if(!v){ toast('장소를 입력하세요'); break; } d.list.push({name:v,ll:''}); d.input=''; d.sug=null; render(); const i=$('#loc-in'); if(i) i.focus(); break; }
+    case 'pickLoc': { const d=S.sheet.draft; const r=d.sug[+el.dataset.i]; d.list.push({name:r.name,ll:r.ll}); d.input=''; d.sug=null; render(); break; }
     case 'rmLoc': S.sheet.draft.list.splice(+el.dataset.i,1); render(); break;
-    case 'saveLoc': { const s=S.sheet; const locations={...(S.trip.locations||{})}; const pend=(s.draft.input||'').trim(); if(pend) s.draft.list.push(pend); const v=s.draft.list.join('\n'); if(v) locations[s.day]=v; else delete locations[s.day]; S.sheet=null; mutate({op:'trip_set',trip:{id:S.tripId,name:S.trip.name,start:S.trip.start,days:S.trip.days,models:models(),locations}}); toast('저장됨'); break; }
+    case 'saveLoc': { const s=S.sheet; const locations={...(S.trip.locations||{})}; const pend=(s.draft.input||'').trim(); if(pend) s.draft.list.push({name:pend,ll:''}); const v=s.draft.list.map(l=>l.ll?`${l.name} @${l.ll}`:l.name).join('\n'); if(v) locations[s.day]=v; else delete locations[s.day]; S.sheet=null; mutate({op:'trip_set',trip:{id:S.tripId,name:S.trip.name,start:S.trip.start,days:S.trip.days,models:models(),locations}}); toast('저장됨'); break; }
     case 'newTrip': open({type:'trip',isNew:true,draft:{name:'',start:'',days:4,modelsText:models().join(', '),copyReels:true}}); break;
     case 'saveTrip': { const s=S.sheet, d=s.draft; if(!d.name.trim()||!d.start){ toast('이름과 시작일을 입력하세요'); break; }
       const days=Math.max(1,+d.days||1); const locations=s.isNew?{}:{...(S.trip.locations||{})};
