@@ -627,6 +627,21 @@
   </div><!-- /container -->
 </div><!-- /layout -->
 
+<!-- ═══ 카페24 상품 선택 모달 (광고소재 대시보드) ═══ -->
+<div class="modal" id="pt-pick-modal" onclick="if(event.target===this)closeModal('pt-pick-modal')">
+  <div class="modal-box" style="display:flex;flex-direction:column;max-height:85vh;">
+    <div class="modal-head"><b>카페24 상품 선택</b>
+      <span id="pt-pick-count" style="font-size:.75rem;color:#6b7280;"></span>
+      <button class="modal-x" onclick="closeModal('pt-pick-modal')">✕</button></div>
+    <input class="inp" id="pt-pick-q" placeholder="상품명 · 상품번호 검색" oninput="renderPtPick()" style="margin-bottom:10px;" />
+    <div id="pt-pick-list" style="flex:1;overflow:auto;min-height:200px;border:1px solid #e7e8ee;border-radius:10px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn-ghost" onclick="closeModal('pt-pick-modal')">취소</button>
+      <button class="btn-analyze" id="pt-pick-add" onclick="ptPickAdd()" disabled>선택한 0개 추가</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ 소재 등록/수정 모달 ═══ -->
 <div class="modal" id="cre-modal" onclick="if(event.target===this)closeModal('cre-modal')">
   <div class="modal-box">
@@ -1254,25 +1269,44 @@ function ptAddProduct() {
   ptSave(); renderPTest();
   toast(`'${name}' 상품을 추가했어요`);
 }
-/* 카페24 진열·판매 중 상품을 체크보드에 병합 — 이미 있는 행(상품번호 또는 이름 일치)은 체크 기록 유지, 새 상품만 맨 위에 추가 */
+/* 카페24 진열·판매 중 상품 목록을 모달로 띄우고, 체크한 상품만 체크보드에 추가 (이미 있는 상품은 표시만) */
+let ptCafe24Rows = [], ptPickSel = new Set();
 async function ptImportCafe24() {
   const btn = $('pt-import-btn'); btn.disabled = true;
   try {
-    const { rows } = await perfApi({ action: 'products' });
-    const byNo = new Map(pt.products.filter(p => p.product_no).map(p => [p.product_no, p]));
-    const byName = new Map(pt.products.map(p => [p.name, p]));
-    const added = [];
-    for (const r of rows) {
-      if (!r.name) continue;
-      const hit = byNo.get(r.product_no) || byName.get(r.name);
-      if (hit) { hit.product_no = r.product_no; continue; }
-      added.push({ id: newId(), name: r.name, product_no: r.product_no, cells: {} });
-    }
-    pt.products = [...added, ...pt.products];
-    ptSave(); renderPTest();
-    toast(added.length ? `카페24 상품 ${added.length}개를 추가했어요 (전체 ${rows.length}개 확인)` : `새 상품 없음 — 카페24 ${rows.length}개 모두 이미 있어요`);
+    ptCafe24Rows = (await perfApi({ action: 'products' })).rows.filter(r => r.name);
+    ptPickSel = new Set(); $('pt-pick-q').value = '';
+    renderPtPick(); $('pt-pick-modal').classList.add('show'); $('pt-pick-q').focus();
   } catch (e) { toast('불러오기 실패: ' + e.message); }
   finally { btn.disabled = false; }
+}
+function ptHas(r) { return pt.products.some(p => p.product_no === r.product_no || p.name === r.name); }
+function renderPtPick() {
+  const q = $('pt-pick-q').value.trim().toLowerCase();
+  const rows = ptCafe24Rows.filter(r => !q || r.name.toLowerCase().includes(q) || String(r.product_no).includes(q));
+  $('pt-pick-list').innerHTML = rows.map(r => {
+    const has = ptHas(r), on = ptPickSel.has(r.product_no);
+    return `<label style="display:flex;align-items:center;gap:10px;padding:7px 6px;border-bottom:1px solid #f1f2f6;cursor:${has ? 'default' : 'pointer'};opacity:${has ? .5 : 1};">
+      <input type="checkbox" ${has ? 'disabled' : ''} ${on ? 'checked' : ''} onchange="ptPickToggle(${r.product_no}, this.checked)" />
+      ${r.image ? `<img src="${esc(r.image)}" style="width:34px;height:34px;object-fit:cover;border-radius:6px;background:#f3f4f6;" loading="lazy" />` : '<span style="width:34px;height:34px;border-radius:6px;background:#f3f4f6;"></span>'}
+      <span style="flex:1;font-size:.84rem;">${esc(r.name)}</span>
+      <span style="font-size:.72rem;color:#9ca3af;">${has ? '이미 추가됨' : '#' + r.product_no}</span></label>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:#9ca3af;">검색 결과 없음</div>';
+  $('pt-pick-count').textContent = `${rows.length}개 표시 · 전체 ${ptCafe24Rows.length}개`;
+  $('pt-pick-add').textContent = `선택한 ${ptPickSel.size}개 추가`;
+  $('pt-pick-add').disabled = !ptPickSel.size;
+}
+function ptPickToggle(no, on) {   // 목록은 다시 그리지 않음 (스크롤·검색 유지)
+  on ? ptPickSel.add(no) : ptPickSel.delete(no);
+  $('pt-pick-add').textContent = `선택한 ${ptPickSel.size}개 추가`;
+  $('pt-pick-add').disabled = !ptPickSel.size;
+}
+function ptPickAdd() {
+  const added = ptCafe24Rows.filter(r => ptPickSel.has(r.product_no) && !ptHas(r))
+    .map(r => ({ id: newId(), name: r.name, product_no: r.product_no, cells: {} }));
+  pt.products = [...added, ...pt.products];
+  ptSave(); renderPTest(); closeModal('pt-pick-modal');
+  toast(`상품 ${added.length}개를 추가했어요`);
 }
 function ptDelProduct(id) {
   const p = pt.products.find(x => x.id === id); if (!p) return;
