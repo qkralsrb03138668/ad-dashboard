@@ -1377,7 +1377,7 @@ const admgr = {
   budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
   chgFilter: 'all',          // 오늘 예산 변경 필터: all / changed / up / down
   /* 예산 쓰기(4단계): st = meta-budget status 응답, pin = 인증된 PIN(메모리만 — 저장 금지), pendingByObj = Map(대상 id → 자정 예약 행), midMode = idle/setting/done */
-  write: { st: null, pin: null, pendingByObj: null, midMode: 'idle' },
+  write: { st: null, pin: lsGet('adc_admgr_pin', null), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
@@ -1821,7 +1821,7 @@ async function admgrMidQuick(id, level) {
     toast(`${d.apply_date} 00:00에 ${comma(target)}원(현재 ×10)으로 예약했어요`);
     admgrWritePending();
   } catch (e) {
-    if (String(e.message).includes('PIN')) { w.pin = null; renderAdmgr(true); }
+    if (String(e.message).includes('PIN')) admgrPinInvalidate();
     toast('예약 실패: ' + e.message);
   }
 }
@@ -1829,7 +1829,7 @@ async function admgrMidQuick(id, level) {
 function admgrWriteCtrlHtml() {
   const w = admgr.write;
   const pinBtn = w.pin
-    ? `<button class="filter-tab" style="color:#15803d;border-color:#86efac;background:#f0fdf4;" onclick="admgrPinClear()" title="클릭하면 인증 해제"><i class="fa-solid fa-lock-open"></i> 인증됨</button>`
+    ? `<button class="filter-tab" style="color:#15803d;border-color:#86efac;background:#f0fdf4;" onclick="admgrPinClear()" title="지금은 풀려 있어요 — 클릭하면 잠김 (다시 PIN 필요)"><i class="fa-solid fa-lock-open"></i> 인증됨 · 잠그기</button>`
     : `<button class="filter-tab" style="color:#4338ca;border-color:#c7d2fe;background:#eef2ff;" onclick="admgrPinPrompt()"><i class="fa-solid fa-lock"></i> PIN 인증</button>`;
   const n = w.pendingByObj ? w.pendingByObj.size : 0;
   const mid = w.midMode === 'setting'
@@ -1860,14 +1860,21 @@ async function admgrPinVerify() {
   try {
     await metaBudgetCall({ action: 'verify' }, { pin });
     admgr.write.pin = pin;
+    lsSet('adc_admgr_pin', pin);   // 잠그기 버튼을 누르기 전까지 유지
     $('admgr-bpop').style.display = 'none';
-    toast('PIN 인증 완료 — 예산 수정 기능이 켜졌어요');
+    toast('PIN 인증 완료 — 잠그기를 누르기 전까지 계속 풀려 있어요');
     const after = admgrBP.after; admgrBP.after = null;
     renderAdmgr(true);
     if (after) after();
   } catch (e) { admgrBpopErr(e.message); }
 }
-function admgrPinClear() { admgr.write.pin = null; toast('PIN 인증을 해제했어요'); renderAdmgr(true); }
+function admgrPinClear() {
+  admgr.write.pin = null;
+  try { localStorage.removeItem('adc_admgr_pin'); } catch { /* 무시 */ }
+  toast('잠갔어요 — 다음 예산 변경부터 PIN을 다시 물어요'); renderAdmgr(true);
+}
+/* 서버가 PIN을 거부하면(PIN 변경·잠금) 저장된 것도 지운다 */
+function admgrPinInvalidate() { admgr.write.pin = null; try { localStorage.removeItem('adc_admgr_pin'); } catch { /* 무시 */ } renderAdmgr(true); }
 function admgrMidBtn() {
   const w = admgr.write;
   if (w.midMode === 'setting') { w.midMode = 'done'; toast('자정 반영 세팅 완료 — 버튼을 누르면 예약 목록이 열려요'); renderAdmgr(true); }
@@ -1961,7 +1968,7 @@ async function admgrBudgetWrite(mode) {
     else toast(`${d.apply_date} 00:00(자정)에 ${comma(amount)}원으로 변경 예약했어요`);
     admgrWritePending();
   } catch (e) {
-    if (String(e.message).includes('PIN')) { w.pin = null; renderAdmgr(true); }
+    if (String(e.message).includes('PIN')) admgrPinInvalidate();
     admgrBpopErr(e.message);
     btn.disabled = false;
   }
@@ -1975,7 +1982,7 @@ async function admgrBudgetCancel(pid) {
     toast('자정 예약을 취소했어요');
     admgrWritePending();
   } catch (e) {
-    if (String(e.message).includes('PIN')) { w.pin = null; renderAdmgr(true); }
+    if (String(e.message).includes('PIN')) admgrPinInvalidate();
     admgrBpopErr(e.message);
   }
 }
