@@ -1517,7 +1517,8 @@ function renderPTest() {
    문구는 직접 기입, 강화옵션·페이지·타겟은 모델 그대로. 미디어는 meta-upload 함수를 거쳐 조각 전송(토큰은 서버에만). */
 const upl = { data: null, camp: null, set: null, modelAdId: null, model: null, files: [], commonText: null, running: false };
 const UPL_CTA = [['LEARN_MORE','더 알아보기'],['SHOP_NOW','지금 구매하기'],['ORDER_NOW','지금 주문하기'],['BUY_NOW','바로 구매'],['GET_OFFER','혜택 받기'],['SIGN_UP','가입하기'],['CONTACT_US','문의하기'],['NO_BUTTON','버튼 없음']];
-const UPL_CHUNK = 4 * 1024 * 1024;   // ponytail: 4MB 조각 — Supabase 함수 요청 크기 한도 안전값. 느리면 8MB로
+let UPL_CHUNK = 8 * 1024 * 1024;     // 8MB 조각 — 서버가 413/네트워크 오류로 거부하면 자동으로 절반씩 줄임 (최소 1MB)
+const UPL_PARALLEL = 3;                // 미디어 동시 전송 수 (파일끼리 병렬, 한 영상 안의 조각은 순서대로)
 
 async function uplCall(params, payload) {
   const cfg = admgrCfg();
@@ -1589,7 +1590,7 @@ function uplAddFiles(list) {
     const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
     if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
     if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
-    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), text: null, status: '대기', result: null });
+    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), text: null, status: '대기', media: null, result: null });
   }
   uplRenderFiles();
 }
@@ -1671,7 +1672,14 @@ async function uplUploadMedia(f, pin) {
     const to = Math.min(end, start + UPL_CHUNK, size);
     const fd = new FormData(); fd.append('pin', pin); fd.append('session_id', st.session_id); fd.append('start_offset', String(start));
     fd.append('chunk', f.file.slice(start, to), 'chunk');
-    const r = await uplCall({ action: 'video_chunk' }, fd);
+    let r;
+    try { r = await uplCall({ action: 'video_chunk' }, fd); }
+    catch (e) {
+      if (/PIN/.test(e.message) || UPL_CHUNK <= 1024 * 1024) throw e;
+      UPL_CHUNK = Math.floor(UPL_CHUNK / 2);   // 요청 크기 한도로 보이면 조각을 줄여 같은 위치부터 재시도
+      uplLog(`${f.name}: 조각 전송 실패(${e.message.slice(0, 60)}) → ${fmtMB(UPL_CHUNK)} 조각으로 재시도`);
+      continue;
+    }
     start = r.start_offset; end = r.end_offset;
     uplSetStatus(f, `영상 전송 ${Math.round(start / size * 100)}%`);
   }
@@ -1703,15 +1711,33 @@ async function uplRun() {
 
   upl.running = true; $('upl-run').disabled = true; uplRenderFiles();
   lsSet('adc_admgr_pin', pin);
-  uplLog(`시작 — ${pending.length}개, ${mode}, 모델 ${upl.model.ad.name}`);
+  uplLog(`시작 — ${pending.length}개, ${mode}, 모델 ${upl.model.ad.name} · 미디어 ${UPL_PARALLEL}개씩 동시 전송`);
+  const t0 = Date.now();
+  // 1단계: 미디어 병렬 업로드 (이미 올라간 파일은 건너뜀 — 재시도 시 재전송 없음)
+  let pinFail = false;
+  const queue = pending.filter(f => !f.media);
+  const worker = async () => {
+    while (queue.length && !pinFail) {
+      const f = queue.shift();
+      try {
+        uplSetStatus(f, f.kind === 'video' ? '영상 전송 0%' : '이미지 업로드 중');
+        f.media = await uplUploadMedia(f, pin);
+        uplSetStatus(f, '미디어 준비됨'); uplLog(`${f.name}: 미디어 업로드 완료`);
+      } catch (e) {
+        uplSetStatus(f, '실패: ' + e.message); uplLog(`${f.name}: ${e.message}`, 'err');
+        if (/PIN/.test(e.message)) pinFail = true;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(UPL_PARALLEL, queue.length) }, worker));
+  uplLog(`미디어 전송 끝 — ${Math.round((Date.now() - t0) / 1000)}초`);
+  // 2단계: 세트·광고 순차 생성
   let ok = 0;
   for (const f of pending) {
+    if (!f.media || pinFail) continue;
     try {
-      uplSetStatus(f, f.kind === 'video' ? '영상 전송 0%' : '이미지 업로드 중');
-      const media = await uplUploadMedia(f, pin);
-      uplLog(`${f.name}: 미디어 업로드 완료`);
       uplSetStatus(f, '세트·광고 생성 중');
-      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget, status: mode, media, text: f.text || upl.commonText });
+      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget, status: mode, media: f.media, text: f.text || upl.commonText });
       f.result = r; ok++;
       uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id})`);
       uplLog(`${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
@@ -1722,7 +1748,7 @@ async function uplRun() {
     }
   }
   upl.running = false; $('upl-run').disabled = false; uplRenderFiles();
-  uplLog(`끝 — 성공 ${ok} / ${pending.length}`, ok === pending.length ? 'ok' : 'err');
+  uplLog(`끝 — 성공 ${ok} / ${pending.length} · 총 ${Math.round((Date.now() - t0) / 1000)}초`, ok === pending.length ? 'ok' : 'err');
   toast(`광고 생성 ${ok}/${pending.length} 완료`);
 }
 
