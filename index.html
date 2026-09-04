@@ -1849,9 +1849,23 @@ function admgrSetPreset(p) {
 /* 탭 전환 — 자체 데이터 탭은 첫 진입 때 자동 조회 */
 function admgrSetView(v) {
   admgr.view = v;
-  if (v === 'test'  && !admgr.test.loaded  && !admgr.test.loading)  { admgrTestFetch(); return; }
-  if (v === 'offad' && !admgr.offad.loaded && !admgr.offad.loading) { admgrOffFetch(); return; }
-  if (v === 'best'  && !admgr.best.loaded  && !admgr.best.loading)  { admgrBestFetch(); return; }
+  const t = admgr.test, o = admgr.offad, b = admgr.best;
+  /* 첫 진입: 마지막에 받아둔 데이터가 있으면 먼저 보여주고, 뒤에서 새로 받는다 (새로고침해도 유지 — 2026-09-05) */
+  if (v === 'test' && !t.loaded && !t.loading) {
+    const c = lsGet('adc_admgr_test', null);
+    if (c && c.data) { t.data = c.data; t.state = new Map(c.state || []); t.loaded = true; }
+    admgrTestFetch(); return;
+  }
+  if (v === 'offad' && !o.loaded && !o.loading) {
+    const c = lsGet('adc_admgr_off', null);
+    if (c && c.data) { o.data = c.data; o.start = c.start; o.end = c.end; o.loaded = true; }
+    admgrOffFetch(); return;
+  }
+  if (v === 'best' && !b.loaded && !b.loading) {
+    const c = lsGet('adc_admgr_best', null);
+    if (c && c.rows) { b.rows = c.rows; b.ads = c.ads || []; b.loaded = true; }
+    admgrBestFetch(); return;
+  }
   renderAdmgr();
 }
 function admgrRefresh() {
@@ -2642,6 +2656,7 @@ async function admgrTestFetch() {
     }
     t.loaded = true;
     t.sel.clear();
+    if (!admgr.demo) lsSet('adc_admgr_test', { data: t.data, state: [...t.state.entries()] });
   } catch (e) { toast('테스트 소재 조회 실패: ' + e.message); }
   t.loading = false; renderAdmgr();
 }
@@ -2896,6 +2911,7 @@ async function admgrOffFetch() {
   try {
     o.data = await metaGet({ action: 'offsets', start_date: o.start, end_date: o.end });
     o.loaded = true;
+    lsSet('adc_admgr_off', { data: o.data, start: o.start, end: o.end });
   } catch (e) { toast('조회 실패: ' + e.message); }
   o.loading = false; renderAdmgr();
 }
@@ -2981,6 +2997,7 @@ async function admgrBestFetch() {
       ? ((await metaGet({ action: 'creatives', set_ids: b.rows.map(r => r.adset_id).join(',') })).ads || [])
       : [];
     b.loaded = true;
+    lsSet('adc_admgr_best', { rows: b.rows, ads: b.ads });
   } catch (e) { toast('조회 실패: ' + e.message); }
   b.loading = false; renderAdmgr();
 }
