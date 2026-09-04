@@ -260,7 +260,8 @@ Deno.serve(async (req) => {
 
       const adset_id = await createAdset(model, name, budget, status);
       const creative_id = await createCreative(model, name, media, text);
-      const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id, creative: JSON.stringify({ creative_id }), status } });
+      // 광고는 항상 활성 — 일시중지 모드는 세트만 멈춤(세트가 꺼져 있으면 지출 없음). 사용자가 세트만 켜면 바로 게재.
+      const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id, creative: JSON.stringify({ creative_id }), status: "ACTIVE" } });
       return json({ adset_id, creative_id, ad_id: ad.id });
     }
     return json({ error: `알 수 없는 action: ${action}` }, 400);

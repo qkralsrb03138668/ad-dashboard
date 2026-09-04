@@ -492,7 +492,7 @@
             <input class="inp" id="upl-budget" type="number" min="1000" step="1000" placeholder="모델 세트 예산" style="width:150px;background:#fff;" /></div>
           <div class="input-group" style="margin:0;"><label>생성 상태</label>
             <div style="display:flex;gap:14px;padding:8px 0;font-size:.85rem;">
-              <label style="cursor:pointer;"><input type="radio" name="upl-mode" value="PAUSED" checked /> 일시중지로 생성</label>
+              <label style="cursor:pointer;" title="광고세트만 일시중지, 광고는 활성 — 세트만 켜면 바로 게재"><input type="radio" name="upl-mode" value="PAUSED" checked /> 세트 일시중지로 생성 (광고는 활성)</label>
               <label style="cursor:pointer;"><input type="radio" name="upl-mode" value="ACTIVE" /> 바로 활성</label></div></div>
           <button class="btn-ghost" onclick="uplTextOpen(-1)"><i class="fa-solid fa-pen"></i> 광고 문구 일괄 기입</button>
           <button class="btn-ghost" onclick="uplDiagnose()" title="실제 생성 없이 Meta에 세트·크리에이티브·광고 생성 요청을 검증"><i class="fa-solid fa-stethoscope"></i> 연결 진단</button>
@@ -1707,7 +1707,7 @@ async function uplRun() {
   const dup = upl.files.filter(f => !f.name.trim()); if (dup.length) { toast('이름이 빈 파일이 있어요'); return; }
   const pending = upl.files.filter(f => !f.result);
   if (!pending.length) { toast('모두 생성 완료됐어요'); return; }
-  if (!confirm(`광고 ${pending.length}개를 ${mode === 'ACTIVE' ? '⚠ 바로 활성 상태로' : '일시중지 상태로'} 생성할까요?\n캠페인: ${upl.model.campaign.name}\n${upl.model.cbo ? '캠페인 예산(CBO)' : `세트당 일예산 ${budget.toLocaleString()}원`}\n\n${mode === 'ACTIVE' ? '활성 생성은 즉시 지출이 시작돼요.' : '광고관리자에서 켜기 전까지 지출 없음.'}`)) return;
+  if (!confirm(`광고 ${pending.length}개를 ${mode === 'ACTIVE' ? '⚠ 바로 활성 상태로' : '세트 일시중지(광고는 활성) 상태로'} 생성할까요?\n캠페인: ${upl.model.campaign.name}\n${upl.model.cbo ? '캠페인 예산(CBO)' : `세트당 일예산 ${budget.toLocaleString()}원`}\n\n${mode === 'ACTIVE' ? '활성 생성은 즉시 지출이 시작돼요.' : '광고관리자에서 세트를 켜기 전까지 지출 없음.'}`)) return;
 
   upl.running = true; $('upl-run').disabled = true; uplRenderFiles();
   lsSet('adc_admgr_pin', pin);
