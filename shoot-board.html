@@ -451,7 +451,7 @@ $('#fileIn').addEventListener('change',async e=>{ const files=[...e.target.files
 
 document.addEventListener('input',e=>{ const f=e.target.dataset.f; if(!f) return; if(f==='me'){ S.me=e.target.value; localStorage.setItem(ME_KEY,S.me); return; } if(S.sheet&&S.sheet.draft) S.sheet.draft[f]=e.target.type==='checkbox'?e.target.checked:e.target.value; if(f==='input'&&S.sheet.type==='loc') searchLoc(e.target.value); });
 document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.id==='li-code'||e.target.id==='li-name')) login(); if(e.key==='Enter'&&e.target.id==='loc-in'){ e.preventDefault(); document.querySelector('[data-a="addLoc"]').click(); } });
-async function login(){ const name=($('#li-name')||{}).value||'', code=(($('#li-code')||{}).value||'').trim(); if(!code){ S.loginErr='초대코드를 입력하세요'; render(); return; }
+async function login(){ const name=(($('#li-name')||{}).value||'').trim(), code=(($('#li-code')||{}).value||'').trim(); if(!name){ S.loginErr='이름을 입력하세요. 누가 체크·메모했는지 이 이름으로 남습니다'; render(); return; } if(!code){ S.loginErr='초대코드를 입력하세요'; render(); return; }
   S.me=name.trim(); localStorage.setItem(ME_KEY,S.me); S.code=code; S.loginBusy=true; S.loginErr=''; render();
   try{ await api('ping'); S.auth='ok'; localStorage.setItem(CODE_KEY,code); S.loginBusy=false; render(); sync(); flush(); }
   catch(e){ S.loginBusy=false; S.loginErr=e.code==='unauthorized'?'초대코드가 맞지 않습니다':'연결할 수 없습니다. 인터넷을 확인하세요'; if(e.code!=='unauthorized') S.auth='unknown'; render(); } }
