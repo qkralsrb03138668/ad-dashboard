@@ -409,6 +409,7 @@
           <button class="btn-ghost" id="pt-import-btn" onclick="ptImportCafe24()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24에서 불러오기</button>
           <span class="divider" style="width:1px;height:28px;background:#e5e7eb;"></span>
           <button class="btn-ghost" onclick="ptAddType()"><i class="fa-solid fa-table-columns"></i> 소재 유형 추가</button>
+          <button class="btn-ghost btn-danger-ghost" style="margin-left:auto;" onclick="ptDelAll()"><i class="fa-solid fa-trash"></i> 상품 전체 삭제</button>
         </div>
         <div id="pt-summary"></div>
         <div class="filter-tabs" id="pt-tabs"></div>
@@ -1244,7 +1245,7 @@ function toggleAsset(id, field, on) {
    칸 클릭 순환: 없음 → made(제작완료) → run(진행중) → 없음                              */
 let pt = lsGet(LS.pt, null);
 if (!pt) { pt = ptSampleData(); lsSet(LS.pt, pt); }   // 최초 1회 예시 데이터
-let ptFilter = 'all';
+let ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
 
 function ptSave() { lsSet(LS.pt, pt); }
 function ptSampleData() {
@@ -1337,7 +1338,15 @@ function ptCycle(pid, type) {
   ptSave(); renderPTest();
 }
 function ptDone(p) { return pt.types.filter(t => p.cells[t] && p.cells[t].st === 'run').length; }
-function setPtFilter(v) { ptFilter = v; renderPTest(); }
+function setPtFilter(v) { ptFilter = v; ptPage = 1; renderPTest(); }
+function setPtPer(v) { ptPer = Number(v); lsSet('adc_pt_per', ptPer); ptPage = 1; renderPTest(); }
+function setPtPage(n) { ptPage = n; renderPTest(); }
+function ptDelAll() {
+  if (!pt.products.length) return;
+  if (!confirm(`상품 ${pt.products.length}개를 전부 삭제할까요? 체크 기록도 모두 지워져요.`)) return;
+  pt.products = []; ptPage = 1;
+  ptSave(); renderPTest(); toast('상품을 전부 삭제했어요');
+}
 
 function renderPTest() {
   const N = pt.types.length;
@@ -1383,6 +1392,18 @@ function renderPTest() {
     body.innerHTML = `<div class="empty-state" style="padding:32px;"><p>조건에 맞는 상품이 없어요.</p></div>`;
     return;
   }
+  const total = rows.length, pages = Math.ceil(total / ptPer);
+  if (ptPage > pages) ptPage = pages;
+  const from = (ptPage - 1) * ptPer;
+  rows = rows.slice(from, from + ptPer);
+  const pager = `<div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:.8rem;color:#6b7280;">
+    <span>${total}개 중 ${from + 1}–${from + rows.length}</span>
+    <select class="inp" style="width:auto;padding:4px 8px;font-size:.8rem;background:#fff;" onchange="setPtPer(this.value)">
+      ${[10,20,30,50,100].map(n => `<option value="${n}" ${n===ptPer?'selected':''}>${n}개씩</option>`).join('')}</select>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+      <button class="btn-ghost" style="padding:3px 10px;" ${ptPage<=1?'disabled':''} onclick="setPtPage(${ptPage-1})">‹</button>
+      <b>${ptPage} / ${pages}</b>
+      <button class="btn-ghost" style="padding:3px 10px;" ${ptPage>=pages?'disabled':''} onclick="setPtPage(${ptPage+1})">›</button></span></div>`;
 
   const cellHtml = (p, t) => {
     const c = p.cells[t];
@@ -1406,7 +1427,7 @@ function renderPTest() {
           <b style="font-size:.78rem;">${done}/${N}</b></span></td>
         <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="ptDelProduct('${p.id}')"><i class="fa-solid fa-xmark"></i></button></td>
       </tr>`; }).join('')}</tbody>
-  </table></div>
+  </table></div>${pager}
   <p style="font-size:.75rem;color:#9ca3af;margin-top:10px;line-height:1.7;">
     칸을 클릭할 때마다 <b>— → 제작완료 → 진행중 → 해제</b> 순서로 바뀌고, 바꾼 날짜가 함께 기록돼요.
     소재 유형 열은 위의 <b>소재 유형 추가</b>로 자유롭게 늘릴 수 있어요 (예: 후킹영상, 카드뉴스).</p>`;
