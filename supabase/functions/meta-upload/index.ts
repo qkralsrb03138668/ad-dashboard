@@ -140,7 +140,12 @@ async function createCreative(model: Rec, name: string, media: Rec, text: Rec, v
       ...(text.title ? { name: text.title } : {}), ...(text.description ? { description: text.description } : {}) };
   }
   const p: Record<string, string> = { name, object_story_spec: JSON.stringify(oss), ...(validate ? VALIDATE : {}) };
-  if (cre.degrees_of_freedom_spec) p.degrees_of_freedom_spec = JSON.stringify(cre.degrees_of_freedom_spec);
+  if (cre.degrees_of_freedom_spec) {   // 실측: 'standard_enhancements' 묶음 키는 v23에서 지원 중단 → 개별 기능만 그대로 복사
+    const dof = JSON.parse(JSON.stringify(cre.degrees_of_freedom_spec)) as Rec;
+    const feats = (dof.creative_features_spec ?? {}) as Rec;
+    for (const k of Object.keys(feats)) if (/^standard_enhancements/.test(k)) delete feats[k];
+    p.degrees_of_freedom_spec = JSON.stringify(dof);
+  }
   if (cre.url_tags) p.url_tags = String(cre.url_tags);
   const r = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });
   return String(r.id);
