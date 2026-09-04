@@ -2186,15 +2186,12 @@ function admgrBudgetCell(r, level) {
   const w = admgr.write;
   let base = admgrBudget(r);
   if (w.st && w.st.allowed && r.budget > 0 && !admgr.demo) {
-    /* 인라인 편집: 입력칸 + [임시저장](브라우저에만 보관) + [즉각반영](지금 Meta 적용) + 연필(자정 예약 등 팝업) — 2026-09-05 사용자 요청 */
+    /* Meta 광고관리자식: 연필 + 금액, 클릭하면 작은 편집창(취소 · 임시 저장 · 게시) — 2026-09-05 사용자 요청 */
     const d = admgrDraft[r.id];
     const dirty = d && d !== r.budget;
-    base = `<div style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;">
-      <input class="inp" type="number" step="1000" min="1000" value="${d || r.budget}" style="width:88px;padding:3px 6px;font-size:.72rem;background:#fff;${dirty ? 'border-color:#fbbf24;' : ''}" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.stopPropagation();admgrDraftSave('${r.id}',this.value)}" />
-      <button class="filter-tab" style="padding:3px 8px;font-size:.68rem;" title="입력값을 이 브라우저에만 보관 — Meta엔 반영 안 됨" onclick="event.stopPropagation();admgrDraftSave('${r.id}',this.previousElementSibling.value)">임시저장</button>
-      <button class="filter-tab" style="padding:3px 8px;font-size:.68rem;color:#4f46e5;border-color:#a5b4fc;" title="지금 바로 Meta에 반영" onclick="event.stopPropagation();admgrApplyNow('${r.id}','${level}',this.previousElementSibling.previousElementSibling.value)">즉각반영</button>
-      <i class="fa-solid fa-pen" title="자정 예약 · 취소" style="font-size:.6rem;color:#a5b4fc;cursor:pointer;" onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')"></i>
-    </div>${dirty ? `<div style="font-size:.6rem;color:#b45309;">임시 ${comma(d)} · 현재 ${comma(r.budget)}</div>` : ''}`;
+    base = `<span onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')" title="클릭해서 예산 변경" style="cursor:pointer;white-space:nowrap;display:inline-block;text-align:left;">
+      <i class="fa-solid fa-pen" style="font-size:.6rem;color:#9ca3af;margin-right:5px;"></i><b>₩${comma(r.budget)}</b><div style="font-size:.62rem;color:#9ca3af;padding-left:16px;">일일</div></span>
+      ${dirty ? `<div style="font-size:.6rem;color:#b45309;padding-left:16px;">임시 저장 ₩${comma(d)}</div>` : ''}`;
   }
   const pend = w.pendingByObj && w.pendingByObj.get(r.id);
   if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="자정(${pend.apply_date} 00:00)에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 자정 ${won(pend.new_budget)}</span></div>`;
@@ -2257,6 +2254,7 @@ async function admgrApplyNow(id, level, val) {
   const amount = Math.round(Number(val));
   if (!(amount >= 1000 && amount <= w.st.max_budget)) { toast(`1,000원 ~ ${comma(w.st.max_budget)}원 사이로 입력하세요`); return; }
   if (!confirm(`'${node.name}'의 일예산을 ${comma(amount)}원으로 지금 바로 바꿀까요?\n(Meta에 즉시 반영되는 실제 예산 변경이에요)`)) return;
+  $('admgr-bpop').style.display = 'none';   // 편집창 닫기 (PIN 프롬프트가 같은 창을 쓰므로 여기서만)
   try {
     await metaBudgetCall({ action: 'apply' }, { object_id: id, object_name: node.name, level, new_budget: amount, pin: w.pin });
     delete admgrDraft[id]; lsSet('adc_admgr_draft', admgrDraft);
@@ -2361,24 +2359,32 @@ function admgrBudgetPop(ev, id, level) {
   const pop = $('admgr-bpop');
   const setting = w.midMode === 'setting';
   const warn = w.st.token_set ? '' :
-    `<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#92400e;font-size:.68rem;padding:6px 8px;margin-bottom:8px;">Meta 쓰기 토큰이 아직 설정되지 않았어요 — 즉시 적용 불가, 예약도 토큰 설정 전엔 자정 반영이 실패해요.</div>`;
-  const needPin = !w.pin
-    ? `<div class="info-bar" style="font-size:.7rem;padding:6px 8px;margin-bottom:8px;">먼저 PIN 인증이 필요해요 <button class="btn-analyze" style="padding:2px 10px;font-size:.7rem;margin-left:6px;" onclick="admgrPinPrompt()">PIN 인증</button></div>` : '';
-  const canApply = w.st.token_set && w.pin;
-  const btns = setting
-    ? `<button id="bpop-sched" class="btn-analyze" style="flex:1;justify-content:center;background:#f59e0b;" onclick="admgrBudgetWrite('schedule')" ${w.pin ? '' : 'disabled'}><i class="fa-regular fa-clock"></i> 자정 반영으로 저장</button>`
-    : `<button id="bpop-apply" class="btn-analyze" style="flex:1;justify-content:center;${canApply ? '' : 'opacity:.45;cursor:not-allowed;'}" onclick="admgrBudgetWrite('apply')" ${canApply ? '' : 'disabled'}>즉시 적용</button>
-      <button id="bpop-sched" class="btn-ghost" style="flex:1;justify-content:center;color:#b45309;border-color:#fcd34d;background:#fffbeb;" onclick="admgrBudgetWrite('schedule')" ${w.pin ? '' : 'disabled'}><i class="fa-regular fa-clock"></i> 자정에 자동 반영</button>`;
+    `<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#92400e;font-size:.68rem;padding:6px 8px;margin-bottom:8px;">Meta 쓰기 토큰이 아직 설정되지 않았어요 — 게시 불가.</div>`;
+  const draft = admgrDraft[id];
+  /* Meta 광고관리자식 편집창: 일일 [₩ 금액 KRW] / 취소 · [임시 저장] [게시]. 세팅 모드에선 게시 대신 자정 반영 */
+  const primary = setting
+    ? `<button id="bpop-sched" class="btn-analyze" style="background:#f59e0b;padding:7px 16px;" onclick="admgrBudgetWrite('schedule')"><i class="fa-regular fa-clock"></i> 자정 반영으로 저장</button>`
+    : `<button id="bpop-apply" class="btn-analyze" style="background:#0a7c3f;padding:7px 18px;" onclick="admgrApplyNow('${id}','${level}',document.getElementById('bpop-amount').value)">게시</button>`;
   pop.innerHTML = `
-    <div style="font-size:.74rem;font-weight:700;color:#1e1b4b;word-break:break-all;margin-bottom:6px;">${esc(admgrBP.name)}</div>
-    ${setting ? '<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#b45309;font-size:.68rem;font-weight:700;padding:4px 8px;margin-bottom:8px;"><i class="fa-regular fa-clock"></i> 자정 반영 세팅중 — 저장하면 자정 예약으로 등록돼요</div>' : ''}
-    ${warn}${needPin}
-    <div style="font-size:.7rem;color:#6b7280;margin-bottom:6px;">현재 일예산 <b>${won(cur)}</b>${pend ? ` · <span style="color:#b45309;">자정 예약 ${won(pend.new_budget)}</span>` : ''}</div>
-    <input id="bpop-amount" class="inp" type="number" min="1000" max="${w.st.max_budget}" step="1000" value="${pend ? pend.new_budget : cur}" style="margin-bottom:4px;" />
-    <div style="font-size:.64rem;color:#9ca3af;margin-bottom:8px;">1,000원 ~ ${comma(w.st.max_budget)}원 (상한선 서버 강제)</div>
+    <div style="font-size:.72rem;color:#6b7280;word-break:break-all;margin-bottom:8px;">${esc(admgrBP.name)}${pend ? ` · <span style="color:#b45309;">자정 예약 ₩${comma(pend.new_budget)}</span>` : ''}</div>
+    ${setting ? '<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#b45309;font-size:.68rem;font-weight:700;padding:4px 8px;margin-bottom:8px;"><i class="fa-regular fa-clock"></i> 자정 반영 세팅중</div>' : ''}
+    ${warn}
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span style="font-size:.8rem;font-weight:700;color:#1e1b4b;white-space:nowrap;">일일</span>
+      <span style="flex:1;display:flex;align-items:center;border:1.5px solid #4f46e5;border-radius:8px;padding:0 10px;background:#fff;">
+        <span style="color:#6b7280;font-size:.82rem;">₩</span>
+        <input id="bpop-amount" type="number" min="1000" max="${w.st.max_budget}" step="1000" value="${draft || cur}" style="flex:1;min-width:0;border:none;outline:none;padding:8px 6px;font-size:.88rem;font-weight:700;font-family:inherit;" onkeydown="if(event.key==='Enter')document.getElementById('${setting ? 'bpop-sched' : 'bpop-apply'}').click()" />
+        <span style="color:#9ca3af;font-size:.72rem;">KRW</span>
+      </span>
+    </div>
     <div id="bpop-err" style="display:none;font-size:.68rem;color:#dc2626;margin-bottom:6px;"></div>
-    <div style="display:flex;gap:6px;">${btns}</div>
-    ${pend ? `<button class="btn-ghost" style="width:100%;justify-content:center;margin-top:6px;font-size:.72rem;" onclick="admgrBudgetCancel(${pend.id})">자정 예약 취소</button>` : ''}`;
+    <div style="display:flex;align-items:center;gap:8px;">
+      <a onclick="document.getElementById('admgr-bpop').style.display='none'" style="color:#4f46e5;font-size:.78rem;cursor:pointer;">취소</a>
+      <span style="flex:1;"></span>
+      <button class="btn-ghost" style="padding:7px 14px;" onclick="admgrDraftSave('${id}',document.getElementById('bpop-amount').value);document.getElementById('admgr-bpop').style.display='none'">임시 저장</button>
+      ${primary}
+    </div>
+    ${pend ? `<a onclick="admgrBudgetCancel(${pend.id})" style="display:block;margin-top:8px;font-size:.7rem;color:#9ca3af;cursor:pointer;">자정 예약 취소</a>` : ''}`;
   const r0 = ev.target.closest('td').getBoundingClientRect();
   pop.style.display = 'block';
   const pw = 270, ph = pop.offsetHeight || 230;
