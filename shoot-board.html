@@ -145,6 +145,9 @@ textarea.in{min-height:80px;resize:vertical}
 .loc button{font-size:12px;color:var(--accent);font-weight:600;padding:4px 8px;border-radius:7px;background:var(--accent-soft)}
 .lchip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 8px;color:var(--ink);font-weight:600;font-size:13px}
 .lchip a{font-size:11px;color:var(--accent);text-decoration:none;background:var(--accent-soft);padding:1px 6px;border-radius:5px}
+.loclist{margin-bottom:12px}
+.locitem{display:flex;align-items:center;gap:8px;padding:9px 10px;background:var(--bg);border:1px solid var(--line);border-radius:10px;margin-bottom:6px}
+.locitem button{color:var(--danger);font-weight:700;padding:4px 8px}
 .dayact{display:flex;gap:8px;margin:10px 0 2px}
 .dayact .btn{flex:1}
 .stat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 4px}
@@ -400,10 +403,11 @@ function sheet(){ if(!S.sheet) return ''; const s=S.sheet; let body='';
   if(s.type==='pickOutfits'){ const sel=new Set(s.sel); body=`<h2>코디 선택</h2>`; for(let d=1;d<=dayCount();d++){ const l=outfitsOf(d,'all'); if(!l.length) continue; body+=`<div class="sec"><h2>${d}일차</h2></div><div class="grid">${l.map(o=>`<div class="card ${sel.has(o.id)?'sel':''}" data-a="selOutfit" data-id="${o.id}">${imgTag(o.photoId)}<span class="no num">${o.order}</span><span class="lbl">${esc(o.model)}</span></div>`).join('')}</div>`; }
     body+=`<div class="btnrow" style="margin-top:14px"><button class="btn pri" data-a="doneSel">선택 완료 (${sel.size})</button></div>`; }
   if(s.type==='sch'){ const d=s.draft; body=`<h2>${s.id?'일정 수정':'일정 추가'}</h2><div class="field"><label>언제</label><input class="in" data-f="when" value="${esc(d.when)}" placeholder="예: 9/9 저녁 또는 9/10 오전"></div><div class="field"><label>내용</label><input class="in" data-f="title" value="${esc(d.title)}" placeholder="예: 3~4일차 코디 제품컷 (총 26착)"></div><div class="field"><label>메모</label><textarea class="in" data-f="note">${esc(d.note)}</textarea></div><div class="btnrow"><button class="btn pri" data-a="saveSch">저장</button><button class="btn" data-a="close">닫기</button></div>${s.id?`<div class="btnrow"><button class="btn danger" data-a="delSch" data-id="${s.id}">삭제</button></div>`:''}`; }
-  if(s.type==='loc'){ body=`<h2>${s.day}일차 촬영 장소</h2><p class="hint" style="margin:-6px 0 10px">${fmtD(dayDate(s.day))}</p><div class="field"><label>한 줄에 장소 하나씩</label><textarea class="in" data-f="loc" placeholder="오도리 공원
-스스키노
-삿포로역">${esc(s.draft.loc)}</textarea></div><div class="btnrow"><button class="btn pri" data-a="saveLoc">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
-  if(s.type==='trip'){ const d=s.draft; const locs=s.isNew?'':Array.from({length:Math.max(1,Math.min(30,+d.days||1))},(_,i)=>i+1).map(i=>`<div class="field"><label>${i}일차 촬영 장소 <span style="font-weight:400">${fmtD(dayDate(i))} · 한 줄에 하나</span></label><textarea class="in" data-f="loc${i}" style="min-height:56px">${esc(d['loc'+i]||'')}</textarea></div>`).join('');
+  if(s.type==='loc'){ const d=s.draft; body=`<h2>${s.day}일차 촬영 장소</h2><p class="hint" style="margin:-6px 0 10px">${fmtD(dayDate(s.day))}</p>
+    ${d.list.length?`<div class="loclist">${d.list.map((l,i)=>`<div class="locitem"><span class="num" style="color:var(--ink3);width:18px">${i+1}</span><span style="flex:1">${esc(l)}</span><button data-a="rmLoc" data-i="${i}" aria-label="삭제">✕</button></div>`).join('')}</div>`:'<p class="hint" style="margin:0 0 10px">아직 등록된 장소가 없습니다.</p>'}
+    <div class="row"><input class="in" id="loc-in" data-f="input" value="${esc(d.input||'')}" placeholder="예: 오도리 공원" style="flex:1"><button class="btn pri" data-a="addLoc">＋ 추가</button></div>
+    <div class="btnrow" style="margin-top:14px"><button class="btn pri" data-a="saveLoc">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
+  if(s.type==='trip'){ const d=s.draft; const locs=s.isNew?'':`<p class="hint" style="margin:-4px 0 12px">촬영 장소는 오버뷰 화면에서 일차별로 등록합니다.</p>`;
     body=`<h2>${s.isNew?'새 출장':'출장 정보 수정'}</h2><div class="field"><label>이름</label><input class="in" data-f="name" value="${esc(d.name)}" placeholder="예: 2026 삿포로 출장 촬영"></div><div class="two"><div class="field"><label>시작일</label><input class="in" type="date" data-f="start" value="${esc(d.start)}"></div><div class="field"><label>일수</label><input class="in" type="number" min="1" max="30" data-f="days" value="${esc(d.days)}"></div></div><div class="field"><label>모델 (쉼표로 구분)</label><input class="in" data-f="modelsText" value="${esc(d.modelsText)}" placeholder="다나, 진주"></div>${locs}${s.isNew&&S.reels.length?`<div class="field"><label><input type="checkbox" data-f="copyReels" ${d.copyReels?'checked':''}> 현재 출장의 릴스 기획 ${S.reels.length}개를 복사 (완료 표시는 초기화)</label></div>`:''}<div class="btnrow"><button class="btn pri" data-a="saveTrip">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
   return `<div class="ov" data-a="close"><div class="sheet" data-stop="1"><div class="grip"></div>${body}</div></div>`; }
 
@@ -420,7 +424,7 @@ $('#fileIn').addEventListener('change',async e=>{ const files=[...e.target.files
   if(t==='shots'&&S.sheet&&S.sheet.type==='reel'){ S.sheet.busy=true; render(); await prepFiles(files,async id=>{ S.sheet.draft.shotIds.push(id); }); S.sheet.busy=false; render(); } });
 
 document.addEventListener('input',e=>{ const f=e.target.dataset.f; if(!f) return; if(f==='me'){ S.me=e.target.value; localStorage.setItem(ME_KEY,S.me); return; } if(S.sheet&&S.sheet.draft) S.sheet.draft[f]=e.target.type==='checkbox'?e.target.checked:e.target.value; });
-document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.id==='li-code'||e.target.id==='li-name')) login(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.id==='li-code'||e.target.id==='li-name')) login(); if(e.key==='Enter'&&e.target.id==='loc-in'){ e.preventDefault(); document.querySelector('[data-a="addLoc"]').click(); } });
 async function login(){ const name=($('#li-name')||{}).value||'', code=(($('#li-code')||{}).value||'').trim(); if(!code){ S.loginErr='초대코드를 입력하세요'; render(); return; }
   S.me=name.trim(); localStorage.setItem(ME_KEY,S.me); S.code=code; S.loginBusy=true; S.loginErr=''; render();
   try{ await api('ping'); S.auth='ok'; localStorage.setItem(CODE_KEY,code); S.loginBusy=false; render(); sync(); flush(); }
@@ -457,7 +461,7 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'addSch': open({type:'sch',id:null,draft:{when:'',title:'',note:''}}); break;
     case 'saveSch': { const s=S.sheet, d=s.draft; if(!d.title.trim()){ toast('내용을 입력하세요'); break; } const sid=s.id||uid('s'); const prev=S.schedule.find(x=>x.id===s.id)||{}; S.sheet=null; setItem('schedule',sid,{when:d.when||'',title:d.title.trim(),note:d.note||'',order:prev.order||S.schedule.length+1,done:!!prev.done,doneBy:prev.doneBy||'',doneAt:prev.doneAt||''}); break; }
     case 'delSch': if(confirm('이 일정을 삭제할까요?')){ S.sheet=null; delItem('schedule',id); } break;
-    case 'editTrip': { const dr={name:S.trip.name,start:S.trip.start,days:S.trip.days,modelsText:models().join(', ')}; for(let i=1;i<=dayCount();i++) dr['loc'+i]=locOf(i); open({type:'trip',isNew:false,draft:dr}); break; }
+    case 'editTrip': open({type:'trip',isNew:false,draft:{name:S.trip.name,start:S.trip.start,days:S.trip.days,modelsText:models().join(', ')}}); break;
     case 'copySummary': { const d=S.day, list=outfitsOf(d,'all'), reels=S.reels.filter(r=>r.day===d), any=S.reels.filter(r=>!r.day);
       const und=m=>list.filter(o=>o.model===m&&!o.done).map(o=>o.order).join(', ');
       let t=`[${S.trip.name}] ${d}일차 ${fmtD(dayDate(d))} 마감\n`; if(locList(d).length) t+=`장소: ${locList(d).join(', ')}\n`;
@@ -468,11 +472,13 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'carryOver': { const d=S.day; const und=outfitsOf(d,'all').filter(o=>!o.done); if(!und.length||d>=dayCount()) break; if(!confirm(`미완료 ${und.length}착을 ${d+1}일차로 옮길까요?`)) break;
       const next={}; for(const m of models()) next[m]=Math.max(0,...outfitsOf(d+1,m).map(o=>o.order));
       for(const o of und){ next[o.model]=(next[o.model]||0)+1; await setItem('outfit',o.id,{...o,day:d+1,order:next[o.model]}); } toast(`${und.length}착을 ${d+1}일차로 옮겼습니다`); break; }
-    case 'editLoc': { const day=+el.dataset.day; open({type:'loc',day,draft:{loc:locOf(day)}}); break; }
-    case 'saveLoc': { const s=S.sheet; const locations={...(S.trip.locations||{})}; const v=(s.draft.loc||'').trim(); if(v) locations[s.day]=v; else delete locations[s.day]; S.sheet=null; mutate({op:'trip_set',trip:{id:S.tripId,name:S.trip.name,start:S.trip.start,days:S.trip.days,models:models(),locations}}); toast('저장됨'); break; }
+    case 'editLoc': { const day=+el.dataset.day; open({type:'loc',day,draft:{list:locList(day),input:''}}); break; }
+    case 'addLoc': { const d=S.sheet.draft; const v=(d.input||'').trim(); if(!v){ toast('장소를 입력하세요'); break; } d.list.push(v); d.input=''; render(); const i=$('#loc-in'); if(i) i.focus(); break; }
+    case 'rmLoc': S.sheet.draft.list.splice(+el.dataset.i,1); render(); break;
+    case 'saveLoc': { const s=S.sheet; const locations={...(S.trip.locations||{})}; const pend=(s.draft.input||'').trim(); if(pend) s.draft.list.push(pend); const v=s.draft.list.join('\n'); if(v) locations[s.day]=v; else delete locations[s.day]; S.sheet=null; mutate({op:'trip_set',trip:{id:S.tripId,name:S.trip.name,start:S.trip.start,days:S.trip.days,models:models(),locations}}); toast('저장됨'); break; }
     case 'newTrip': open({type:'trip',isNew:true,draft:{name:'',start:'',days:4,modelsText:models().join(', '),copyReels:true}}); break;
     case 'saveTrip': { const s=S.sheet, d=s.draft; if(!d.name.trim()||!d.start){ toast('이름과 시작일을 입력하세요'); break; }
-      const days=Math.max(1,+d.days||1); const locations={}; if(!s.isNew){ for(let i=1;i<=days;i++){ const v=(d['loc'+i]||'').trim(); if(v) locations[i]=v; } }
+      const days=Math.max(1,+d.days||1); const locations=s.isNew?{}:{...(S.trip.locations||{})};
       const trip={id:s.isNew?uid('trip'):S.tripId,name:d.name.trim(),start:d.start,days,models:d.modelsText.split(',').map(x=>x.trim()).filter(Boolean),locations};
       if(s.isNew){ const copy=d.copyReels?S.reels.map(r=>({...r})):[]; S.sheet=null; await mutate({op:'trip_set',trip}); await switchTrip(trip.id); for(const r of copy){ const {id:rid,...rest}=r; await setItem('reel',rid,{...rest,done:false,doneBy:'',doneAt:''}); } toast('새 출장이 만들어졌습니다'); }
       else { S.sheet=null; mutate({op:'trip_set',trip}); toast('저장됨'); } break; }
