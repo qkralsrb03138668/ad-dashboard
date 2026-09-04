@@ -66,6 +66,15 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .card.done .chk{background:var(--ok);border-color:var(--ok);color:#fff}
 .card .zoom{position:absolute;right:6px;bottom:6px;width:26px;height:26px;border-radius:8px;background:rgba(0,0,0,.45);color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center}
 .card.sel{outline:3px solid var(--accent);outline-offset:-3px}
+.card .memo{position:absolute;left:26px;bottom:5px;font-size:12px}
+.mrow{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;margin-bottom:8px}
+.mrow.done{opacity:.55}
+.mrow.done .mnote{text-decoration:line-through}
+.mth{flex:none;width:56px;height:74px;border-radius:8px;overflow:hidden;background:var(--surface2)}
+.mth img{width:100%;height:100%;object-fit:cover;display:block}
+.mbody{flex:1;min-width:0}
+.mlbl{font-size:12px;font-weight:600;color:var(--ink2)}
+.mnote{font-size:14px;margin-top:2px;white-space:pre-wrap;word-break:break-word}
 .reel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 12px 10px;margin-bottom:10px}
 .reel.done{opacity:.6}
 .reel .top{display:flex;gap:10px;align-items:flex-start}
@@ -278,7 +287,7 @@ function dayPills(cur,key,withAny){ let h='<div class="pills">';
   for(let i=1;i<=dayCount();i++) h+=`<button class="pill ${cur===i?'on':''}" data-a="set" data-k="${key}" data-v="${i}">${i}일차<small>${fmtD(dayDate(i))}</small></button>`;
   if(withAny) h+=`<button class="pill ${cur===0?'on':''}" data-a="set" data-k="${key}" data-v="0">틈틈이</button>`;
   return h+'</div>'; }
-function outfitCard(o,mode){ const done=!!o.done; return `<div class="card ${done?'done':''}" data-a="${mode==='check'?'toggleOutfit':'openOutfit'}" data-id="${o.id}">${imgTag(o.photoId)}<span class="no num">${o.order}</span>${mode==='check'?'':`<span class="lbl">${esc(o.model)}</span>`}<span class="chk">✓</span>${mode==='check'?`<button class="zoom" data-a="openOutfit" data-id="${o.id}" aria-label="크게 보기">⤢</button>`:''}</div>`; }
+function outfitCard(o,mode){ const done=!!o.done; return `<div class="card ${done?'done':''}" data-a="${mode==='check'?'toggleOutfit':'openOutfit'}" data-id="${o.id}">${imgTag(o.photoId)}<span class="no num">${o.order}</span>${o.note?'<span class="memo">📝</span>':''}${mode==='check'?'':`<span class="lbl">${esc(o.model)}</span>`}<span class="chk">✓</span>${mode==='check'?`<button class="zoom" data-a="openOutfit" data-id="${o.id}" aria-label="크게 보기">⤢</button>`:''}</div>`; }
 function reelCard(r){ const shots=(r.shotIds||[]).map(id=>`<div class="s">${imgTag(id)}</div>`).join('');
   const linked=(r.outfitIds||[]).map(id=>S.outfits.find(o=>o.id===id)).filter(Boolean).map(o=>`<div class="s o">${imgTag(o.photoId)}<span>${esc(o.model)} ${o.day}-${o.order}</span></div>`).join('');
   const links=(r.refs||[]).map((u,i)=>`<a class="lnk" href="${esc(u)}" target="_blank" rel="noopener">▶ 레퍼런스${r.refs.length>1?' '+(i+1):''}</a>`).join('');
@@ -300,8 +309,14 @@ function today(){ if(!S.trip) return noTrip(); const ti=todayIndex(); const d=S.
   h+=`<div class="sec"><h2>오늘 릴스</h2><span class="meta num">${reels.length}개</span></div>`+(reels.length?reels.map(reelCard).join(''):`<div class="empty">이 날짜에 배정된 릴스가 없습니다.</div>`);
   h+=`<div class="sec"><h2>틈틈이 촬영</h2><span class="meta">일정 무관, 기회 될 때</span></div>`+(any.map(reelCard).join('')||`<div class="empty">없음</div>`);
   return h; }
-function outfitsTab(){ if(!S.trip) return noTrip(); const d=S.day; const list=outfitsOf(d,S.model);
-  let h=dayPills(d,'day',false); h+=`<div class="chips"><button class="chip ${S.model==='all'?'on':''}" data-a="set" data-k="model" data-v="all">전체</button>`+models().map(m=>`<button class="chip ${S.model===m?'on':''}" data-a="set" data-k="model" data-v="${esc(m)}">${esc(m)}</button>`).join('')+'</div>';
+function outfitsTab(){ if(!S.trip) return noTrip(); const d=S.day; const memos=S.outfits.filter(o=>o.note&&o.note.trim()).sort(byOrder);
+  let h=S.model==='memo'?'':dayPills(d,'day',false);
+  h+=`<div class="chips"><button class="chip ${S.model==='all'?'on':''}" data-a="set" data-k="model" data-v="all">전체</button>`+models().map(m=>`<button class="chip ${S.model===m?'on':''}" data-a="set" data-k="model" data-v="${esc(m)}">${esc(m)}</button>`).join('')+`<button class="chip ${S.model==='memo'?'on':''}" data-a="set" data-k="model" data-v="memo">📝 메모 ${memos.length}</button></div>`;
+  if(S.model==='memo'){ const dn=memos.filter(o=>o.noteDone).length;
+    h+=`<div class="sec"><h2>메모 남긴 코디</h2><span class="meta num">처리 ${dn} / ${memos.length}</span></div>`;
+    h+=memos.length?memos.map(o=>`<div class="mrow ${o.noteDone?'done':''}"><div class="mth" data-a="openOutfit" data-id="${o.id}">${imgTag(o.photoId)}</div><div class="mbody" data-a="openOutfit" data-id="${o.id}"><div class="mlbl">${esc(outfitLabel(o))}${o.done?' · 촬영완료':''}</div><div class="mnote">${esc(o.note)}</div></div><button class="tick ${o.noteDone?'on':''}" data-a="toggleNote" data-id="${o.id}" aria-label="메모 처리 완료">✓</button></div>`).join(''):`<div class="empty">메모를 남긴 코디가 없습니다.<br>코디 카드를 눌러 메모를 적으면 여기에 모입니다.</div>`;
+    h+=`<p class="hint">✓ 는 메모 처리 완료. 행을 누르면 메모를 고칠 수 있습니다.</p>`; return h; }
+  const list=outfitsOf(d,S.model);
   const cnt=models().map(m=>`${esc(m)} ${outfitsOf(d,m).length}착`).join(' · ');
   h+=`<div class="sec"><h2>${d}일차 코디${locOf(d)?` <span style="font-weight:500;color:var(--ink2);font-size:13px">· 📍 ${esc(locOf(d))}</span>`:''}</h2><span class="meta num">${cnt}</span></div>`;
   h+=list.length?`<div class="grid">${list.map(o=>outfitCard(o,'view')).join('')}</div>`:`<div class="empty">아직 코디가 없습니다.<br>아래 ＋ 버튼으로 사진을 올리세요.</div>`;
@@ -342,6 +357,7 @@ function sheet(){ if(!S.sheet) return ''; const s=S.sheet; let body='';
     <div class="two" style="margin-top:12px"><div class="field"><label>일차</label>${daySel('day',d.day,false)}</div><div class="field"><label>모델</label><select class="in" data-f="model">${models().map(m=>`<option ${d.model===m?'selected':''}>${esc(m)}</option>`).join('')}</select></div></div>
     <div class="two"><div class="field"><label>번호 (사진의 손글씨 번호 등)</label><input class="in" type="number" data-f="order" value="${esc(d.order)}"></div><div class="field"><label>정렬</label><p class="hint" style="margin:8px 0 0">번호 순으로 정렬됩니다.</p></div></div>
     <div class="field"><label>메모</label><textarea class="in" data-f="note" placeholder="예: 부츠 착용, 스카프 2종 함께">${esc(d.note)}</textarea></div>
+    ${o.note&&o.noteDone?`<p class="hint">📝 메모 처리 완료${o.noteBy?' · '+esc(o.noteBy):''}</p>`:''}
     ${o.done?`<p class="hint">촬영 완료 · ${esc(o.doneBy||'')} ${o.doneAt?new Date(o.doneAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''}</p>`:''}
     <div class="btnrow"><button class="btn ${o.done?'':'ok'}" data-a="toggleOutfit" data-id="${o.id}">${o.done?'완료 취소':'촬영 완료'}</button><button class="btn pri" data-a="saveOutfit">저장</button></div>
     <div class="btnrow"><button class="btn danger" data-a="delOutfit" data-id="${o.id}">삭제</button><button class="btn" data-a="close">닫기</button></div>`; }
@@ -392,8 +408,9 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'set': { const k=el.dataset.k, v=el.dataset.v; S[k]=(k==='model')?v:(v==='all'?'all':+v); render(); break; }
     case 'close': S.sheet=null; render(); break;
     case 'toggleOutfit': { const o=S.outfits.find(x=>x.id===id); if(o) setItem('outfit',id,{...o,...stamp(!o.done)}); break; }
+    case 'toggleNote': { const o=S.outfits.find(x=>x.id===id); if(o) setItem('outfit',id,{...o,noteDone:!o.noteDone,noteBy:o.noteDone?'':(S.me||'')}); break; }
     case 'openOutfit': { const o=S.outfits.find(x=>x.id===id); if(o) open({type:'outfit',id,draft:{...o}}); break; }
-    case 'saveOutfit': { const s=S.sheet, o=S.outfits.find(x=>x.id===s.id); if(!o) break; const d=s.draft; const day=+d.day, model=d.model; let order=+d.order||o.order; if((day!==o.day||model!==o.model)&&+d.order===o.order) order=Math.max(0,...outfitsOf(day,model).map(x=>x.order))+1; S.sheet=null; setItem('outfit',o.id,{...o,day,model,order,note:d.note||''}); toast('저장됨'); break; }
+    case 'saveOutfit': { const s=S.sheet, o=S.outfits.find(x=>x.id===s.id); if(!o) break; const d=s.draft; const day=+d.day, model=d.model; let order=+d.order||o.order; if((day!==o.day||model!==o.model)&&+d.order===o.order) order=Math.max(0,...outfitsOf(day,model).map(x=>x.order))+1; S.sheet=null; setItem('outfit',o.id,{...o,day,model,order,note:d.note||'',noteDone:(d.note||'').trim()?o.noteDone:false}); toast('저장됨'); break; }
     case 'delOutfit': if(confirm('이 코디를 삭제할까요?')){ S.sheet=null; delItem('outfit',id); } break;
     case 'addOutfit': open({type:'addOutfit',draft:{day:S.day,model:S.model==='all'?models()[0]:S.model}}); break;
     case 'pickOutfitPhotos': fileTarget='outfit'; $('#fileIn').click(); break;
@@ -431,7 +448,7 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
   } });
 function download(name,data,type){ const b=new Blob([data],{type}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); }
 function exportMd(){ const t=S.trip; if(!t) return; let m=`# ${t.name}\n${fmtD(dayDate(1))} ~ ${fmtD(dayDate(dayCount()))} · 모델: ${models().join(', ')}\n\n## 코디 (${S.outfits.length}착)\n`;
-  for(let d=1;d<=dayCount();d++){ const l=outfitsOf(d,'all'); if(!l.length) continue; m+=`\n### ${d}일차 ${fmtD(dayDate(d))}\n`; for(const mo of models()){ const x=l.filter(o=>o.model===mo); if(x.length) m+=`- ${mo}: ${x.length}착 (완료 ${x.filter(o=>o.done).length})${x.filter(o=>o.note).map(o=>`\n  - ${o.order}번: ${o.note}`).join('')}\n`; } }
+  for(let d=1;d<=dayCount();d++){ const l=outfitsOf(d,'all'); if(!l.length) continue; m+=`\n### ${d}일차 ${fmtD(dayDate(d))}\n`; for(const mo of models()){ const x=l.filter(o=>o.model===mo); if(x.length) m+=`- ${mo}: ${x.length}착 (완료 ${x.filter(o=>o.done).length})${x.filter(o=>o.note).map(o=>`\n  - ${o.order}번: ${o.note}${o.noteDone?' ✅':''}`).join('')}\n`; } }
   m+=`\n## 릴스 기획 (${S.reels.length})\n`; for(const r of [...S.reels].sort(byOrder)){ m+=`\n### ${r.day?r.day+'일차':'틈틈이'} · ${r.title}${r.done?' ✅':''}\n${(r.refs||[]).map(u=>`- ${u}`).join('\n')}${r.note?`\n- 메모: ${r.note}`:''}${r.props?`\n- 준비물: ${r.props}`:''}${(r.outfitIds||[]).length?`\n- 코디: ${r.outfitIds.map(id=>{const o=S.outfits.find(x=>x.id===id);return o?outfitLabel(o):''}).filter(Boolean).join(', ')}`:''}\n`; }
   m+=`\n## 제품컷 일정\n`+S.schedule.map(s=>`- ${s.when}: ${s.title}${s.note?` (${s.note})`:''}${s.done?' ✅':''}`).join('\n')+'\n';
   download((t.name||'trip')+'.md',m,'text/markdown'); }
