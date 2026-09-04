@@ -66,10 +66,10 @@ async function checkPin(pin: unknown): Promise<string | null> {
 const ADSET_FIELDS = "name,campaign_id,daily_budget,lifetime_budget,targeting,optimization_goal,billing_event,bid_strategy,bid_amount,promoted_object,attribution_spec,destination_type,status,dsa_beneficiary,dsa_payor";
 async function readModel(adId: string): Promise<Rec> {
   if (!/^\d{5,25}$/.test(adId)) throw new Error("ad_id 형식 오류");
-  const key = `upload:model:v2:${adId}`;
+  const key = `upload:model:v3:${adId}`;
   const cached = await cacheGet(key, 5 * 60 * 1000);
   if (cached) return cached as Rec;
-  const ad = await graph(adId, { params: { fields: "id,name,adset_id,campaign_id,status,creative{id,name,object_story_spec,degrees_of_freedom_spec,url_tags,asset_feed_spec}" } });
+  const ad = await graph(adId, { params: { fields: "id,name,adset_id,campaign_id,status,creative{id,name,object_story_spec,degrees_of_freedom_spec,contextual_multi_ads,url_tags,asset_feed_spec}" } });
   const adset = await graph(String(ad.adset_id), { params: { fields: ADSET_FIELDS } });
   const campaign = await graph(String(ad.campaign_id), { params: { fields: "name,objective,daily_budget,lifetime_budget,status" } });
   const cre = (ad.creative ?? {}) as Rec;
@@ -92,7 +92,7 @@ async function readModel(adId: string): Promise<Rec> {
     campaign: { id: ad.campaign_id, ...campaign },
     cbo: !!(campaign.daily_budget || campaign.lifetime_budget),
     creative: { id: cre.id, page_id: oss.page_id ?? null, instagram_user_id: oss.instagram_user_id ?? oss.instagram_actor_id ?? null,
-      degrees_of_freedom_spec: cre.degrees_of_freedom_spec ?? null, url_tags: cre.url_tags ?? null, dynamic: !!cre.asset_feed_spec,
+      degrees_of_freedom_spec: cre.degrees_of_freedom_spec ?? null, contextual_multi_ads: cre.contextual_multi_ads ?? null, url_tags: cre.url_tags ?? null, dynamic: !!cre.asset_feed_spec,
       kind: oss.video_data ? "video" : oss.link_data ? "image" : "other" },
     text,
     media: ld.image_hash ? { type: "image", image_hash: ld.image_hash } : vd.video_id ? { type: "video", video_id: vd.video_id, thumbnail_url: vd.image_url ?? null } : null,
@@ -147,6 +147,8 @@ async function createCreative(model: Rec, name: string, media: Rec, text: Rec, v
     p.degrees_of_freedom_spec = JSON.stringify(dof);
   }
   if (cre.url_tags) p.url_tags = String(cre.url_tags);
+  // '여러 광고주의 광고' — 광고 단위 설정. 안 보내면 Meta가 기본 ON으로 만들므로(실측) 모델 값을 명시, 모델에 없으면 OFF
+  p.contextual_multi_ads = JSON.stringify(cre.contextual_multi_ads ?? { enroll_status: "OPT_OUT" });
   const r = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });
   return String(r.id);
 }
