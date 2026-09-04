@@ -80,6 +80,22 @@ async function run(op: any): Promise<unknown> {
         "resolution=merge-duplicates,return=minimal");
       return { ok: true };
     }
+    case "patch": {   // 바뀐 필드만 병합 — 오프라인에서 서로 다른 필드를 고쳐도 덮어쓰지 않는다. data.by[field]=작성자
+      const { trip_id, id, kind, fields } = op;
+      if (!ID.test(String(trip_id)) || !ID.test(String(id))) throw new Error("bad id");
+      if (!["outfit", "reel", "schedule"].includes(kind)) throw new Error("bad kind");
+      if (!fields || typeof fields !== "object" || JSON.stringify(fields).length > 200_000) throw new Error("bad fields");
+      const by = String(op.by ?? "").slice(0, 40);
+      const rows = await pg(`shoot_items?id=eq.${id}&select=data`);
+      const prev = rows[0]?.data ?? {};
+      const stamp: Record<string, string> = { ...(prev.by ?? {}) };
+      for (const k of Object.keys(fields)) if (k !== "by") stamp[k] = by;
+      const data = { ...prev, ...fields, by: stamp };
+      await pg("shoot_items?on_conflict=id", "POST",
+        { id, trip_id, kind, data, updated_at: now(), deleted: false },
+        "resolution=merge-duplicates,return=minimal");
+      return { ok: true };
+    }
     case "delete": {
       if (!ID.test(String(op.id))) throw new Error("bad id");
       await pg(`shoot_items?id=eq.${op.id}`, "PATCH", { deleted: true, updated_at: now() }, "return=minimal");
