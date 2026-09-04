@@ -141,7 +141,12 @@ textarea.in{min-height:80px;resize:vertical}
 .today-hero .dt{font-size:13px;color:var(--ink2)}
 .loc{display:flex;align-items:center;gap:8px;margin:8px 0 2px;font-size:13.5px;color:var(--ink2)}
 .loc b{color:var(--ink);font-weight:600}
+.loc{flex-wrap:wrap}
 .loc button{font-size:12px;color:var(--accent);font-weight:600;padding:4px 8px;border-radius:7px;background:var(--accent-soft)}
+.lchip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 8px;color:var(--ink);font-weight:600;font-size:13px}
+.lchip a{font-size:11px;color:var(--accent);text-decoration:none;background:var(--accent-soft);padding:1px 6px;border-radius:5px}
+.dayact{display:flex;gap:8px;margin:10px 0 2px}
+.dayact .btn{flex:1}
 .stat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 4px}
 .stat div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .stat b{display:block;font-size:22px;font-weight:800;line-height:1.1}
@@ -199,6 +204,9 @@ const photoUrl=id=>id?(S.localPhotos[id]||(CFG.PHOTO+id+'.jpg')):'';
 const thumbUrl=id=>id?(S.localPhotos[id]||(CFG.PHOTO+id+'_t.jpg')):'';
 const normTrip=t=>t?({id:t.id,name:t.name,start:t.start_date||t.start||'',days:t.days,models:t.models||[],locations:t.locations||{}}):null;
 const locOf=d=>(S.trip&&S.trip.locations&&S.trip.locations[d])||'';
+const locList=d=>locOf(d).split('\n').map(x=>x.trim()).filter(Boolean);
+const mapUrl=q=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q);
+const locChips=d=>locList(d).map(l=>`<span class="lchip">📍 ${esc(l)}<a href="${mapUrl(l)}" target="_blank" rel="noopener" title="지도">지도</a></span>`).join('');
 
 /* ---------- API ---------- */
 async function api(action,body){ let r; try{ r=await fetch(CFG.API,{method:'POST',headers:{'Content-Type':'application/json','x-shoot-code':S.code||''},body:JSON.stringify({action,...(body||{})})}); }
@@ -309,7 +317,9 @@ function today(){ if(!S.trip) return noTrip(); const ti=todayIndex(); const d=S.
   const reels=S.reels.filter(r=>r.day===d).sort(byOrder), any=S.reels.filter(r=>!r.day).sort(byOrder);
   let h=dayPills(d,'day',false);
   h+=`<div class="today-hero"><span class="d num">${d}일차</span><span class="dt">${fmtD(dayDate(d))}${ti===d?' · 오늘':''}</span></div>`;
-  h+=`<div class="loc">📍 ${locOf(d)?`<b>${esc(locOf(d))}</b>`:'<span>촬영 장소 미정</span>'}<button data-a="editLoc" data-day="${d}">${locOf(d)?'수정':'장소 입력'}</button></div>`;
+  h+=`<div class="loc">${locList(d).length?locChips(d):'<span>📍 촬영 장소 미정</span>'}<button data-a="editLoc" data-day="${d}">${locList(d).length?'장소 편집':'장소 입력'}</button></div>`;
+  const undone=list.filter(o=>!o.done);
+  h+=`<div class="dayact"><button class="btn sm" data-a="copySummary">📋 오늘 요약 복사</button>${d<dayCount()&&undone.length?`<button class="btn sm" data-a="carryOver">⏭ 미완료 ${undone.length}착 → ${d+1}일차</button>`:''}</div>`;
   h+=`<div class="stat"><div><b class="num">${done}<span style="font-size:14px;color:var(--ink3)"> / ${list.length}</span></b><span>코디 촬영 완료</span></div><div><b class="num">${reels.filter(r=>r.done).length}<span style="font-size:14px;color:var(--ink3)"> / ${reels.length}</span></b><span>오늘 릴스 완료</span></div></div>`;
   for(const m of models()){ const l=list.filter(o=>o.model===m); if(!l.length) continue; const dn=l.filter(o=>o.done).length;
     h+=`<div class="sec"><h2>${esc(m)}</h2><span class="meta num">${dn} / ${l.length}착</span></div><div class="bar"><b style="width:${l.length?dn/l.length*100:0}%"></b></div><div class="grid small">${l.map(o=>outfitCard(o,'check')).join('')}</div>`; }
@@ -331,7 +341,7 @@ function outfitsTab(){ if(!S.trip) return noTrip(); const d=S.day; const memos=l
     h+=`<p class="hint">✓ 는 메모 처리 완료. 행을 누르면 메모를 고칠 수 있습니다.</p>`; return h; }
   const list=outfitsOf(d,S.model);
   const cnt=models().map(m=>`${esc(m)} ${outfitsOf(d,m).length}착`).join(' · ');
-  h+=`<div class="sec"><h2>${d}일차 코디${locOf(d)?` <span style="font-weight:500;color:var(--ink2);font-size:13px">· 📍 ${esc(locOf(d))}</span>`:''}</h2><span class="meta num">${cnt}</span></div>`;
+  h+=`<div class="sec"><h2>${d}일차 코디${locList(d).length?` <span style="font-weight:500;color:var(--ink2);font-size:13px">· 📍 ${esc(locList(d).join(' · '))}</span>`:''}</h2><span class="meta num">${cnt}</span></div>`;
   h+=list.length?`<div class="grid">${list.map(o=>outfitCard(o,'view')).join('')}</div>`:`<div class="empty">아직 코디가 없습니다.<br>아래 ＋ 버튼으로 사진을 올리세요.</div>`;
   h+=`<p class="hint">카드를 누르면 메모, 번호, 일차/모델 이동, 삭제가 가능합니다.</p>`; return h; }
 function reelsTab(){ if(!S.trip) return noTrip(); const f=S.reelDay; const list=S.reels.filter(r=>f==='all'||r.day===f).sort(byOrder);
@@ -390,8 +400,10 @@ function sheet(){ if(!S.sheet) return ''; const s=S.sheet; let body='';
   if(s.type==='pickOutfits'){ const sel=new Set(s.sel); body=`<h2>코디 선택</h2>`; for(let d=1;d<=dayCount();d++){ const l=outfitsOf(d,'all'); if(!l.length) continue; body+=`<div class="sec"><h2>${d}일차</h2></div><div class="grid">${l.map(o=>`<div class="card ${sel.has(o.id)?'sel':''}" data-a="selOutfit" data-id="${o.id}">${imgTag(o.photoId)}<span class="no num">${o.order}</span><span class="lbl">${esc(o.model)}</span></div>`).join('')}</div>`; }
     body+=`<div class="btnrow" style="margin-top:14px"><button class="btn pri" data-a="doneSel">선택 완료 (${sel.size})</button></div>`; }
   if(s.type==='sch'){ const d=s.draft; body=`<h2>${s.id?'일정 수정':'일정 추가'}</h2><div class="field"><label>언제</label><input class="in" data-f="when" value="${esc(d.when)}" placeholder="예: 9/9 저녁 또는 9/10 오전"></div><div class="field"><label>내용</label><input class="in" data-f="title" value="${esc(d.title)}" placeholder="예: 3~4일차 코디 제품컷 (총 26착)"></div><div class="field"><label>메모</label><textarea class="in" data-f="note">${esc(d.note)}</textarea></div><div class="btnrow"><button class="btn pri" data-a="saveSch">저장</button><button class="btn" data-a="close">닫기</button></div>${s.id?`<div class="btnrow"><button class="btn danger" data-a="delSch" data-id="${s.id}">삭제</button></div>`:''}`; }
-  if(s.type==='loc'){ body=`<h2>${s.day}일차 촬영 장소</h2><p class="hint" style="margin:-6px 0 10px">${fmtD(dayDate(s.day))}</p><div class="field"><input class="in" data-f="loc" value="${esc(s.draft.loc)}" placeholder="예: 오도리 공원 → 스스키노 → 삿포로역"></div><div class="btnrow"><button class="btn pri" data-a="saveLoc">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
-  if(s.type==='trip'){ const d=s.draft; const locs=s.isNew?'':Array.from({length:Math.max(1,Math.min(30,+d.days||1))},(_,i)=>i+1).map(i=>`<div class="field"><label>${i}일차 촬영 장소 <span style="font-weight:400">${fmtD(dayDate(i))}</span></label><input class="in" data-f="loc${i}" value="${esc(d['loc'+i]||'')}" placeholder="예: 오도리 공원"></div>`).join('');
+  if(s.type==='loc'){ body=`<h2>${s.day}일차 촬영 장소</h2><p class="hint" style="margin:-6px 0 10px">${fmtD(dayDate(s.day))}</p><div class="field"><label>한 줄에 장소 하나씩</label><textarea class="in" data-f="loc" placeholder="오도리 공원
+스스키노
+삿포로역">${esc(s.draft.loc)}</textarea></div><div class="btnrow"><button class="btn pri" data-a="saveLoc">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
+  if(s.type==='trip'){ const d=s.draft; const locs=s.isNew?'':Array.from({length:Math.max(1,Math.min(30,+d.days||1))},(_,i)=>i+1).map(i=>`<div class="field"><label>${i}일차 촬영 장소 <span style="font-weight:400">${fmtD(dayDate(i))} · 한 줄에 하나</span></label><textarea class="in" data-f="loc${i}" style="min-height:56px">${esc(d['loc'+i]||'')}</textarea></div>`).join('');
     body=`<h2>${s.isNew?'새 출장':'출장 정보 수정'}</h2><div class="field"><label>이름</label><input class="in" data-f="name" value="${esc(d.name)}" placeholder="예: 2026 삿포로 출장 촬영"></div><div class="two"><div class="field"><label>시작일</label><input class="in" type="date" data-f="start" value="${esc(d.start)}"></div><div class="field"><label>일수</label><input class="in" type="number" min="1" max="30" data-f="days" value="${esc(d.days)}"></div></div><div class="field"><label>모델 (쉼표로 구분)</label><input class="in" data-f="modelsText" value="${esc(d.modelsText)}" placeholder="다나, 진주"></div>${locs}${s.isNew&&S.reels.length?`<div class="field"><label><input type="checkbox" data-f="copyReels" ${d.copyReels?'checked':''}> 현재 출장의 릴스 기획 ${S.reels.length}개를 복사 (완료 표시는 초기화)</label></div>`:''}<div class="btnrow"><button class="btn pri" data-a="saveTrip">저장</button><button class="btn" data-a="close">닫기</button></div>`; }
   return `<div class="ov" data-a="close"><div class="sheet" data-stop="1"><div class="grip"></div>${body}</div></div>`; }
 
@@ -446,6 +458,16 @@ document.addEventListener('click',async e=>{ const el=e.target.closest('[data-a]
     case 'saveSch': { const s=S.sheet, d=s.draft; if(!d.title.trim()){ toast('내용을 입력하세요'); break; } const sid=s.id||uid('s'); const prev=S.schedule.find(x=>x.id===s.id)||{}; S.sheet=null; setItem('schedule',sid,{when:d.when||'',title:d.title.trim(),note:d.note||'',order:prev.order||S.schedule.length+1,done:!!prev.done,doneBy:prev.doneBy||'',doneAt:prev.doneAt||''}); break; }
     case 'delSch': if(confirm('이 일정을 삭제할까요?')){ S.sheet=null; delItem('schedule',id); } break;
     case 'editTrip': { const dr={name:S.trip.name,start:S.trip.start,days:S.trip.days,modelsText:models().join(', ')}; for(let i=1;i<=dayCount();i++) dr['loc'+i]=locOf(i); open({type:'trip',isNew:false,draft:dr}); break; }
+    case 'copySummary': { const d=S.day, list=outfitsOf(d,'all'), reels=S.reels.filter(r=>r.day===d), any=S.reels.filter(r=>!r.day);
+      const und=m=>list.filter(o=>o.model===m&&!o.done).map(o=>o.order).join(', ');
+      let t=`[${S.trip.name}] ${d}일차 ${fmtD(dayDate(d))} 마감\n`; if(locList(d).length) t+=`장소: ${locList(d).join(', ')}\n`;
+      t+=`코디: ${list.filter(o=>o.done).length}/${list.length} 완료\n`+models().map(m=>{const l=list.filter(o=>o.model===m); return l.length?`- ${m} ${l.filter(o=>o.done).length}/${l.length}${und(m)?` (미완료: ${und(m)})`:''}`:''}).filter(Boolean).join('\n')+'\n';
+      t+=`릴스: ${reels.filter(r=>r.done).length}/${reels.length} 완료${reels.some(r=>!r.done)?` (미완료: ${reels.filter(r=>!r.done).map(r=>r.title).join(', ')})`:''}\n틈틈이: ${any.filter(r=>r.done).length}/${any.length}\n`;
+      const memos=list.filter(o=>o.note&&o.note.trim()); if(memos.length) t+=`메모:\n`+memos.map(o=>`- ${outfitLabel(o)}: ${o.note.trim()}${o.noteDone?' (처리됨)':''}`).join('\n')+'\n';
+      try{ await navigator.clipboard.writeText(t); toast('요약을 복사했습니다. 카톡에 붙여넣으세요'); }catch(e){ prompt('아래 내용을 복사하세요',t); } break; }
+    case 'carryOver': { const d=S.day; const und=outfitsOf(d,'all').filter(o=>!o.done); if(!und.length||d>=dayCount()) break; if(!confirm(`미완료 ${und.length}착을 ${d+1}일차로 옮길까요?`)) break;
+      const next={}; for(const m of models()) next[m]=Math.max(0,...outfitsOf(d+1,m).map(o=>o.order));
+      for(const o of und){ next[o.model]=(next[o.model]||0)+1; await setItem('outfit',o.id,{...o,day:d+1,order:next[o.model]}); } toast(`${und.length}착을 ${d+1}일차로 옮겼습니다`); break; }
     case 'editLoc': { const day=+el.dataset.day; open({type:'loc',day,draft:{loc:locOf(day)}}); break; }
     case 'saveLoc': { const s=S.sheet; const locations={...(S.trip.locations||{})}; const v=(s.draft.loc||'').trim(); if(v) locations[s.day]=v; else delete locations[s.day]; S.sheet=null; mutate({op:'trip_set',trip:{id:S.tripId,name:S.trip.name,start:S.trip.start,days:S.trip.days,models:models(),locations}}); toast('저장됨'); break; }
     case 'newTrip': open({type:'trip',isNew:true,draft:{name:'',start:'',days:4,modelsText:models().join(', '),copyReels:true}}); break;
