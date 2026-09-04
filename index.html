@@ -1674,7 +1674,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
   const bb = admgr.budget;
   const showChg = admgr.preset === 'today' && (isCamp || isSet) && !admgr.demo;
-  const showMid = !!(admgr.write.st && admgr.write.st.allowed) && (isCamp || isSet) && !admgr.demo;   // '자정세팅' 열 — 예산 쓰기 가능할 때만
+  const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo;   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
   let chgChips = '';
   if (showChg && bb.byObj) {
     const base = vis;
@@ -1798,10 +1798,12 @@ function admgrMidCell(r, level) {
     return `<span class="status-badge badge-green" style="white-space:nowrap;" title="자정(${pend.apply_date} 00:00)에 ${comma(target)}원으로 반영 예약됨 — 취소는 예산 연필 팝업에서">✓ 자정 ${comma(target)}</span>`;
   }
   const max = (admgr.write.st && admgr.write.st.max_budget) || 300000;
-  const over = target > max;
-  return `<button class="filter-tab" style="padding:3px 10px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;${over ? 'opacity:.45;' : ''}"
+  if (target > max) {   // 상한 초과 — 버튼 대신 표시만 (사용자가 따로 수동 변경, 2026-09-04)
+    return `<span class="status-badge badge-red" style="white-space:nowrap;" title="×10 = ${comma(target)}원 → 서버 상한 ${comma(max)}원 초과. 이 세트는 예산 연필로 직접 변경하세요"><i class="fa-solid fa-triangle-exclamation"></i> 상한 초과 ${comma(target)}</span>`;
+  }
+  return `<button class="filter-tab" style="padding:3px 10px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;"
     onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}')"
-    title="${over ? `상한 초과 — ${comma(target)}원은 서버 상한 ${comma(max)}원을 넘어요` : `클릭 한 번으로 자정에 ${comma(target)}원(현재 ${comma(r.budget)}원 ×10)으로 예약`}"><i class="fa-regular fa-clock"></i> ${comma(target)}</button>`;
+    title="클릭 한 번으로 자정에 ${comma(target)}원(현재 ${comma(r.budget)}원 ×10)으로 예약"><i class="fa-regular fa-clock"></i> ${comma(target)}</button>`;
 }
 async function admgrMidQuick(id, level) {
   const w = admgr.write;
