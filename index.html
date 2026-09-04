@@ -362,6 +362,7 @@
     <button class="menu-item" data-menu="test" onclick="showMenu('test')"><i class="fa-solid fa-flask"></i> 테스트 소재</button>
     <div class="menu-group">Meta 연동</div>
     <button class="menu-item" data-menu="admgr" onclick="showMenu('admgr')"><i class="fa-brands fa-meta"></i> 광고관리자</button>
+    <button class="menu-item" data-menu="upload" onclick="showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 광고 업로드</button>
     <div class="menu-group">카페24 연동</div>
     <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column"></i> 판매 성과</button>
     <div class="menu-group">관리</div>
@@ -463,6 +464,44 @@
       <div class="section-header"><h2><i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)</h2>
         <span class="hdr-note" id="admgr-note">보기 전용 — 켜고 끄기·예산은 Meta에서</span></div>
       <div class="section-body" id="admgr-body"></div>
+    </div>
+
+    <!-- ═══ 광고 업로드 (Meta) — Ads Uploader 대체 v1 ═══ -->
+    <div class="section-card page-sec" id="sec-upload">
+      <div class="section-header"><h2><i class="fa-solid fa-cloud-arrow-up" style="color:#4f46e5;font-size:.9em;"></i> 광고 업로드</h2>
+        <span class="hdr-note">파일 1개 = 광고세트 1개 + 광고 1개 · 세트 설정·강화옵션·페이지는 모델 광고와 동일, 예산만 입력</span></div>
+      <div class="section-body">
+        <!-- ① 모델 광고 -->
+        <div style="font-weight:800;color:#1e1b4b;margin-bottom:8px;">① 모델 광고 선택 <span style="font-weight:400;color:#6b7280;font-size:.78rem;">— 이 광고의 세트 설정(타겟·최적화·픽셀)과 페이지·강화옵션을 그대로 복사해요</span></div>
+        <div id="upl-model"></div>
+
+        <!-- ② 파일 -->
+        <div style="font-weight:800;color:#1e1b4b;margin:22px 0 8px;">② 소재 파일 <span style="font-weight:400;color:#6b7280;font-size:.78rem;">— 파일명이 광고세트명·광고명이 돼요 (수정 가능)</span></div>
+        <div id="upl-drop" style="border:2px dashed #c7d2fe;border-radius:12px;padding:22px;text-align:center;color:#6b7280;cursor:pointer;background:#fafaff;"
+             onclick="$('upl-file').click()" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background='#fafaff'"
+             ondrop="event.preventDefault();this.style.background='#fafaff';uplAddFiles(event.dataTransfer.files)">
+          <i class="fa-solid fa-upload" style="font-size:1.4rem;color:#4f46e5;"></i><div style="margin-top:6px;">파일을 끌어다 놓거나 클릭해서 선택 — JPG · PNG · MP4 · MOV</div>
+          <input type="file" id="upl-file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" style="display:none;" onchange="uplAddFiles(this.files);this.value=''" />
+        </div>
+        <div id="upl-files" style="margin-top:12px;"></div>
+
+        <!-- ③ 설정 · 실행 -->
+        <div style="font-weight:800;color:#1e1b4b;margin:22px 0 8px;">③ 설정 · 생성</div>
+        <div class="control-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
+          <div class="input-group" style="margin:0;"><label>세트당 일예산 (원)</label>
+            <input class="inp" id="upl-budget" type="number" min="1000" step="1000" placeholder="모델 세트 예산" style="width:150px;background:#fff;" /></div>
+          <div class="input-group" style="margin:0;"><label>생성 상태</label>
+            <div style="display:flex;gap:14px;padding:8px 0;font-size:.85rem;">
+              <label style="cursor:pointer;"><input type="radio" name="upl-mode" value="PAUSED" checked /> 일시중지로 생성</label>
+              <label style="cursor:pointer;"><input type="radio" name="upl-mode" value="ACTIVE" /> 바로 활성</label></div></div>
+          <button class="btn-ghost" onclick="uplTextOpen(-1)"><i class="fa-solid fa-pen"></i> 광고 문구 일괄 기입</button>
+          <button class="btn-ghost" onclick="uplDiagnose()" title="실제 생성 없이 Meta에 세트·크리에이티브·광고 생성 요청을 검증"><i class="fa-solid fa-stethoscope"></i> 연결 진단</button>
+          <div class="input-group" style="margin:0;margin-left:auto;"><label>PIN</label>
+            <input class="inp" id="upl-pin" type="password" inputmode="numeric" placeholder="예산 변경 PIN" style="width:130px;background:#fff;" /></div>
+          <button class="btn-analyze" id="upl-run" onclick="uplRun()"><i class="fa-solid fa-rocket"></i> 광고 생성</button>
+        </div>
+        <div id="upl-log" style="display:none;margin-top:14px;background:#0f172a;color:#cbd5e1;font-family:ui-monospace,Menlo,monospace;font-size:.74rem;border-radius:10px;padding:12px 14px;max-height:260px;overflow:auto;line-height:1.6;"></div>
+      </div>
     </div>
 
     <!-- ═══ 판매 성과 (카페24) — dnrb-dashboard 이식 패키지 ═══ -->
@@ -628,6 +667,26 @@
 
   </div><!-- /container -->
 </div><!-- /layout -->
+
+<!-- ═══ 광고 문구 기입 모달 (광고 업로드) ═══ -->
+<div class="modal" id="upl-text-modal" onclick="if(event.target===this)closeModal('upl-text-modal')">
+  <div class="modal-box wide">
+    <div class="modal-head"><b id="upl-text-title">광고 문구 기입</b><button class="modal-x" onclick="closeModal('upl-text-modal')">✕</button></div>
+    <div class="input-group"><label>본문 (Primary text)</label><textarea class="inp" id="ut-message" rows="8" placeholder="광고 본문"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="input-group"><label>제목 (Headline) — 비워도 됨</label><input class="inp" id="ut-title" /></div>
+      <div class="input-group"><label>링크 설명 — 비워도 됨</label><input class="inp" id="ut-description" /></div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">
+      <div class="input-group"><label>웹사이트 URL *</label><input class="inp" id="ut-link" placeholder="https://danarobe.com/product/..." /></div>
+      <div class="input-group"><label>CTA 버튼</label><select class="inp" id="ut-cta"></select></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">
+      <button class="btn-ghost" onclick="uplTextReset()">모델 광고 문구로</button>
+      <button class="btn-analyze" onclick="uplTextApply()">적용</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ 카페24 상품 선택 모달 (광고소재 대시보드) ═══ -->
 <div class="modal" id="pt-pick-modal" onclick="if(event.target===this)closeModal('pt-pick-modal')">
@@ -850,7 +909,7 @@ function showMenu(key) {
   $('sec-' + key).style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   // 광고관리자는 Meta 프리셋 기간을 따로 쓰므로 공통 기간 바를 숨긴다
-  $('period-bar').style.display = (key === 'admgr' || key === 'perf') ? 'none' : 'flex';
+  $('period-bar').style.display = (key === 'admgr' || key === 'perf' || key === 'upload') ? 'none' : 'flex';
   rerender();
 }
 function rerender() {
@@ -861,6 +920,7 @@ function rerender() {
   else if (curMenu === 'compare') renderCompare(p);
   else if (curMenu === 'test') renderTest();
   else if (curMenu === 'admgr') renderAdmgr();
+  else if (curMenu === 'upload') renderUpload();
   else if (curMenu === 'perf') perfMenuInit();
   else if (curMenu === 'data') renderData();
 }
@@ -1450,6 +1510,219 @@ function renderPTest() {
     칸을 클릭할 때마다 <b>— → 제작완료 → 진행중 → 해제</b> 순서로 바뀌고, 바꾼 날짜가 함께 기록돼요.
     소재 유형 열은 위의 <b>소재 유형 추가</b>로 자유롭게 늘릴 수 있어요 (예: 후킹영상, 카드뉴스).</p>`;
   ptSelBtn();
+}
+
+/* ═══════════ ④-4 광고 업로드 (Meta) — Ads Uploader 대체 v1 ═══════════
+   사용자 실사용 패턴: 모델 광고(직전 테스트 광고) 선택 → 파일 N개 → 파일당 새 세트(예산만 입력)+광고 1개,
+   문구는 직접 기입, 강화옵션·페이지·타겟은 모델 그대로. 미디어는 meta-upload 함수를 거쳐 조각 전송(토큰은 서버에만). */
+const upl = { data: null, camp: null, set: null, modelAdId: null, model: null, files: [], commonText: null, running: false };
+const UPL_CTA = [['LEARN_MORE','더 알아보기'],['SHOP_NOW','지금 구매하기'],['ORDER_NOW','지금 주문하기'],['BUY_NOW','바로 구매'],['GET_OFFER','혜택 받기'],['SIGN_UP','가입하기'],['CONTACT_US','문의하기'],['NO_BUTTON','버튼 없음']];
+const UPL_CHUNK = 4 * 1024 * 1024;   // ponytail: 4MB 조각 — Supabase 함수 요청 크기 한도 안전값. 느리면 8MB로
+
+async function uplCall(params, payload) {
+  const cfg = admgrCfg();
+  const url = cfg.SUPABASE_URL + '/functions/v1/meta-upload?' + new URLSearchParams(params);
+  const init = payload === undefined ? { headers: metaHeaders(cfg) }
+    : payload instanceof FormData ? { method: 'POST', headers: metaHeaders(cfg), body: payload }
+    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
+  const res = await fetch(url, init);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+const uplPin = () => ($('upl-pin').value || '').trim();
+
+function renderUpload() {
+  if (!admgrCfg()) { $('upl-model').innerHTML = `<div class="empty-state" style="padding:24px;"><p>config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP-광고관리자.md)</p></div>`; return; }
+  if (!$('upl-pin').value) $('upl-pin').value = lsGet('adc_admgr_pin', '') || '';
+  if (!upl.data) { upl.data = admgr.data; }   // 광고관리자에서 이미 불러왔으면 재사용
+  uplRenderModel(); uplRenderFiles();
+}
+async function uplLoad() {
+  $('upl-model').innerHTML = '<div style="padding:16px;color:#6b7280;">Meta 광고 목록 불러오는 중…</div>';
+  try { upl.data = await metaGet({ action: 'hierarchy', preset: 'last_7d' }); }
+  catch (e) { toast('불러오기 실패: ' + e.message); upl.data = null; }
+  uplRenderModel();
+}
+const byCreatedDesc = (a, b) => String(b.created || '').localeCompare(String(a.created || ''));
+function uplRenderModel() {
+  const box = $('upl-model');
+  if (!upl.data) { box.innerHTML = `<button class="btn-analyze" onclick="uplLoad()"><i class="fa-solid fa-rotate"></i> Meta 광고 목록 불러오기</button>`; return; }
+  const camps = [...upl.data.campaigns].sort(byCreatedDesc);
+  const camp = camps.find(c => c.id === upl.camp) || null;
+  const sets = camp ? [...camp.adsets].sort(byCreatedDesc) : [];
+  const set = sets.find(s => s.id === upl.set) || null;
+  const ads = set ? [...set.ads].sort(byCreatedDesc) : [];
+  const col = (title, rows, sel, fn) => `<div style="border:1px solid #e7e8ee;border-radius:10px;overflow:hidden;min-width:0;">
+    <div style="background:#f8fafc;padding:6px 10px;font-size:.72rem;font-weight:700;color:#475569;">${title} (${rows.length})</div>
+    <div style="max-height:220px;overflow:auto;">${rows.map(r => `<div onclick="${fn}('${r.id}')" style="padding:6px 10px;font-size:.78rem;cursor:pointer;border-bottom:1px solid #f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${r.id===sel?'background:#eef2ff;color:#3730a3;font-weight:700;':''}" title="${esc(r.name)}">
+      <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${r.status==='ACTIVE'?'#16a34a':'#cbd5e1'};margin-right:6px;"></span>${esc(r.name)}</div>`).join('') || '<div style="padding:14px;color:#9ca3af;font-size:.76rem;">왼쪽에서 선택</div>'}</div></div>`;
+  const m = upl.model, s = m && m.summary;
+  box.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+      ${col('캠페인', camps, upl.camp, 'uplPickCamp')}${col('광고세트', sets, upl.set, 'uplPickSet')}${col('광고', ads, upl.modelAdId, 'uplPickAd')}
+    </div>
+    <div style="margin-top:6px;text-align:right;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplLoad()"><i class="fa-solid fa-rotate"></i> 목록 새로고침</button></div>
+    ${m ? `<div style="margin-top:8px;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;padding:12px 14px;font-size:.8rem;line-height:1.8;">
+      <div><b style="color:#1e1b4b;">모델:</b> ${esc(m.campaign.name)} › ${esc(m.adset.name)} › ${esc(m.ad.name)}</div>
+      <div style="color:#475569;">최적화 <b>${esc(s.optimization_goal||'-')}</b> · 입찰 ${esc(s.bid_strategy||'-')} · 타겟 ${esc((s.countries||[]).join(',')||'-')} ${esc(s.age)} ${s.genders&&s.genders.length?(s.genders[0]===1?'남':'여'):'전체'}
+        · ${m.cbo ? `<span style="color:#b45309;">캠페인 예산(CBO) ${s.campaign_daily_budget.toLocaleString()}원 — 세트 예산 입력 불필요</span>` : `세트 일예산 ${s.daily_budget.toLocaleString()}원`}
+        · 소재 ${m.creative.kind === 'video' ? '영상' : m.creative.kind === 'image' ? '이미지' : '기타'}${m.creative.dynamic ? ' <span style="color:#dc2626;">(다이나믹/플렉시블 소재 — 문구 복사가 불완전할 수 있어요)</span>' : ''}</div>
+      <div style="color:#475569;">문구: ${esc((m.text.message||'').slice(0,80))}${(m.text.message||'').length>80?'…':''} · URL ${esc((m.text.link||'').slice(0,60))}</div>
+    </div>` : upl.modelAdId ? '<div style="padding:10px;color:#6b7280;font-size:.8rem;">모델 광고 설정 읽는 중…</div>' : ''}`;
+}
+function uplPickCamp(id) { upl.camp = id; upl.set = null; uplRenderModel(); }
+function uplPickSet(id) { upl.set = id; uplRenderModel(); }
+async function uplPickAd(id) {
+  upl.modelAdId = id; upl.model = null; uplRenderModel();
+  try {
+    upl.model = await uplCall({ action: 'model', ad_id: id });
+    if (!$('upl-budget').value && !upl.model.cbo) $('upl-budget').value = upl.model.summary.daily_budget || '';
+  } catch (e) { toast('모델 광고 읽기 실패: ' + e.message); upl.modelAdId = null; }
+  uplRenderModel(); uplRenderFiles();
+}
+
+/* ── 파일 ── */
+function uplAddFiles(list) {
+  for (const f of list) {
+    const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name);
+    const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
+    if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
+    if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
+    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), text: null, status: '대기', result: null });
+  }
+  uplRenderFiles();
+}
+function uplDelFile(id) { upl.files = upl.files.filter(f => f.id !== id); uplRenderFiles(); }
+const fmtMB = n => (n / 1048576).toFixed(1) + ' MB';
+function uplRenderFiles() {
+  const box = $('upl-files');
+  if (!upl.files.length) { box.innerHTML = ''; $('upl-run').textContent = ' 광고 생성'; return; }
+  box.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
+    <tbody>${upl.files.map((f, i) => `<tr>
+      <td style="font-size:.78rem;"><i class="fa-solid ${f.kind==='video'?'fa-video':'fa-image'}" style="color:#4f46e5;"></i> ${esc(f.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(f.file.size)}</div></td>
+      <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
+      <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})">${f.text ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 기입됨' : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
+      <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
+      <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+  $('upl-run').innerHTML = `<i class="fa-solid fa-rocket"></i> 광고 생성 (${upl.files.length}개)`;
+}
+
+/* ── 문구 모달: idx=-1 → 전체 일괄, 아니면 해당 행 ── */
+let uplTextIdx = -1;
+function uplTextOpen(idx) {
+  uplTextIdx = idx;
+  const base = (idx >= 0 && upl.files[idx].text) || upl.commonText || (upl.model && upl.model.text) || { message: '', title: '', description: '', link: '', cta: 'LEARN_MORE' };
+  $('upl-text-title').textContent = idx >= 0 ? `광고 문구 — ${upl.files[idx].name}` : '광고 문구 일괄 기입 (모든 파일에 적용)';
+  $('ut-cta').innerHTML = UPL_CTA.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  uplTextFill(base);
+  $('upl-text-modal').classList.add('show'); $('ut-message').focus();
+}
+function uplTextFill(t) { $('ut-message').value = t.message || ''; $('ut-title').value = t.title || ''; $('ut-description').value = t.description || ''; $('ut-link').value = t.link || ''; $('ut-cta').value = t.cta || 'LEARN_MORE'; }
+function uplTextReset() { if (!upl.model) { toast('모델 광고를 먼저 선택하세요'); return; } uplTextFill(upl.model.text); }
+function uplTextApply() {
+  const t = { message: $('ut-message').value.trim(), title: $('ut-title').value.trim(), description: $('ut-description').value.trim(), link: $('ut-link').value.trim(), cta: $('ut-cta').value };
+  if (!/^https?:\/\//.test(t.link)) { toast('웹사이트 URL을 http(s)://로 입력하세요'); return; }
+  if (!t.message) { toast('본문을 입력하세요'); return; }
+  if (uplTextIdx >= 0) upl.files[uplTextIdx].text = t;
+  else { upl.commonText = t; for (const f of upl.files) f.text = null; }
+  closeModal('upl-text-modal'); uplRenderFiles();
+  toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : '모든 파일에 문구를 적용했어요');
+}
+
+/* ── 진단: 쓰기 토큰의 페이지 권한 + validate_only (생성 없음) ── */
+async function uplDiagnose() {
+  if (!upl.modelAdId) { toast('① 모델 광고를 먼저 선택하세요'); return; }
+  uplLog('연결 진단 시작 (실제 생성 없음)');
+  try {
+    const d = await uplCall({ action: 'diagnose', ad_id: upl.modelAdId });
+    uplLog(`쓰기 토큰 사용자: ${d.me && d.me.name ? d.me.name : d.me} · 권한: ${Array.isArray(d.permissions) ? d.permissions.join(', ') : d.permissions}`);
+    const pageOk = d.page && d.page.id;
+    uplLog(pageOk ? `페이지 접근 OK: ${d.page.name}` : `페이지 접근 불가 — 비즈니스 설정에서 시스템 사용자에게 페이지 자산을 추가하고 토큰을 재발급하세요 (SETUP-광고업로드.md)`, pageOk ? 'ok' : 'err');
+    if (d.instagram) uplLog(d.instagram.username ? `인스타그램 접근 OK: @${d.instagram.username}` : `인스타그램 접근 불가: ${d.instagram}`, d.instagram.username ? 'ok' : 'err');
+    const v = await uplCall({ action: 'validate', ad_id: upl.modelAdId });
+    for (const k of ['adset', 'creative', 'ad']) uplLog(`${{ adset: '광고세트', creative: '크리에이티브', ad: '광고' }[k]} 생성 검증: ${v[k]}`, v[k] === 'ok' ? 'ok' : 'err');
+    const all = ['adset', 'creative', 'ad'].every(k => v[k] === 'ok');
+    uplLog(all ? '진단 통과 — 광고 생성 가능' : '진단 실패 항목이 있어요 — 위 메시지를 확인하세요', all ? 'ok' : 'err');
+  } catch (e) { uplLog('진단 실패: ' + e.message, 'err'); }
+}
+
+/* ── 실행 ── */
+function uplLog(msg, cls) {
+  const box = $('upl-log'); box.style.display = 'block';
+  const t = new Date().toTimeString().slice(0, 8);
+  box.insertAdjacentHTML('beforeend', `<div style="${cls==='ok'?'color:#4ade80;':cls==='err'?'color:#f87171;':''}">${t} ${cls==='ok'?'✓':cls==='err'?'✗':'→'} ${esc(msg)}</div>`);
+  box.scrollTop = box.scrollHeight;
+}
+function uplSetStatus(f, s) { f.status = s; uplRenderFiles(); }
+async function uplUploadMedia(f, pin) {
+  if (f.kind === 'image') {
+    const fd = new FormData(); fd.append('pin', pin); fd.append('file', f.file, f.file.name);
+    const r = await uplCall({ action: 'image' }, fd);
+    return { type: 'image', image_hash: r.image_hash };
+  }
+  const size = f.file.size;
+  const st = await uplCall({ action: 'video_start' }, { pin, file_size: size });
+  let start = st.start_offset, end = st.end_offset;
+  while (start < size) {
+    const to = Math.min(end, start + UPL_CHUNK, size);
+    const fd = new FormData(); fd.append('pin', pin); fd.append('session_id', st.session_id); fd.append('start_offset', String(start));
+    fd.append('chunk', f.file.slice(start, to), 'chunk');
+    const r = await uplCall({ action: 'video_chunk' }, fd);
+    start = r.start_offset; end = r.end_offset;
+    uplSetStatus(f, `영상 전송 ${Math.round(start / size * 100)}%`);
+  }
+  await uplCall({ action: 'video_finish' }, { pin, session_id: st.session_id, title: f.name });
+  uplSetStatus(f, 'Meta 영상 처리 대기…');
+  for (let i = 0; i < 100; i++) {   // 최대 5분
+    await new Promise(r => setTimeout(r, 3000));
+    const v = await uplCall({ action: 'video_status', video_id: st.video_id });
+    if (v.video_status === 'error') throw new Error('Meta 영상 처리 실패');
+    if (v.ready && v.thumbnail_url) return { type: 'video', video_id: st.video_id, thumbnail_url: v.thumbnail_url };
+    uplSetStatus(f, `Meta 영상 처리 중 ${v.progress != null ? v.progress + '%' : ''}`);
+  }
+  throw new Error('영상 처리 시간 초과 (5분)');
+}
+async function uplRun() {
+  if (upl.running) return;
+  if (!upl.model) { toast('① 모델 광고를 먼저 선택하세요'); return; }
+  if (!upl.files.length) { toast('② 파일을 추가하세요'); return; }
+  const pin = uplPin(); if (!pin) { toast('PIN을 입력하세요'); $('upl-pin').focus(); return; }
+  const budget = Number($('upl-budget').value || 0);
+  if (!upl.model.cbo && (budget < 1000 || budget > 300000)) { toast('세트당 일예산은 1,000~300,000원'); $('upl-budget').focus(); return; }
+  const mode = document.querySelector('input[name=upl-mode]:checked').value;
+  const missing = upl.files.filter(f => !(f.text || upl.commonText));
+  if (missing.length) { toast(`문구가 없는 파일 ${missing.length}개 — 기입하거나 일괄 기입하세요`); return; }
+  const dup = upl.files.filter(f => !f.name.trim()); if (dup.length) { toast('이름이 빈 파일이 있어요'); return; }
+  const pending = upl.files.filter(f => !f.result);
+  if (!pending.length) { toast('모두 생성 완료됐어요'); return; }
+  if (!confirm(`광고 ${pending.length}개를 ${mode === 'ACTIVE' ? '⚠ 바로 활성 상태로' : '일시중지 상태로'} 생성할까요?\n캠페인: ${upl.model.campaign.name}\n${upl.model.cbo ? '캠페인 예산(CBO)' : `세트당 일예산 ${budget.toLocaleString()}원`}\n\n${mode === 'ACTIVE' ? '활성 생성은 즉시 지출이 시작돼요.' : '광고관리자에서 켜기 전까지 지출 없음.'}`)) return;
+
+  upl.running = true; $('upl-run').disabled = true; uplRenderFiles();
+  lsSet('adc_admgr_pin', pin);
+  uplLog(`시작 — ${pending.length}개, ${mode}, 모델 ${upl.model.ad.name}`);
+  let ok = 0;
+  for (const f of pending) {
+    try {
+      uplSetStatus(f, f.kind === 'video' ? '영상 전송 0%' : '이미지 업로드 중');
+      const media = await uplUploadMedia(f, pin);
+      uplLog(`${f.name}: 미디어 업로드 완료`);
+      uplSetStatus(f, '세트·광고 생성 중');
+      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget, status: mode, media, text: f.text || upl.commonText });
+      f.result = r; ok++;
+      uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id})`);
+      uplLog(`${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
+    } catch (e) {
+      uplSetStatus(f, '실패: ' + e.message);
+      uplLog(`${f.name}: ${e.message}`, 'err');
+      if (/PIN/.test(e.message)) { uplLog('PIN 오류 — 중단', 'err'); break; }
+    }
+  }
+  upl.running = false; $('upl-run').disabled = false; uplRenderFiles();
+  uplLog(`끝 — 성공 ${ok} / ${pending.length}`, ok === pending.length ? 'ok' : 'err');
+  toast(`광고 생성 ${ok}/${pending.length} 완료`);
 }
 
 /* ═══════════ ④-3 광고관리자 (Meta) — DNRB 이식 1단계: 읽기 전용 계층 뷰 ═══════════
