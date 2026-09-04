@@ -1794,31 +1794,36 @@ const admgrIsTestSet = r => /test/i.test(String(r.name || ''));   // 테스트 �
 function admgrMidCell(r, level) {
   if (!(r.budget > 0)) return '<span style="color:#d1d5db;">—</span>';
   if (admgrIsTestSet(r)) return `<span class="status-badge badge-gray" style="white-space:nowrap;" title="세트명에 'test'가 있어 자정세팅에서 자동 제외 (테스트 소재 세트)">테스트 제외</span>`;
+  /* 금액 입력칸(기본 = ×10, 예약이 있으면 그 금액) + ⏰ 예약 버튼 — 그대로 누르면 ×10, 고쳐서 누르면 그 금액 (2026-09-04 사용자 요청) */
   const target = Math.round(r.budget * 10);
   const pend = admgr.write.pendingByObj && admgr.write.pendingByObj.get(r.id);
-  if (pend && Math.round(pend.new_budget) === target) {
-    return `<span class="status-badge badge-green" style="white-space:nowrap;" title="자정(${pend.apply_date} 00:00)에 ${comma(target)}원으로 반영 예약됨 — 취소는 예산 연필 팝업에서">✓ 자정 ${comma(target)}</span>`;
-  }
   const max = (admgr.write.st && admgr.write.st.max_budget) || 300000;
-  if (target > max) {   // 상한 초과 — 버튼 대신 표시만 (사용자가 따로 수동 변경, 2026-09-04)
-    return `<span class="status-badge badge-red" style="white-space:nowrap;" title="×10 = ${comma(target)}원 → 서버 상한 ${comma(max)}원 초과. 이 세트는 예산 연필로 직접 변경하세요"><i class="fa-solid fa-triangle-exclamation"></i> 상한 초과 ${comma(target)}</span>`;
-  }
-  return `<button class="filter-tab" style="padding:3px 10px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;"
-    onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}')"
-    title="클릭 한 번으로 자정에 ${comma(target)}원(현재 ${comma(r.budget)}원 ×10)으로 예약"><i class="fa-regular fa-clock"></i> ${comma(target)}</button>`;
+  const val = pend ? Math.round(pend.new_budget) : target;
+  const over = val > max;
+  const inp = `<input type="number" step="1000" min="1000" value="${val}" onclick="event.stopPropagation()" onfocus="this.select()"
+      onkeydown="if(event.key==='Enter'){event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.value)}"
+      style="width:96px;padding:3px 6px;font-size:.74rem;font-weight:700;text-align:right;border:1.5px solid ${pend ? '#86efac' : over ? '#fca5a5' : '#fcd34d'};border-radius:7px;background:#fff;color:#1e1b4b;font-family:inherit;outline:none;" />`;
+  const btn = `<button class="filter-tab" style="padding:3px 8px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;"
+      onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.previousElementSibling.value)"
+      title="입력한 금액으로 자정 예약 (기본값 = 현재 ${comma(r.budget)}원 ×10)"><i class="fa-regular fa-clock"></i></button>`;
+  const note = pend
+    ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 00:00 · ${comma(pend.new_budget)}원 예약됨</div>`
+    : over ? `<div style="font-size:.6rem;color:#dc2626;font-weight:700;" title="서버 상한 ${comma(max)}원">⚠ ×10은 상한 초과 — 금액 고쳐서 예약</div>` : '';
+  return `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;"><div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
 }
-async function admgrMidQuick(id, level) {
+async function admgrMidQuick(id, level, amountStr) {
   const w = admgr.write;
-  if (!w.pin) { admgrPinPrompt(() => admgrMidQuick(id, level)); return; }   // 인증부터, 끝나면 이어서
+  if (!w.pin) { admgrPinPrompt(() => admgrMidQuick(id, level, amountStr)); return; }   // 인증부터, 끝나면 이어서
   const R = admgrRows();
   const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
   if (!node || !(node.budget > 0)) return;
   if (admgrIsTestSet(node)) { toast('테스트 소재 세트(세트명에 test)는 자정세팅에서 제외돼요'); return; }
-  const target = Math.round(node.budget * 10);
-  if (target > w.st.max_budget) { toast(`상한 초과 — ${comma(target)}원은 서버 상한 ${comma(w.st.max_budget)}원을 넘어요`); return; }
+  const typed = Math.round(Number(amountStr));
+  const target = typed > 0 ? typed : Math.round(node.budget * 10);   // 비었으면 ×10
+  if (target < 1000 || target > w.st.max_budget) { toast(`예산은 1,000원 ~ ${comma(w.st.max_budget)}원 사이여야 해요 (입력: ${comma(target)}원)`); return; }
   try {
     const d = await metaBudgetCall({ action: 'schedule' }, { object_id: id, object_name: node.name, level, new_budget: target, pin: w.pin });
-    toast(`${d.apply_date} 00:00에 ${comma(target)}원(현재 ×10)으로 예약했어요`);
+    toast(`${d.apply_date} 00:00에 ${comma(target)}원으로 예약했어요`);
     admgrWritePending();
   } catch (e) {
     if (String(e.message).includes('PIN')) admgrPinInvalidate();
