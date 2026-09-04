@@ -919,7 +919,7 @@ function rerender() {
   else if (curMenu === 'list') renderList();
   else if (curMenu === 'compare') renderCompare(p);
   else if (curMenu === 'test') renderTest();
-  else if (curMenu === 'admgr') renderAdmgr();
+  else if (curMenu === 'admgr') admgrOpen();
   else if (curMenu === 'upload') renderUpload();
   else if (curMenu === 'perf') perfMenuInit();
   else if (curMenu === 'data') renderData();
@@ -1822,14 +1822,23 @@ async function admgrFetch() {
   admgr.loading = true; admgr.demo = false; renderAdmgr();
   try {
     admgr.data = await metaGet({ action: 'hierarchy', preset: admgr.preset });
+    lsSet('adc_admgr_last', { preset: admgr.preset, data: admgr.data });   // 새로고침해도 마지막 데이터 유지 (2026-09-05 사용자 요청)
     admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
     if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
     admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
   } catch (e) {
-    admgr.data = null;
-    toast('Meta 불러오기 실패: ' + e.message);
+    toast('Meta 불러오기 실패: ' + e.message);   // 실패해도 보고 있던 데이터는 유지
   }
   admgr.loading = false; renderAdmgr();
+}
+/* 메뉴 진입: 마지막으로 받아둔 데이터를 먼저 보여주고, 연동돼 있으면 뒤에서 자동으로 새로 받는다 (서버 60초 캐시라 가벼움) */
+function admgrOpen() {
+  if (!admgr.data && !admgr.demo && admgrCfg()) {
+    const c = lsGet('adc_admgr_last', null);
+    if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; }
+    admgrFetch(); return;
+  }
+  renderAdmgr();
 }
 function admgrSetPreset(p) {
   admgr.preset = p; admgr.chgFilter = 'all';
