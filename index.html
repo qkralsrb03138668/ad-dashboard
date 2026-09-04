@@ -1639,6 +1639,7 @@ async function uplDiagnose() {
   try {
     const d = await uplCall({ action: 'diagnose', ad_id: upl.modelAdId });
     uplLog(`쓰기 토큰 사용자: ${d.me && d.me.name ? d.me.name : d.me} · 권한: ${Array.isArray(d.permissions) ? d.permissions.join(', ') : d.permissions}`);
+    if (d.app) uplLog(`토큰 발급 앱: ${d.app.name ? `${d.app.name} (ID ${d.app.id})` : d.app} — 크리에이티브 생성에는 이 앱이 '라이브(공개) 모드'여야 해요`);
     const pageOk = d.page && d.page.id;
     uplLog(pageOk ? `페이지 접근 OK: ${d.page.name}` : `페이지 접근 불가 — 비즈니스 설정에서 시스템 사용자에게 페이지 자산을 추가하고 토큰을 재발급하세요 (SETUP-광고업로드.md)`, pageOk ? 'ok' : 'err');
     if (d.instagram) uplLog(d.instagram.username ? `인스타그램 접근 OK: @${d.instagram.username}` : `인스타그램 접근 불가: ${d.instagram}`, d.instagram.username ? 'ok' : 'err');

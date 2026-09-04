@@ -161,6 +161,7 @@ Deno.serve(async (req) => {
       const out: Rec = {};
       try { const r = await graph("me/permissions"); out.permissions = ((r.data ?? []) as Rec[]).filter((x) => x.status === "granted").map((x) => x.permission); } catch (e) { out.permissions = String((e as Error).message); }
       try { const r = await graph("me", { params: { fields: "id,name" } }); out.me = r; } catch (e) { out.me = String((e as Error).message); }
+      try { out.app = await graph("app", { params: { fields: "id,name" } }); } catch (e) { out.app = String((e as Error).message); }   // 토큰을 발급한 앱 — 개발 모드면 크리에이티브 생성 거부
       if (adId) {
         const model = await readModel(adId); const cre = model.creative as Rec;
         try { out.page = await graph(String(cre.page_id), { params: { fields: "id,name" } }); } catch (e) { out.page = String((e as Error).message); }
