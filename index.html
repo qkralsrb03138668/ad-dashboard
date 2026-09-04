@@ -1790,8 +1790,10 @@ function admgrBudgetCell(r, level) {
 }
 /* '자정세팅' 열 (2026-09-04 사용자 요청) — 버튼 한 번 = 현재 일예산 뒤에 0 하나 붙인 금액(×10)으로 자정 예약.
    이미 그 금액으로 예약돼 있으면 ✓ 배지. 취소는 예산 연필 팝업의 '자정 예약 취소'. 서버 상한(30만원)을 넘으면 버튼이 흐려지고 안내. */
+const admgrIsTestSet = r => /test/i.test(String(r.name || ''));   // 테스트 소재 세트 (세트명에 test) — 자정세팅 자동 제외 (2026-09-04 사용자 지정)
 function admgrMidCell(r, level) {
   if (!(r.budget > 0)) return '<span style="color:#d1d5db;">—</span>';
+  if (admgrIsTestSet(r)) return `<span class="status-badge badge-gray" style="white-space:nowrap;" title="세트명에 'test'가 있어 자정세팅에서 자동 제외 (테스트 소재 세트)">테스트 제외</span>`;
   const target = Math.round(r.budget * 10);
   const pend = admgr.write.pendingByObj && admgr.write.pendingByObj.get(r.id);
   if (pend && Math.round(pend.new_budget) === target) {
@@ -1811,6 +1813,7 @@ async function admgrMidQuick(id, level) {
   const R = admgrRows();
   const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
   if (!node || !(node.budget > 0)) return;
+  if (admgrIsTestSet(node)) { toast('테스트 소재 세트(세트명에 test)는 자정세팅에서 제외돼요'); return; }
   const target = Math.round(node.budget * 10);
   if (target > w.st.max_budget) { toast(`상한 초과 — ${comma(target)}원은 서버 상한 ${comma(w.st.max_budget)}원을 넘어요`); return; }
   try {
