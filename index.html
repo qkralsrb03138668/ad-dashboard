@@ -406,6 +406,7 @@
           <input class="inp" id="pt-new-name" placeholder="상품명 입력" style="max-width:240px;background:#fff;"
                  onkeydown="if(event.key==='Enter')ptAddProduct()" />
           <button class="btn-analyze" onclick="ptAddProduct()"><i class="fa-solid fa-plus"></i> 상품 추가</button>
+          <button class="btn-ghost" id="pt-import-btn" onclick="ptImportCafe24()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24에서 불러오기</button>
           <span class="divider" style="width:1px;height:28px;background:#e5e7eb;"></span>
           <button class="btn-ghost" onclick="ptAddType()"><i class="fa-solid fa-table-columns"></i> 소재 유형 추가</button>
         </div>
@@ -1252,6 +1253,26 @@ function ptAddProduct() {
   $('pt-new-name').value = '';
   ptSave(); renderPTest();
   toast(`'${name}' 상품을 추가했어요`);
+}
+/* 카페24 진열·판매 중 상품을 체크보드에 병합 — 이미 있는 행(상품번호 또는 이름 일치)은 체크 기록 유지, 새 상품만 맨 위에 추가 */
+async function ptImportCafe24() {
+  const btn = $('pt-import-btn'); btn.disabled = true;
+  try {
+    const { rows } = await perfApi({ action: 'products' });
+    const byNo = new Map(pt.products.filter(p => p.product_no).map(p => [p.product_no, p]));
+    const byName = new Map(pt.products.map(p => [p.name, p]));
+    const added = [];
+    for (const r of rows) {
+      if (!r.name) continue;
+      const hit = byNo.get(r.product_no) || byName.get(r.name);
+      if (hit) { hit.product_no = r.product_no; continue; }
+      added.push({ id: newId(), name: r.name, product_no: r.product_no, cells: {} });
+    }
+    pt.products = [...added, ...pt.products];
+    ptSave(); renderPTest();
+    toast(added.length ? `카페24 상품 ${added.length}개를 추가했어요 (전체 ${rows.length}개 확인)` : `새 상품 없음 — 카페24 ${rows.length}개 모두 이미 있어요`);
+  } catch (e) { toast('불러오기 실패: ' + e.message); }
+  finally { btn.disabled = false; }
 }
 function ptDelProduct(id) {
   const p = pt.products.find(x => x.id === id); if (!p) return;

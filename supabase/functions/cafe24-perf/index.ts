@@ -274,6 +274,22 @@ Deno.serve(async (req) => {
 
     const token = await getAccessToken();
 
+    // ── 상품 목록: 진열·판매 중 상품(번호·이름·대표이미지) — 광고소재 체크보드 '카페24에서 불러오기'용 ──
+    if (action === "products") {
+      const cached = await fromCache(); if (cached) return json(cached);
+      const rows: { product_no: number; name: string; image: string }[] = [];
+      // ponytail: 최대 20페이지(2,000개) 상한 — 몰 상품이 그보다 많아지면 offset 이어받기 파라미터 추가
+      for (let offset = 0; offset < 2000; offset += 100) {
+        const body = await apiGet(
+          `${API_BASE}/admin/products?display=T&selling=T&fields=product_no,product_name,list_image` +
+          `&limit=100&offset=${offset}`, token);
+        const page = (body.products ?? []) as Record<string, unknown>[];
+        for (const pr of page) rows.push({ product_no: Number(pr.product_no), name: String(pr.product_name ?? "").trim(), image: String(pr.list_image ?? "") });
+        if (page.length < 100) break;
+      }
+      return respond({ product_count: rows.length, rows });
+    }
+
     if (action === "performance") {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
