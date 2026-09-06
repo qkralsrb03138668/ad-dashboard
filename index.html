@@ -2378,16 +2378,30 @@ function admgrMidCell(r, level) {
   const max = (admgr.write.st && admgr.write.st.max_budget) || 300000;
   const val = pend ? Math.round(pend.new_budget) : target;
   const over = val > max;
-  const inp = `<input type="number" step="1000" min="1000" value="${val}" onclick="event.stopPropagation()" onfocus="this.select()"
+  /* 텍스트 입력(위아래 화살표 없음, 클릭한 자리에 커서) — 2026-09-06 사용자 요청 */
+  const inp = `<input type="text" inputmode="numeric" value="${val}" onclick="event.stopPropagation()" ${pend ? 'readonly' : ''}
       onkeydown="if(event.key==='Enter'){event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.value)}"
-      style="width:96px;padding:3px 6px;font-size:.74rem;font-weight:700;text-align:right;border:1.5px solid ${pend ? '#86efac' : over ? '#fca5a5' : '#fcd34d'};border-radius:7px;background:#fff;color:#1e1b4b;font-family:inherit;outline:none;" />`;
-  const btn = `<button class="filter-tab" style="padding:3px 8px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;"
-      onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.previousElementSibling.value)"
-      title="입력한 금액으로 자정 예약 (기본값 = 현재 ${comma(r.budget)}원 ×10)"><i class="fa-regular fa-clock"></i></button>`;
+      style="width:96px;padding:3px 6px;font-size:.74rem;font-weight:700;text-align:right;border:1.5px solid ${pend ? '#86efac' : over ? '#fca5a5' : '#fcd34d'};border-radius:7px;background:${pend ? '#f0fdf4' : '#fff'};color:#1e1b4b;font-family:inherit;outline:none;" />`;
+  /* 예약돼 있으면 ⏰가 ✓(초록)으로 바뀌고, 한 번 더 누르면 예약 취소 */
+  const btn = pend
+    ? `<button class="filter-tab" style="padding:3px 8px;font-size:.72rem;color:#fff;background:#16a34a;border-color:transparent;white-space:nowrap;"
+        onclick="event.stopPropagation();admgrMidUnschedule(${pend.id})" title="자정 예약됨 — 한 번 더 누르면 예약 취소"><i class="fa-solid fa-check"></i></button>`
+    : `<button class="filter-tab" style="padding:3px 8px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;"
+        onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.previousElementSibling.value)"
+        title="입력한 금액으로 자정 예약 (기본값 = 현재 ${comma(r.budget)}원 ×10)"><i class="fa-regular fa-clock"></i></button>`;
   const note = pend
     ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 00:00 · ${comma(pend.new_budget)}원 예약됨</div>`
     : over ? `<div style="font-size:.6rem;color:#dc2626;font-weight:700;" title="서버 상한 ${comma(max)}원">⚠ ×10은 상한 초과 — 금액 고쳐서 예약</div>` : '';
   return `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;">${lastTxt}<div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
+}
+/* ✓ 버튼 = 예약 취소 (admgrMidCancel은 예약 목록 모달용이라 별도 — 셀에서는 목록을 다시 열지 않는다) */
+async function admgrMidUnschedule(pid) {
+  if (!admgr.write.pin) { admgrPinPrompt(() => admgrMidUnschedule(pid)); return; }
+  try {
+    await metaBudgetCall({ action: 'cancel' }, { id: pid, pin: admgr.write.pin });
+    toast('자정 예약을 취소했어요');
+    await admgrWritePending();
+  } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('취소 실패: ' + e.message); }
 }
 async function admgrMidQuick(id, level, amountStr) {
   const w = admgr.write;
@@ -2396,7 +2410,7 @@ async function admgrMidQuick(id, level, amountStr) {
   const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
   if (!node || !(node.budget > 0)) return;
   if (admgrIsTestSet(node)) { toast('테스트 소재 세트(세트명에 test)는 자정세팅에서 제외돼요'); return; }
-  const typed = Math.round(Number(amountStr));
+  const typed = Math.round(Number(String(amountStr || '').replace(/[^0-9]/g, '')));   // 텍스트 입력칸 — 콤마·공백 무시
   const target = typed > 0 ? typed : Math.round(node.budget * 10);   // 비었으면 ×10
   if (target < 1000 || target > w.st.max_budget) { toast(`예산은 1,000원 ~ ${comma(w.st.max_budget)}원 사이여야 해요 (입력: ${comma(target)}원)`); return; }
   try {
