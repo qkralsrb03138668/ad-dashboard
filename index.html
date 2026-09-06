@@ -495,6 +495,7 @@
               <label style="cursor:pointer;" title="광고세트만 일시중지, 광고는 활성 — 세트만 켜면 바로 게재"><input type="radio" name="upl-mode" value="PAUSED" checked /> 세트 일시중지로 생성 (광고는 활성)</label>
               <label style="cursor:pointer;"><input type="radio" name="upl-mode" value="ACTIVE" /> 바로 활성</label></div></div>
           <button class="btn-ghost" onclick="uplTextOpen(-1)"><i class="fa-solid fa-pen"></i> 광고 문구 일괄 기입</button>
+          <button class="btn-ghost" id="upl-text-sel" onclick="uplTextOpen(-2)" disabled><i class="fa-solid fa-pen-to-square"></i> 선택 파일 문구 기입</button>
           <button class="btn-ghost" onclick="uplDiagnose()" title="실제 생성 없이 Meta에 세트·크리에이티브·광고 생성 요청을 검증"><i class="fa-solid fa-stethoscope"></i> 연결 진단</button>
           <div class="input-group" style="margin:0;margin-left:auto;"><label>PIN</label>
             <input class="inp" id="upl-pin" type="password" inputmode="numeric" placeholder="예산 변경 PIN" style="width:130px;background:#fff;" /></div>
@@ -1590,7 +1591,7 @@ function uplAddFiles(list) {
     const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
     if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
     if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
-    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), text: null, status: '대기', media: null, result: null });
+    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), text: null, status: '대기', media: null, result: null, sel: false });
   }
   uplRenderFiles();
 }
@@ -1598,10 +1599,11 @@ function uplDelFile(id) { upl.files = upl.files.filter(f => f.id !== id); uplRen
 const fmtMB = n => (n / 1048576).toFixed(1) + ' MB';
 function uplRenderFiles() {
   const box = $('upl-files');
-  if (!upl.files.length) { box.innerHTML = ''; $('upl-run').textContent = ' 광고 생성'; return; }
+  if (!upl.files.length) { box.innerHTML = ''; $('upl-run').textContent = ' 광고 생성'; uplSelBtn(); return; }
   box.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
+    <thead><tr><th style="width:28px;"><input type="checkbox" title="전체 선택" ${upl.files.length && upl.files.every(f => f.sel) ? 'checked' : ''} onchange="uplSelAll(this.checked)" /></th><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
     <tbody>${upl.files.map((f, i) => `<tr>
+      <td><input type="checkbox" ${f.sel ? 'checked' : ''} onchange="upl.files[${i}].sel=this.checked;uplSelBtn()" /></td>
       <td style="font-size:.78rem;"><i class="fa-solid ${f.kind==='video'?'fa-video':'fa-image'}" style="color:#4f46e5;"></i> ${esc(f.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(f.file.size)}</div></td>
       <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})">${f.text ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 기입됨' : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
@@ -1609,14 +1611,22 @@ function uplRenderFiles() {
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
   $('upl-run').innerHTML = `<i class="fa-solid fa-rocket"></i> 광고 생성 (${upl.files.length}개)`;
+  uplSelBtn();
+}
+function uplSelAll(on) { for (const f of upl.files) f.sel = on; uplRenderFiles(); }
+function uplSelBtn() {
+  const n = upl.files.filter(f => f.sel).length, b = $('upl-text-sel');
+  b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 파일 문구 기입${n ? ` (${n})` : ''}`;
 }
 
 /* ── 문구 모달: idx=-1 → 전체 일괄, 아니면 해당 행 ── */
 let uplTextIdx = -1;
 function uplTextOpen(idx) {
   uplTextIdx = idx;
-  const base = (idx >= 0 && upl.files[idx].text) || upl.commonText || (upl.model && upl.model.text) || { message: '', title: '', description: '', link: '', cta: 'LEARN_MORE' };
-  $('upl-text-title').textContent = idx >= 0 ? `광고 문구 — ${upl.files[idx].name}` : '광고 문구 일괄 기입 (모든 파일에 적용)';
+  const selected = upl.files.filter(f => f.sel);
+  if (idx === -2 && !selected.length) { toast('파일을 먼저 체크하세요'); return; }
+  const base = (idx >= 0 && upl.files[idx].text) || (idx === -2 && selected[0].text) || upl.commonText || (upl.model && upl.model.text) || { message: '', title: '', description: '', link: '', cta: 'LEARN_MORE' };
+  $('upl-text-title').textContent = idx >= 0 ? `광고 문구 — ${upl.files[idx].name}` : idx === -2 ? `광고 문구 — 선택한 ${selected.length}개 파일에 적용` : '광고 문구 일괄 기입 (모든 파일에 적용)';
   $('ut-cta').innerHTML = UPL_CTA.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   uplTextFill(base);
   $('upl-text-modal').classList.add('show'); $('ut-message').focus();
@@ -1627,10 +1637,12 @@ function uplTextApply() {
   const t = { message: $('ut-message').value.trim(), title: $('ut-title').value.trim(), description: $('ut-description').value.trim(), link: $('ut-link').value.trim(), cta: $('ut-cta').value };
   if (!/^https?:\/\//.test(t.link)) { toast('웹사이트 URL을 http(s)://로 입력하세요'); return; }
   if (!t.message) { toast('본문을 입력하세요'); return; }
+  let n = 0;
   if (uplTextIdx >= 0) upl.files[uplTextIdx].text = t;
+  else if (uplTextIdx === -2) { for (const f of upl.files) if (f.sel) { f.text = { ...t }; f.sel = false; n++; } }
   else { upl.commonText = t; for (const f of upl.files) f.text = null; }
   closeModal('upl-text-modal'); uplRenderFiles();
-  toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : '모든 파일에 문구를 적용했어요');
+  toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : uplTextIdx === -2 ? `선택한 ${n}개 파일에 문구를 적용했어요` : '모든 파일에 문구를 적용했어요');
 }
 
 /* ── 진단: 쓰기 토큰의 페이지 권한 + validate_only (생성 없음) ── */
