@@ -1983,6 +1983,16 @@ function admgrDrill(kind, id) {
   renderAdmgr();
 }
 function admgrClearSel() { admgr.selCamps.clear(); admgr.selSets.clear(); renderAdmgr(true); }
+/* 헤더 체크박스 — 지금 표에 보이는 행(검색·활성만·필터 반영) 전체 선택/해제 */
+function admgrSelAllDisp() {
+  const isCamp = admgr.view === 'camp';
+  const set = isCamp ? admgr.selCamps : admgr.selSets;
+  const ids = admgr._dispIds || [];
+  const all = ids.length && ids.every(id => set.has(id));
+  ids.forEach(id => all ? set.delete(id) : set.add(id));
+  if (isCamp) admgrPruneSel();
+  renderAdmgr(true);
+}
 
 function admgrStBadge(st) {
   if (st === 'ACTIVE') return '<span class="status-badge badge-green">켜짐</span>';
@@ -2141,6 +2151,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     }
   }
 
+  admgr._dispIds = vis.map(r => r.id);   // 헤더 전체선택용 (검색·활성만·판정 필터 반영된 표시 행)
   /* 요약 타일 (표시분 기준) */
   const tot = { spend: 0, purchases: 0, value: 0, clicks: 0 };
   for (const r of vis) { tot.spend += r.spend || 0; tot.purchases += r.purchases || 0; tot.value += r.value || 0; tot.clicks += r.clicks || 0; }
@@ -2162,7 +2173,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th></th>${admgrTh('name', VIEW_LABEL)}<th>상태</th>${showJudge ? '<th title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th style="width:34px;"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th>${admgrTh('name', VIEW_LABEL)}<th>상태</th>${showJudge ? '<th title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr>
