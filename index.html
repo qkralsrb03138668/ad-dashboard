@@ -2423,7 +2423,40 @@ function admgrWriteCtrlHtml() {
     : w.midMode === 'done'
       ? `<button class="filter-tab" style="background:#16a34a;color:#fff;border-color:transparent;" onclick="admgrMidBtn()"><i class="fa-solid fa-check"></i> 자정 반영 세팅 완료 · ${n}건 보기</button>`
       : `<button class="filter-tab" style="color:#b45309;border-color:#fcd34d;background:#fffbeb;" onclick="admgrMidBtn()"><i class="fa-regular fa-clock"></i> 자정 반영 세팅 시작${n ? ` (예약 ${n}건)` : ''}</button>`;
-  return pinBtn + mid;
+  const nd = admgrDraftTargets().length;
+  const pub = nd ? `<button class="filter-tab" style="background:#0a7c3f;color:#fff;border-color:transparent;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산을 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 임시 저장 전체 게시 (${nd})</button>` : '';
+  return pinBtn + mid + pub;
+}
+/* 임시 저장 중 현재 표에 있고 금액이 실제와 다른 것만 (캠페인·세트 모두) */
+function admgrDraftTargets() {
+  const R = admgrRows();
+  const out = [];
+  for (const [id, amt] of Object.entries(admgrDraft)) {
+    const c = R.camps.find(x => x.id === id), s = c ? null : R.sets.find(x => x.id === id);
+    const node = c || s; if (!node || !(amt > 0) || amt === node.budget) continue;
+    out.push({ id, level: c ? 'campaign' : 'adset', name: node.name, from: node.budget, to: amt });
+  }
+  return out;
+}
+async function admgrPublishDrafts() {
+  const w = admgr.write;
+  if (!w.pin) { admgrPinPrompt(admgrPublishDrafts); return; }
+  const targets = admgrDraftTargets();
+  if (!targets.length) { toast('게시할 임시 저장이 없어요'); return; }
+  const bad = targets.filter(t => t.to < 1000 || t.to > w.st.max_budget);
+  if (bad.length) { toast(`상한(${comma(w.st.max_budget)}원)·하한(1,000원)을 벗어난 임시 저장이 ${bad.length}개 있어요 — 고친 뒤 다시 눌러주세요`); return; }
+  const lines = targets.map(t => `· ${t.name}: ${comma(t.from)} → ${comma(t.to)}`).join('\n');
+  if (!confirm(`임시 저장 ${targets.length}개를 지금 바로 Meta에 게시할까요?\n\n${lines.slice(0, 1500)}${lines.length > 1500 ? '\n…' : ''}`)) return;
+  let ok = 0, fail = 0;
+  for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
+    try {
+      await metaBudgetCall({ action: 'apply' }, { object_id: t.id, object_name: t.name, level: t.level, new_budget: t.to, pin: w.pin });
+      delete admgrDraft[t.id]; ok++;
+    } catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
+  }
+  lsSet('adc_admgr_draft', admgrDraft);
+  toast(`게시 완료 ${ok}개${fail ? ` · 실패 ${fail}개 (임시 저장 유지)` : ''}`);
+  admgrFetch();
 }
 const admgrBP = { id: null, level: null, name: '', after: null };
 function admgrPinPrompt(after) {
