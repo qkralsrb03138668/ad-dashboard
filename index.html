@@ -2316,15 +2316,16 @@ async function admgrCutAll() {
   if (!w.pin) { admgrPinPrompt(admgrCutAll); return; }
   const targets = admgrRows().sets.filter(r => r.budget > 0 && admgrJudge(r).key === 'cut');
   if (!targets.length) { toast('감액 후보가 없어요'); return; }
-  const lines = targets.map(r => `· ${r.name}: ${comma(r.budget)} → ${comma(Math.max(1000, Math.round(r.budget / 10)))}`).join('\n');
-  if (!confirm(`감액 후보 ${targets.length}개의 일예산을 ÷10으로 지금 바로 바꿀까요?\n\n${lines.slice(0, 1500)}${lines.length > 1500 ? '\n…' : ''}`)) return;
-  let ok = 0, fail = 0;
-  for (const r of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려) — 수십 개면 수십 초
-    try { await metaBudgetCall({ action: 'apply' }, { object_id: r.id, object_name: r.name, level: 'adset', new_budget: Math.max(1000, Math.round(r.budget / 10)), pin: w.pin }); ok++; }
-    catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
-  }
-  toast(`감액 완료 ${ok}개${fail ? ` · 실패 ${fail}개` : ''}`);
-  admgrFetch();
+  const lines = targets.map(r => `· ${esc(r.name)}: ${comma(r.budget)} → <b>${comma(Math.max(1000, Math.round(r.budget / 10)))}</b>`).join('<br/>');
+  admgrConfirmModal(`감액 후보 ${targets.length}개 ÷10`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리</span>`, `${targets.length}개 감액`, async () => {
+    let ok = 0, fail = 0;
+    for (const r of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려) — 수십 개면 수십 초
+      try { await metaBudgetCall({ action: 'apply' }, { object_id: r.id, object_name: r.name, level: 'adset', new_budget: Math.max(1000, Math.round(r.budget / 10)), pin: w.pin }); ok++; }
+      catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
+    }
+    toast(`감액 완료 ${ok}개${fail ? ` · 실패 ${fail}개` : ''}`);
+    admgrFetch();
+  });
 }
 
 /* ═══ 예산 직접 변경 + 자정 예약 (이식 4단계 — 원본 admgrWrite·admgrBudgetPop·admgrBudgetWrite 그대로) ═══
@@ -2432,19 +2433,30 @@ function admgrDraftSave(id, val) {
   admgrDraft[id] = n; lsSet('adc_admgr_draft', admgrDraft);
   toast(`임시저장 ${comma(n)}원 — Meta엔 아직 반영 안 됐어요`); renderAdmgr(true);
 }
-async function admgrApplyNow(id, level, val) {
+/* 확인창은 브라우저 confirm() 대신 대시보드 모달로 — Chrome이 "추가 대화상자 차단"을 켜면 confirm이 조용히 취소돼 버튼이 먹통이 되는 실사례 (2026-09-06) */
+function admgrConfirmModal(title, bodyHtml, okLabel, onOk) {
+  $('abm-title').textContent = title;
+  $('abm-body').innerHTML = `<div style="max-height:50vh;overflow:auto;font-size:.8rem;line-height:1.7;color:#374151;">${bodyHtml}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
+      <button class="btn-analyze" id="abm-ok">${okLabel}</button></div>`;
+  $('abm-ok').onclick = () => { closeModal('admgr-budget-modal'); onOk(); };
+  $('admgr-budget-modal').classList.add('show');
+}
+function admgrApplyNow(id, level, val) {
   const w = admgr.write;
   if (!w.pin) { admgrPinPrompt(() => admgrApplyNow(id, level, val)); return; }
   const node = (level === 'campaign' ? admgrRows().camps : admgrRows().sets).find(x => x.id === id); if (!node) return;
-  const amount = Math.round(Number(val));
+  const amount = Math.round(Number(String(val).replace(/[^0-9]/g, '')));
   if (!(amount >= 1000 && amount <= w.st.max_budget)) { toast(`1,000원 ~ ${comma(w.st.max_budget)}원 사이로 입력하세요`); return; }
-  if (!confirm(`'${node.name}'의 일예산을 ${comma(amount)}원으로 지금 바로 바꿀까요?\n(Meta에 즉시 반영되는 실제 예산 변경이에요)`)) return;
   $('admgr-bpop').style.display = 'none';   // 편집창 닫기 (PIN 프롬프트가 같은 창을 쓰므로 여기서만)
-  try {
-    await metaBudgetCall({ action: 'apply' }, { object_id: id, object_name: node.name, level, new_budget: amount, pin: w.pin });
-    delete admgrDraft[id]; lsSet('adc_admgr_draft', admgrDraft);
-    toast(`일예산을 ${comma(amount)}원으로 변경했어요`); admgrFetch(); admgrWritePending();
-  } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('반영 실패: ' + e.message); }
+  admgrConfirmModal('예산 즉시 변경', `<b>${esc(node.name)}</b><br/>일예산 ${won(node.budget)} → <b style="color:#4f46e5;">${won(amount)}</b><br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영되는 실제 예산 변경이에요</span>`, '게시', async () => {
+    try {
+      await metaBudgetCall({ action: 'apply' }, { object_id: id, object_name: node.name, level, new_budget: amount, pin: w.pin });
+      delete admgrDraft[id]; lsSet('adc_admgr_draft', admgrDraft);
+      toast(`일예산을 ${comma(amount)}원으로 변경했어요`); admgrFetch(); admgrWritePending();
+    } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('반영 실패: ' + e.message); }
+  });
 }
 /* 메뉴 컨트롤: 'PIN 인증'(한 번 인증하면 세션 동안 유효) + '자정 반영 세팅' 3단계 버튼 */
 function admgrWriteCtrlHtml() {
@@ -2465,9 +2477,10 @@ function admgrWriteCtrlHtml() {
 }
 function admgrClearDrafts() {
   const n = Object.keys(admgrDraft).length;
-  if (!confirm(`임시 저장 ${n}개를 전부 취소할까요? (Meta 예산은 바뀌지 않아요)`)) return;
-  Object.keys(admgrDraft).forEach(k => delete admgrDraft[k]);
-  lsSet('adc_admgr_draft', admgrDraft); toast('임시 저장을 모두 취소했어요'); renderAdmgr(true);
+  admgrConfirmModal('임시 저장 전체 취소', `임시 저장 ${n}개를 전부 지울까요?<br/><span style="color:#9ca3af;font-size:.72rem;">Meta 예산은 바뀌지 않아요</span>`, '전체 취소', () => {
+    Object.keys(admgrDraft).forEach(k => delete admgrDraft[k]);
+    lsSet('adc_admgr_draft', admgrDraft); toast('임시 저장을 모두 취소했어요'); renderAdmgr(true);
+  });
 }
 /* 임시 저장 중 현재 표에 있고 금액이 실제와 다른 것만 (캠페인·세트 모두) */
 function admgrDraftTargets() {
@@ -2487,18 +2500,19 @@ async function admgrPublishDrafts() {
   if (!targets.length) { toast('게시할 임시 저장이 없어요'); return; }
   const bad = targets.filter(t => t.to < 1000 || t.to > w.st.max_budget);
   if (bad.length) { toast(`상한(${comma(w.st.max_budget)}원)·하한(1,000원)을 벗어난 임시 저장이 ${bad.length}개 있어요 — 고친 뒤 다시 눌러주세요`); return; }
-  const lines = targets.map(t => `· ${t.name}: ${comma(t.from)} → ${comma(t.to)}`).join('\n');
-  if (!confirm(`임시 저장 ${targets.length}개를 지금 바로 Meta에 게시할까요?\n\n${lines.slice(0, 1500)}${lines.length > 1500 ? '\n…' : ''}`)) return;
-  let ok = 0, fail = 0;
-  for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
-    try {
-      await metaBudgetCall({ action: 'apply' }, { object_id: t.id, object_name: t.name, level: t.level, new_budget: t.to, pin: w.pin });
-      delete admgrDraft[t.id]; ok++;
-    } catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
-  }
-  lsSet('adc_admgr_draft', admgrDraft);
-  toast(`게시 완료 ${ok}개${fail ? ` · 실패 ${fail}개 (임시 저장 유지)` : ''}`);
-  admgrFetch();
+  const lines = targets.map(t => `· ${esc(t.name)}: ${comma(t.from)} → <b>${comma(t.to)}</b>`).join('<br/>');
+  admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
+    let ok = 0, fail = 0;
+    for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
+      try {
+        await metaBudgetCall({ action: 'apply' }, { object_id: t.id, object_name: t.name, level: t.level, new_budget: t.to, pin: w.pin });
+        delete admgrDraft[t.id]; ok++;
+      } catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
+    }
+    lsSet('adc_admgr_draft', admgrDraft);
+    toast(`게시 완료 ${ok}개${fail ? ` · 실패 ${fail}개 (임시 저장 유지)` : ''}`);
+    admgrFetch();
+  });
 }
 const admgrBP = { id: null, level: null, name: '', after: null };
 function admgrPinPrompt(after) {
