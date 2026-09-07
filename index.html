@@ -821,7 +821,7 @@
   <div class="modal-box" style="max-width:560px;">
     <div class="modal-head"><b id="abm-title"></b>
       <button class="modal-x" onclick="closeModal('admgr-budget-modal')">✕</button></div>
-    <div style="font-size:.72rem;color:#9ca3af;margin:-8px 0 10px;">예산 변경 히스토리 (한국 시간 기준)</div>
+    <div id="abm-sub" style="font-size:.72rem;color:#9ca3af;margin:-8px 0 10px;">예산 변경 히스토리 (한국 시간 기준)</div>
     <div id="abm-body"></div>
   </div>
 </div>
@@ -2529,7 +2529,7 @@ function admgrDraftSave(id, val) {
 }
 /* 확인창은 브라우저 confirm() 대신 대시보드 모달로 — Chrome이 "추가 대화상자 차단"을 켜면 confirm이 조용히 취소돼 버튼이 먹통이 되는 실사례 (2026-09-06) */
 function admgrConfirmModal(title, bodyHtml, okLabel, onOk) {
-  $('abm-title').textContent = title;
+  $('abm-title').textContent = title; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="max-height:50vh;overflow:auto;font-size:.8rem;line-height:1.7;color:#374151;">${bodyHtml}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
@@ -2631,7 +2631,7 @@ async function admgrPublishDrafts() {
     /* 진행 중 → 결과 알림창 (2026-09-07 사용자 요청: 적용됐는지 안 됐는지 창으로) */
     const results = [];
     const prog = () => { const el = $('abm-body'); if (el) el.innerHTML = `<div style="font-size:.85rem;padding:8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> Meta에 게시 중… <b>${results.length}/${targets.length}</b><div style="font-size:.72rem;color:#9ca3af;margin-top:6px;">창을 닫지 말고 잠시 기다려 주세요</div></div>`; };
-    $('abm-title').textContent = '임시 저장 게시 중'; prog(); $('admgr-budget-modal').classList.add('show');
+    $('abm-title').textContent = '임시 저장 게시 중'; $('abm-sub').style.display = 'none'; prog(); $('admgr-budget-modal').classList.add('show');
     let stopped = false;
     for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
       try {
@@ -2662,6 +2662,7 @@ function admgrPublishResult(results, total, stopped) {
       <span style="flex:none;font-weight:800;color:${r.ok ? '#15803d' : '#dc2626'};">${r.ok ? '✓' : '✗'}</span>
       <span style="min-width:0;"><b>${esc(r.t.name)}</b> · ${what(r.t)}${r.ok ? '' : `<div style="color:#dc2626;font-size:.72rem;">${esc(r.err || '실패')}</div>`}</span></div>`).join('');
   $('abm-title').textContent = fail || skipped ? `게시 결과 — 성공 ${ok} · 실패 ${fail}${skipped ? ` · 미처리 ${skipped}` : ''}` : `게시 완료 — ${ok}개 모두 Meta에 반영됐어요`;
+  $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="max-height:50vh;overflow:auto;font-size:.8rem;line-height:1.6;color:#374151;">${lines}</div>
     ${fail || skipped ? `<div class="info-bar" style="margin-top:8px;font-size:.72rem;background:#fef2f2;border-color:#fecaca;color:#991b1b;">${stopped ? 'PIN 오류로 중단됐어요 — 다시 인증한 뒤 ' : '실패·미처리 항목은 임시 저장에 그대로 남아 있어요 — '}<b>임시 저장 전체 게시</b>를 다시 누르면 남은 것만 게시돼요</div>` : ''}
     <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
@@ -2718,7 +2719,7 @@ function admgrMidBtn() {
 function admgrMidList() {   // 자정 예약 목록 (히스토리 모달 껍데기 재사용)
   const w = admgr.write;
   const rows = [...(w.pendingByObj ? w.pendingByObj.values() : [])];
-  $('abm-title').textContent = '23:55 반영 예약 목록';
+  $('abm-title').textContent = '23:55 반영 예약 목록'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = (rows.length ? `<div class="table-wrap"><table style="font-size:.78rem;">
       <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>23:55 반영값</th><th>적용</th><th></th></tr></thead>
       <tbody>${rows.map(p => `<tr>
@@ -2989,6 +2990,7 @@ function admgrChgCell(r) {
 const admgrKstDate = iso => { const k = admgrKst(iso); return k ? `${k.getUTCFullYear()}-${admgrPad2(k.getUTCMonth() + 1)}-${admgrPad2(k.getUTCDate())}` : ''; };
 const admgrBM = { id: null, name: '', range: 'today', hourly: null, hourlyId: null, _evs: [] };   // hourly = 영향 분석용 시간대별 성과 캐시
 function admgrBudgetModal(id) {
+  $('abm-sub').style.display = '';   // 히스토리 창에서만 부제목 표시 (다른 용도로 쓸 땐 숨김)
   const R = admgrRows();
   const node = R.camps.find(x => x.id === id) || R.sets.find(x => x.id === id);
   const evs = (admgr.budget.byObj && admgr.budget.byObj.get(id)) || [];
