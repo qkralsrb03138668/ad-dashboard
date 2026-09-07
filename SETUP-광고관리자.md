@@ -96,6 +96,18 @@ GitHub Pages 대신 로컬 파일로 열거나, config.js만 따로 넣은 사�
 안전장치(전부 서버 강제): DASH_KEY 접근키 + **PIN 매 요청 검증(15분 5회 실패 잠금)** + **일예산 1,000원~300,000원** + 총예산(lifetime) 대상 거부 + 모든 실행·예약·취소·실패를 `budget_writes`에 기록. PIN은 화면 메모리에만(새로고침하면 재인증).
 사용: 캠페인/광고세트 탭 → 상단 **PIN 인증** → 예산 셀의 연필 클릭 → [즉시 적용] 또는 [자정에 자동 반영]. **자정 반영 세팅 시작** 버튼을 켜면 팝업이 예약 전용이 되어 여러 건을 한 번에 세팅할 수 있다.
 
+## 7. Meta 조회 한도 방어 (2026-09-07)
+- **1단계(서버 캐시)**: 조회 5분 캐시(사용량 80%↑ 15분), 미리보기 30분·기간성과 10분, 한도 초과 시 쿨다운 동안 마지막 데이터(stale) 응답 + 배너 안내, 배너에 Meta 사용량 %.
+- **2단계(서버 주기 수집)**: pg_cron `meta-sync-5min`(`*/5 * * * *`)이 `meta-ads?action=sync`(x-cron-secret)를 불러 **오늘 계층 + 오늘 예산 이력**을 api_cache에 저장. 수집이 15분 내에 있으면 사용자 요청은 저장분만 읽어 **Meta 호출 0**(배너 "서버 자동 수집(5분마다)"). 수집이 멈추면 5분 캐시 방식으로 자동 복귀. 하루 ≈ 1,440 호출 고정.
+  ```sql
+  select cron.schedule('meta-sync-5min', '*/5 * * * *', $$
+    select net.http_post(url:='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/meta-ads?action=sync',
+      headers:='{"Content-Type":"application/json","x-cron-secret":"<CRON_SECRET>"}'::jsonb, body:='{}'::jsonb);
+  $$);
+  ```
+  확인: `select * from cron.job_run_details where jobid=(select jobid from cron.job where jobname='meta-sync-5min') order by start_time desc limit 5;` · 마지막 수집 `select payload from api_cache where cache_key='meta:sync:last';`
+- **3단계(미착수)**: Meta 앱 Standard Access 검수(비즈니스 인증) — 판매용·다계정이면 필수.
+
 ## 다음 단계 (원하면)
 
 - **4단계** 예산 변경 — 코드 이식 완료(§6). 셋업 3가지만 남음.

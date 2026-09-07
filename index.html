@@ -2122,7 +2122,7 @@ function renderAdmgr(keepScroll) {
     const pct = u.usage_pct != null ? u.usage_pct : m.usage_pct;
     banner = `<div class="info-bar" ${until ? 'style="background:#fff7ed;border-color:#fdba74;color:#9a3412;"' : ''}><i class="fa-regular fa-clock"></i>
       ${esc(admgr.data.range ? admgr.data.range.start + ' ~ ' + admgr.data.range.end : '')} ·
-      ${admgrAgo(admgr.data.fetched_at)} 기준 (서버 5분 캐시)
+      ${admgrAgo(admgr.data.fetched_at)} 기준 ${m.sync_at ? '· <span title="서버가 5분마다 Meta에서 받아 저장해 두고, 화면은 저장된 것만 읽어요. 새로고침을 아무리 해도 Meta 호출이 늘지 않아요">서버 자동 수집(5분마다)</span>' : '(서버 5분 캐시)'}
       ${admgr.data.truncated ? ' · <b style="color:#c2410c;">⚠ 500개 한도로 일부 잘림</b>' : ''}
       ${until ? ` · <b>⚠ Meta 조회 한도 대기 중 — ${admgrKstLabel(until)} 이후 자동 재시도 · 마지막으로 받은 데이터를 보여주고 있어요</b>` : ''}
       ${pct != null ? ` · <span style="color:${pct >= 80 ? '#c2410c' : '#65676b'};">Meta 사용량 ${Math.round(pct)}%</span>` : ''}</div>`;

@@ -81,7 +81,7 @@ async function metaPre(key: string, ttlMs: number): Promise<Response | null> {
   if (!lastUsage) lastUsage = (await cacheGetAny("meta:usage")) as Usage | null;
   const ttl = (lastUsage?.pct ?? 0) >= 80 ? ttlMs * 3 : ttlMs;
   const fresh = await cacheGet(key, ttl);
-  if (fresh) return withMeta(fresh, { cached: true });
+  if (fresh) return withMeta(fresh, { cached: true, ...(await syncInfo()) });   // sync_at: 화면 배너 "서버 자동 수집" 표시용
   const until = await cooldownUntil();
   if (until) { const stale = await cacheGetAny(key); if (stale) return withMeta(stale, { stale: true, cooldown_until: until }); }
   return null;
@@ -176,14 +176,146 @@ function mapAdRow(r: Record<string, unknown>) {
   };
 }
 
+// 계층 현황 조립 (Meta 4호출) — 사용자 요청과 5분 주기 서버 수집(sync)이 같이 쓴다 (2026-09-07 2단계)
+type Creds = { token: string; account: string };
+function presetRange(preset: string) {
+  const t = seoulToday();
+  return preset === "today" ? { start: t, end: t }
+    : preset === "yesterday" ? { start: addDays(t, -1), end: addDays(t, -1) }
+    : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
+    : { start: addDays(t, -30), end: addDays(t, -1) };
+}
+async function fetchHierarchy(c: Creds, preset: string) {
+  const range = presetRange(preset);
+  type Node = Record<string, unknown>;
+  const [camps, adsets, adsAct, ins] = await Promise.all([
+    graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,created_time,updated_time", limit: "200" }, c.token),
+    graphGet(`${c.account}/adsets`, {
+      fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+      limit: "500",
+    }, c.token),   // 활성 필터 — 무필터 500 한도에 활성 세트가 잘리던 원본 버그 수정분 그대로
+    graphGet(`${c.account}/ads`, {
+      fields: "id,name,effective_status,adset_id,campaign_id,created_time,updated_time",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+      limit: "500",
+    }, c.token),
+    graphGet(`${c.account}/insights`, {
+      date_preset: preset, level: "ad",
+      fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
+      limit: "500",
+    }, c.token),
+  ]);
+
+  // 캠페인/세트 뼈대
+  const cMap = new Map<string, Node>();
+  for (const r of (camps.data ?? []) as Node[]) {
+    cMap.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""),
+      budget: num(r.daily_budget), budget_life: num(r.lifetime_budget),
+      created: String(r.created_time ?? ""), updated: String(r.updated_time ?? ""),
+      spend: 0, purchases: 0, value: 0, clicks: 0, adsets: new Map<string, Node>() });
+  }
+  const sMap = new Map<string, Node>();
+  const ensureCamp = (id: string, name = "") => {
+    if (!cMap.has(id)) cMap.set(id, { id, name, status: "", budget: 0, budget_life: 0, created: "", updated: "", spend: 0, purchases: 0, value: 0, clicks: 0, adsets: new Map() });
+    return cMap.get(id)!;
+  };
+  const ensureAdset = (id: string, campId: string, name = "", status = "", budget = 0, budgetLife = 0, created = "", updated = "") => {
+    if (!sMap.has(id)) {
+      const node: Node = { id, name, status, budget, budget_life: budgetLife, created, updated, spend: 0, purchases: 0, value: 0, clicks: 0, ads: new Map<string, Node>() };
+      sMap.set(id, node);
+      (ensureCamp(campId).adsets as Map<string, Node>).set(id, node);
+    }
+    return sMap.get(id)!;
+  };
+  for (const r of (adsets.data ?? []) as Node[]) {
+    ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
+      num(r.daily_budget), num(r.lifetime_budget), String(r.created_time ?? ""), String(r.updated_time ?? ""));
+  }
+
+  // 광고: 활성 전체 + 기간 중 게재분(인사이트) 합집합 — 중간에 꺼진 광고도 지출이 보인다
+  const ensureAd = (adId: string, adsetId: string, campId: string, name: string, status: string, created = "", updated = "") => {
+    const st = ensureAdset(adsetId, campId);
+    const ads = st.ads as Map<string, Node>;
+    if (!ads.has(adId)) ads.set(adId, { id: adId, name, status, created, updated, spend: 0, purchases: 0, value: 0, clicks: 0, roas: 0 });
+    return ads.get(adId)!;
+  };
+  for (const r of (adsAct.data ?? []) as Node[]) {
+    ensureAd(String(r.id), String(r.adset_id ?? ""), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
+      String(r.created_time ?? ""), String(r.updated_time ?? ""));
+  }
+  for (const r of (ins.data ?? []) as Node[]) {
+    const m = mapAdRow(r);
+    const campId = String(r.campaign_id ?? "");
+    const camp = ensureCamp(campId, String(r.campaign_name ?? ""));
+    if (!camp.name) camp.name = String(r.campaign_name ?? "");
+    const st = ensureAdset(String(r.adset_id ?? ""), campId, String(r.adset_name ?? ""));
+    if (!st.name) st.name = String(r.adset_name ?? "");
+    const ad = ensureAd(String(r.ad_id ?? ""), String(r.adset_id ?? ""), campId, m.ad_name, "");
+    const clicks = num(r.clicks);
+    ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks;
+    st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value; st.clicks = num(st.clicks) + clicks;
+    camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value; camp.clicks = num(camp.clicks) + clicks;
+  }
+
+  const campaigns = [...cMap.values()].map((cRow) => ({
+    ...cRow,
+    adsets: [...(cRow.adsets as Map<string, Node>).values()].map((st) => ({
+      ...st, ads: [...(st.ads as Map<string, Node>).values()],
+    })),
+  }));
+  const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
+  return { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns };
+}
+
+async function fetchBudgetHistory(c: Creds, s: string, e: string) {
+  const rows = await graphGetAll(`${c.account}/activities`, {
+    fields: "event_type,event_time,object_id,object_name,object_type,extra_data",
+    since: s,
+    until: addDays(e, 1),
+    limit: "500",
+  }, c.token, 4);
+  const events = rows
+    .filter((r) => /^update_(ad_set|campaign)_budget$/.test(String(r.event_type ?? "")))
+    .map((r) => {
+      let extra: Record<string, unknown> = {};
+      try {
+        const raw = r.extra_data;
+        extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {};
+      } catch { /* extra_data 없음/비JSON */ }
+      const ov = (extra.old_value ?? {}) as Record<string, unknown>;
+      const nv = (extra.new_value ?? {}) as Record<string, unknown>;
+      return {
+        time: String(r.event_time ?? ""),
+        level: String(r.event_type ?? "").startsWith("update_ad_set") ? "adset" : "campaign",
+        object_id: String(r.object_id ?? ""),
+        object_name: String(r.object_name ?? ""),
+        old_value: num(ov.old_value ?? extra.old_value),
+        new_value: num(nv.new_value ?? extra.new_value),
+        note: String(nv.additional_value ?? ""),
+      };
+    })
+    .filter((ev) => ev.old_value > 0 || ev.new_value > 0);
+  return { period: { start: s, end: e }, count: events.length, events };
+}
+
+// 5분 주기 서버 수집 상태 — 최근 15분 내 수집이 있으면 sync_at, 아니면 null (cron이 멈추면 자연히 사용자 요청 방식으로 복귀)
+async function syncInfo(): Promise<{ sync_at: string | null }> {
+  const r = (await cacheGetAny("meta:sync:last")) as { at?: string } | null;
+  return { sync_at: r?.at && Date.now() - new Date(r.at).getTime() < 15 * 60_000 ? r.at : null };
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
 
-  if (!checkDashKey(req)) return json({ error: "접근 권한이 없습니다 (x-dash-key)" }, 403);
-
   const url = new URL(req.url);
   const action = url.searchParams.get("action") ?? "hierarchy";
+  // sync는 pg_cron이 부르는 경로 — 접근키 대신 cron 비밀 헤더 (meta-budget의 run/snapshot과 동일 방식)
+  if (action === "sync") {
+    const secret = Deno.env.get("CRON_SECRET") ?? "";
+    if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
+  } else if (!checkDashKey(req)) return json({ error: "접근 권한이 없습니다 (x-dash-key)" }, 403);
 
   // Meta 사용량·쿨다운 상태 (우리 서버만 조회 — Meta 호출 없음)
   if (action === "usage") {
@@ -197,101 +329,36 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // ── 캠페인/광고세트/광고 계층 현황 (하향식 4호출 조립, 60초 캐시) ──
+    // ═══ 2단계(2026-09-07): 서버 주기 수집 — pg_cron이 5분마다 호출. 오늘 계층 + 오늘 예산 이력만 (하루 ≈ 1,440 호출)
+    // 사용자가 화면을 아무리 새로고침해도 Meta 호출은 늘지 않는다. 쿨다운 중이면 건너뛴다.
+    // ponytail: 고정 2종만 수집. 어제/7일/30일 칩은 여전히 사용자 요청 시 5분 캐시 — 필요해지면 최근 요청 키를 기록해 같이 수집
+    if (action === "sync") {
+      const until = await cooldownUntil();
+      if (until) return json({ skipped: "cooldown", cooldown_until: until });
+      const t = seoulToday();
+      curKey = `meta:hierarchy:today:${t}`;
+      const h = await fetchHierarchy(c, "today");
+      await cacheSet(curKey, h);
+      curKey = `meta:budgethist:${t}:${t}`;
+      const b = await fetchBudgetHistory(c, t, t);
+      await cacheSet(curKey, b);
+      await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
+      return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
+    }
+
+    // ── 캠페인/광고세트/광고 계층 현황 (하향식 4호출 조립 — 수집분 우선, 없으면 5분 캐시) ──
     if (action === "hierarchy") {
       const preset = ["today", "yesterday", "last_7d", "last_30d"].includes(url.searchParams.get("preset") ?? "")
         ? url.searchParams.get("preset")! : "today";
-      // 실제 날짜 범위(계정 시간대) — last_7d/last_30d는 Meta 표준대로 '오늘 제외, 어제까지'
       const t = seoulToday();
-      const range = preset === "today" ? { start: t, end: t }
-        : preset === "yesterday" ? { start: addDays(t, -1), end: addDays(t, -1) }
-        : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
-        : { start: addDays(t, -30), end: addDays(t, -1) };
       const cacheKey = `meta:hierarchy:${preset}:${t}`;   // 오늘 날짜 포함 — 자정 넘김 대비
-      const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
+      // 서버 수집이 돌고 있으면(15분 내 sync) 오늘 데이터는 수집분만 읽는다 → 사용자가 몇 번 눌러도 Meta 호출 0. 수집이 멈추면 5분 캐시로 자동 복귀
+      const sync = await syncInfo();
+      const pre = await metaPre(cacheKey, sync.sync_at && preset === "today" ? 12 * 60 * 1000 : 5 * 60 * 1000);
       if (pre) return pre;
-
-      type Node = Record<string, unknown>;
-      const [camps, adsets, adsAct, ins] = await Promise.all([
-        graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,created_time,updated_time", limit: "200" }, c.token),
-        graphGet(`${c.account}/adsets`, {
-          fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
-          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
-          limit: "500",
-        }, c.token),   // 활성 필터 — 무필터 500 한도에 활성 세트가 잘리던 원본 버그 수정분 그대로
-        graphGet(`${c.account}/ads`, {
-          fields: "id,name,effective_status,adset_id,campaign_id,created_time,updated_time",
-          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
-          limit: "500",
-        }, c.token),
-        graphGet(`${c.account}/insights`, {
-          date_preset: preset, level: "ad",
-          fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
-          limit: "500",
-        }, c.token),
-      ]);
-
-      // 캠페인/세트 뼈대
-      const cMap = new Map<string, Node>();
-      for (const r of (camps.data ?? []) as Node[]) {
-        cMap.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""),
-          budget: num(r.daily_budget), budget_life: num(r.lifetime_budget),
-          created: String(r.created_time ?? ""), updated: String(r.updated_time ?? ""),
-          spend: 0, purchases: 0, value: 0, clicks: 0, adsets: new Map<string, Node>() });
-      }
-      const sMap = new Map<string, Node>();
-      const ensureCamp = (id: string, name = "") => {
-        if (!cMap.has(id)) cMap.set(id, { id, name, status: "", budget: 0, budget_life: 0, created: "", updated: "", spend: 0, purchases: 0, value: 0, clicks: 0, adsets: new Map() });
-        return cMap.get(id)!;
-      };
-      const ensureAdset = (id: string, campId: string, name = "", status = "", budget = 0, budgetLife = 0, created = "", updated = "") => {
-        if (!sMap.has(id)) {
-          const node: Node = { id, name, status, budget, budget_life: budgetLife, created, updated, spend: 0, purchases: 0, value: 0, clicks: 0, ads: new Map<string, Node>() };
-          sMap.set(id, node);
-          (ensureCamp(campId).adsets as Map<string, Node>).set(id, node);
-        }
-        return sMap.get(id)!;
-      };
-      for (const r of (adsets.data ?? []) as Node[]) {
-        ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
-          num(r.daily_budget), num(r.lifetime_budget), String(r.created_time ?? ""), String(r.updated_time ?? ""));
-      }
-
-      // 광고: 활성 전체 + 기간 중 게재분(인사이트) 합집합 — 중간에 꺼진 광고도 지출이 보인다
-      const ensureAd = (adId: string, adsetId: string, campId: string, name: string, status: string, created = "", updated = "") => {
-        const st = ensureAdset(adsetId, campId);
-        const ads = st.ads as Map<string, Node>;
-        if (!ads.has(adId)) ads.set(adId, { id: adId, name, status, created, updated, spend: 0, purchases: 0, value: 0, clicks: 0, roas: 0 });
-        return ads.get(adId)!;
-      };
-      for (const r of (adsAct.data ?? []) as Node[]) {
-        ensureAd(String(r.id), String(r.adset_id ?? ""), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
-          String(r.created_time ?? ""), String(r.updated_time ?? ""));
-      }
-      for (const r of (ins.data ?? []) as Node[]) {
-        const m = mapAdRow(r);
-        const campId = String(r.campaign_id ?? "");
-        const camp = ensureCamp(campId, String(r.campaign_name ?? ""));
-        if (!camp.name) camp.name = String(r.campaign_name ?? "");
-        const st = ensureAdset(String(r.adset_id ?? ""), campId, String(r.adset_name ?? ""));
-        if (!st.name) st.name = String(r.adset_name ?? "");
-        const ad = ensureAd(String(r.ad_id ?? ""), String(r.adset_id ?? ""), campId, m.ad_name, "");
-        const clicks = num(r.clicks);
-        ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks;
-        st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value; st.clicks = num(st.clicks) + clicks;
-        camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value; camp.clicks = num(camp.clicks) + clicks;
-      }
-
-      const campaigns = [...cMap.values()].map((cRow) => ({
-        ...cRow,
-        adsets: [...(cRow.adsets as Map<string, Node>).values()].map((st) => ({
-          ...st, ads: [...(st.ads as Map<string, Node>).values()],
-        })),
-      }));
-      const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
-      const body = { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns };
+      const body = await fetchHierarchy(c, preset);
       await cacheSet(cacheKey, body);
-      return json(body);
+      return withMeta(body, sync);
     }
 
     // ── 소재 기간 7종 성과 (미리보기 모달용) ──
@@ -646,38 +713,12 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date") ?? seoulToday();
       const e = url.searchParams.get("end_date") ?? seoulToday();
       const cacheKey = `meta:budgethist:${s}:${e}`;
-      const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
+      const sync = await syncInfo();
+      const pre = await metaPre(cacheKey, sync.sync_at && s === seoulToday() && e === s ? 12 * 60 * 1000 : 5 * 60 * 1000);
       if (pre) return pre;
-      const rows = await graphGetAll(`${c.account}/activities`, {
-        fields: "event_type,event_time,object_id,object_name,object_type,extra_data",
-        since: s,
-        until: addDays(e, 1),
-        limit: "500",
-      }, c.token, 4);
-      const events = rows
-        .filter((r) => /^update_(ad_set|campaign)_budget$/.test(String(r.event_type ?? "")))
-        .map((r) => {
-          let extra: Record<string, unknown> = {};
-          try {
-            const raw = r.extra_data;
-            extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {};
-          } catch { /* extra_data 없음/비JSON */ }
-          const ov = (extra.old_value ?? {}) as Record<string, unknown>;
-          const nv = (extra.new_value ?? {}) as Record<string, unknown>;
-          return {
-            time: String(r.event_time ?? ""),
-            level: String(r.event_type ?? "").startsWith("update_ad_set") ? "adset" : "campaign",
-            object_id: String(r.object_id ?? ""),
-            object_name: String(r.object_name ?? ""),
-            old_value: num(ov.old_value ?? extra.old_value),
-            new_value: num(nv.new_value ?? extra.new_value),
-            note: String(nv.additional_value ?? ""),
-          };
-        })
-        .filter((ev) => ev.old_value > 0 || ev.new_value > 0);
-      const body = { period: { start: s, end: e }, count: events.length, events };
+      const body = await fetchBudgetHistory(c, s, e);
       await cacheSet(cacheKey, body);
-      return json(body);
+      return withMeta(body, sync);
     }
 
     // ═══ 대시보드 상태 저장소 (ad_test_state · best_ads) ═══
