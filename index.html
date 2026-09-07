@@ -354,6 +354,9 @@
     #sec-admgr .mtg.off { background: #ccd0d5; } #sec-admgr .mtg.off::after { right: auto; left: 2px; }
     #sec-admgr .mtg.ro { cursor: default; opacity: .6; }
     #sec-admgr .mtg.pend { box-shadow: 0 0 0 2px #f7b928; }   /* 임시 저장된 토글 — 게시 전 */
+    /* 열 너비 조절 핸들 — 가운데 1px 구분선, 올리면 파란 2px (2026-09-07 사용자 요청) */
+    .colh { background: linear-gradient(#dadde1, #dadde1) center / 1px 60% no-repeat; }
+    .colh:hover { background: linear-gradient(#1877f2, #1877f2) center / 2px 100% no-repeat; }
 
     /* ── 모바일 ── */
     @media (max-width: 900px) {
@@ -2122,6 +2125,7 @@ function renderAdmgr(keepScroll) {
       <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem;">
         <input type="checkbox" ${admgr.activeOnly ? 'checked' : ''} onchange="admgrToggleActive()" /> 활성만</label>`}
       <input class="inp" id="admgr-q" style="max-width:200px;background:#fff;" placeholder="${own ? '세트명·소재명 검색' : '이름 검색'}" value="${esc(admgr.q)}" oninput="admgrSearch(this.value)" />
+      ${!own ? `<button class="filter-tab" onclick="admgrColsMenu(event)" title="표시할 열 선택 · 드래그로 순서 변경"><i class="fa-solid fa-table-columns"></i> 열</button>` : ''}
       ${!own && !admgr.demo && admgr.write.st ? `<span style="display:inline-flex;gap:6px;flex-wrap:wrap;">${admgrWriteCtrlHtml()}</span>` : ''}
       <span style="flex:1;"></span>
       ${cfg && !admgr.demo ? `<button class="btn-analyze" onclick="admgrRefresh()" ${busy ? 'disabled' : ''}>
@@ -2164,6 +2168,7 @@ function renderAdmgr(keepScroll) {
   window.scrollTo(0, pageY);
   if (sc) { const w = body.querySelector('.table-wrap'); if (w) { w.scrollTop = sc.t; w.scrollLeft = sc.l; } }
   if (hadFocus) { const i = $('admgr-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+  if (['camp', 'set', 'ad'].includes(admgr.view)) admgrColsApply();   // 열 표시/순서 (Meta의 '열' 메뉴) — 너비 적용보다 먼저
   admgrColResize();   // 표를 새로 그릴 때마다 핸들 재부착 + 저장된 너비 재적용 (원본 규칙)
 }
 
@@ -2756,6 +2761,71 @@ async function admgrBudgetCancel(pid) {
   }
 }
 
+/* ═══ 열 표시/순서 (Meta 광고관리자의 '열' 메뉴처럼) — 탭별 localStorage { hidden:[라벨], order:[라벨] } (2026-09-07 사용자 요청) ═══
+   렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리) */
+function admgrColsKey() { return 'adc_admgr_cols_' + admgr.view; }
+function admgrColsCfg() { const c = lsGet(admgrColsKey(), null); return c && Array.isArray(c.hidden) && Array.isArray(c.order) ? c : { hidden: [], order: [] }; }
+function admgrColsSave(c) { lsSet(admgrColsKey(), c); }
+function admgrColsApply() {
+  const table = $('admgr-body').querySelector('table'); if (!table) return;
+  const labels = [...table.querySelectorAll('thead th')].map(admgrColLabel);
+  admgr._colLabels = labels;
+  const cfg = admgrColsCfg();
+  const fixed = labels.map((l, i) => ({ l, i })).filter(p => !p.l);
+  const movable = labels.map((l, i) => ({ l, i })).filter(p => p.l);
+  const ordered = [...cfg.order.map(l => movable.find(p => p.l === l)).filter(Boolean), ...movable.filter(p => !cfg.order.includes(p.l))];
+  const idx = [...fixed, ...ordered].map(p => p.i);
+  const identity = idx.every((v, k) => v === k);
+  const hidden = new Set(cfg.hidden);
+  if (identity && !hidden.size) return;
+  table.querySelectorAll('tfoot tr').forEach(tr => {   // 합계 행 colspan 풀기
+    const first = tr.children[0]; const span = parseInt(first.getAttribute('colspan') || '1', 10);
+    if (span > 1) { first.removeAttribute('colspan'); for (let k = 1; k < span; k++) first.insertAdjacentElement('afterend', document.createElement('td')); }
+  });
+  table.querySelectorAll('tr').forEach(tr => {
+    const cells = [...tr.children]; if (cells.length !== labels.length) return;
+    if (!identity) idx.forEach(i => tr.appendChild(cells[i]));   // appendChild = 이동 → 새 순서로 재배치
+    cells.forEach((c, i) => { if (hidden.has(labels[i])) c.style.display = 'none'; });
+  });
+}
+let admgrColsAnchor = null, admgrColDragL = null;
+function admgrColsMenu(ev) { admgrColsAnchor = ev.currentTarget.getBoundingClientRect(); admgrColsMenuRender(); }
+function admgrColsMenuRender() {
+  const cfg = admgrColsCfg();
+  const labels = (admgr._colLabels || []).filter(Boolean);
+  const order = [...cfg.order.filter(l => labels.includes(l)), ...labels.filter(l => !cfg.order.includes(l))];
+  const pop = $('admgr-bpop');
+  pop.innerHTML = `<div style="font-size:.78rem;font-weight:800;color:#1c1e21;margin-bottom:6px;">열 표시 · 순서 <span style="font-weight:400;color:#9ca3af;font-size:.68rem;">체크 = 표시 · ⋮⋮ 드래그 = 순서</span></div>
+    <div id="cols-list" style="max-height:52vh;overflow:auto;">${order.map(l => `
+      <div draggable="true" data-l="${esc(l)}" ondragstart="admgrColDrag(event)" ondragover="event.preventDefault()" ondrop="admgrColDrop(event)"
+           style="display:flex;align-items:center;gap:8px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;background:#fff;cursor:grab;font-size:.78rem;">
+        <span style="color:#c4c8d4;">⋮⋮</span><input type="checkbox" ${cfg.hidden.includes(l) ? '' : 'checked'} onchange="admgrColToggle('${esc(l)}',this.checked)" style="margin:0;" /><span>${esc(l)}</span></div>`).join('')}</div>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" onclick="admgrColsSave({hidden:[],order:[]});renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
+      <button class="btn-analyze" style="flex:1;justify-content:center;font-size:.72rem;" onclick="document.getElementById('admgr-bpop').style.display='none'">닫기</button></div>`;
+  const r0 = admgrColsAnchor || { left: 100, bottom: 100 };
+  pop.style.display = 'block';
+  pop.style.left = Math.max(8, Math.min(r0.left, window.innerWidth - 282)) + 'px';
+  pop.style.top = (r0.bottom + 6) + 'px';
+}
+function admgrColToggle(l, on) {
+  const cfg = admgrColsCfg();
+  cfg.hidden = on ? cfg.hidden.filter(x => x !== l) : [...new Set([...cfg.hidden, l])];
+  admgrColsSave(cfg); renderAdmgr(true);
+}
+function admgrColDrag(e) { admgrColDragL = e.currentTarget.dataset.l; }
+function admgrColDrop(e) {
+  e.preventDefault();
+  const to = e.currentTarget.dataset.l;
+  if (!admgrColDragL || admgrColDragL === to) return;
+  const items = [...$('cols-list').children].map(d => d.dataset.l);
+  const from = items.indexOf(admgrColDragL), t = items.indexOf(to);
+  items.splice(t, 0, items.splice(from, 1)[0]);
+  const cfg = admgrColsCfg(); cfg.order = items; admgrColsSave(cfg);
+  admgrColDragL = null;
+  renderAdmgr(true); admgrColsMenuRender();
+}
+
 /* ═══ 표 열 너비 조절 (원본 admgrColResize) — 머리글 오른쪽 가장자리 드래그, 더블클릭 = 원래대로. 탭별 localStorage 저장. 마우스 전용 ═══ */
 function admgrColKey() { return 'adc_admgr_colw_' + admgr.view; }
 function admgrColLoad() { try { return JSON.parse(localStorage.getItem(admgrColKey()) || '{}'); } catch { return {}; } }
@@ -2779,6 +2849,7 @@ function admgrColResize() {
     if (saved[key]) admgrColApply(table, idx, saved[key]);
     th.style.position = 'relative';
     const h = document.createElement('span');
+    h.className = 'colh';   // 구분선이 보이게 (CSS)
     h.title = '드래그 = 열 너비 조절 · 더블클릭 = 원래대로';
     h.style.cssText = 'position:absolute;top:0;right:-5px;width:10px;height:100%;cursor:col-resize;z-index:5;';
     h.onclick = e => e.stopPropagation();   // 정렬 클릭으로 안 새게
