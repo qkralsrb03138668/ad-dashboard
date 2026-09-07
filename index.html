@@ -314,6 +314,46 @@
     .mini-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; vertical-align: middle; border: 1px solid #e7e8ee; background: #eef2ff; }
     .mini-ph { display: inline-flex; width: 34px; height: 34px; border-radius: 8px; align-items: center; justify-content: center; color: #a5b4fc; background: linear-gradient(140deg,#eef2ff,#ede9fe); vertical-align: middle; font-size: .8rem; border: 1px solid #e7e8ee; }
 
+    /* ── 광고관리자 메뉴 = Meta 광고관리자 스타일 (2026-09-07 사용자 요청 A — 이 메뉴만) ── */
+    #sec-admgr { font-family: -apple-system, "Apple SD Gothic Neo", "Helvetica Neue", Arial, sans-serif; color: #1c1e21; border-color: #dadde1; }
+    #sec-admgr .section-header { background: #fff; border-bottom: 1px solid #dadde1; }
+    #sec-admgr .section-body { padding: 12px 16px; background: #f0f2f5; }
+    #sec-admgr .control-bar { background: #fff; border: 1px solid #dadde1; border-radius: 8px; padding: 8px 12px; gap: 8px; margin-bottom: 10px; }
+    #sec-admgr .control-bar label { color: #65676b; font-size: 13px; }
+    #sec-admgr .info-bar { background: #fff; border-color: #dadde1; color: #65676b; font-size: 12px; border-radius: 8px; }
+    #sec-admgr .btn-analyze { background: #1877f2; border-radius: 6px; font-size: 13px; padding: 7px 12px; }
+    #sec-admgr .btn-sample, #sec-admgr .qp button { border-radius: 6px; }
+    #sec-admgr .filter-tab { border-radius: 6px; border-color: #ccd0d5; color: #1c1e21; font-size: 13px; padding: 5px 10px; background: #fff; }
+    #sec-admgr .filter-tab.active { background: #e7f3ff; color: #1877f2; border-color: #1877f2; }
+    #sec-admgr .mtabs { display: flex; background: #fff; border: 1px solid #dadde1; border-radius: 8px 8px 0 0; overflow: hidden; margin-bottom: 0; }
+    #sec-admgr .mtab { flex: 1; padding: 11px 14px; border-right: 1px solid #dadde1; display: flex; align-items: center; justify-content: center; gap: 8px; color: #65676b; font-weight: 600; font-size: 13px; cursor: pointer; background: #fff; border-top: none; border-bottom: 3px solid transparent; border-left: none; font-family: inherit; white-space: nowrap; }
+    #sec-admgr .mtab:last-child { border-right: none; }
+    #sec-admgr .mtab.on { background: #e7f3ff; color: #1877f2; border-bottom-color: #1877f2; }
+    #sec-admgr .mtab .n { font-weight: 400; font-size: 12px; }
+    #sec-admgr .mbar { background: #fff; border: 1px solid #dadde1; border-top: none; padding: 8px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    #sec-admgr .kpi-grid { gap: 8px; margin: 10px 0; }
+    #sec-admgr .kpi-tile { border: 1px solid #dadde1; border-radius: 8px; box-shadow: none; padding: 10px 14px; }
+    #sec-admgr .kpi-tile::before { display: none; }
+    #sec-admgr .kpi-tile .kt-label { color: #65676b; font-size: 12px; }
+    #sec-admgr .kpi-tile .kt-value { font-size: 1.05rem !important; color: #1c1e21; }
+    #sec-admgr .table-wrap { border-color: #dadde1; border-radius: 8px; }
+    #sec-admgr table { font-size: 13px; }
+    #sec-admgr thead tr { background: #fff; }
+    #sec-admgr thead th { color: #65676b; font-weight: 600; border-bottom: 1px solid #dadde1; text-align: right; padding: 10px 12px; }
+    #sec-admgr tbody td { text-align: right; border-bottom: 1px solid #e4e6eb; color: #1c1e21; padding: 9px 12px; }
+    #sec-admgr tbody tr:hover { background: #f5f6f7; }
+    #sec-admgr th.l, #sec-admgr td.l, #sec-admgr td.name-cell { text-align: left; }
+    #sec-admgr td.name-cell b { color: #1877f2; font-weight: 600; }
+    #sec-admgr tfoot td { background: #f5f6f7; color: #1c1e21; border-top: 2px solid #dadde1; text-align: right; }
+    #sec-admgr tfoot td:first-child { text-align: left; }
+    #sec-admgr .status-badge { border-radius: 4px; padding: 2px 7px; font-size: 11px; }
+    #sec-admgr .mdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #31a24c; margin-right: 6px; vertical-align: middle; }
+    #sec-admgr .mdot.off { background: #ccd0d5; } #sec-admgr .mdot.warn { background: #f7b928; } #sec-admgr .mdot.bad { background: #e41e3f; }
+    #sec-admgr .mtg { width: 34px; height: 18px; border-radius: 9px; background: #31a24c; position: relative; display: inline-block; cursor: pointer; vertical-align: middle; transition: background .15s; }
+    #sec-admgr .mtg::after { content: ''; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+    #sec-admgr .mtg.off { background: #ccd0d5; } #sec-admgr .mtg.off::after { right: auto; left: 2px; }
+    #sec-admgr .mtg.ro { cursor: default; opacity: .6; }
+
     /* ── 모바일 ── */
     @media (max-width: 900px) {
       .layout { flex-direction: column; align-items: stretch; }
@@ -1994,13 +2034,34 @@ function admgrSelAllDisp() {
   renderAdmgr(true);
 }
 
+/* 게재 열 — Meta식 점 + 글자 */
 function admgrStBadge(st) {
-  if (st === 'ACTIVE') return '<span class="status-badge badge-green">켜짐</span>';
-  if (!st) return '<span class="status-badge badge-blue" title="현재 목록엔 없지만 기간 중 지출이 있던 광고">기간 중 게재</span>';
-  if (/PAUSED/.test(st)) return '<span class="status-badge badge-gray">꺼짐</span>';
-  if (st === 'IN_PROCESS' || st === 'PENDING_REVIEW') return '<span class="status-badge badge-orange">검토중</span>';
-  if (st === 'DISAPPROVED' || st === 'WITH_ISSUES') return '<span class="status-badge badge-red">문제 있음</span>';
-  return '<span class="status-badge badge-gray">' + esc(st) + '</span>';
+  if (st === 'ACTIVE') return '<span class="mdot"></span>활성';
+  if (!st) return '<span class="mdot off"></span><span style="color:#65676b;" title="현재 목록엔 없지만 기간 중 지출이 있던 광고">기간 중 게재</span>';
+  if (/PAUSED/.test(st)) return '<span class="mdot off"></span>꺼짐';
+  if (st === 'IN_PROCESS' || st === 'PENDING_REVIEW') return '<span class="mdot warn"></span>검토 중';
+  if (st === 'DISAPPROVED' || st === 'WITH_ISSUES') return '<span class="mdot bad"></span>문제 있음';
+  return '<span class="mdot off"></span>' + esc(st);
+}
+/* 켜기/끄기 토글 (2026-09-07) — 쓰기 가능(토큰·PIN)하면 클릭으로 status 변경, 아니면 보기용 */
+function admgrOnOff(r, level) {
+  if (!r.status) return '<span style="color:#ccd0d5;">—</span>';
+  const on = r.status === 'ACTIVE';
+  const can = admgr.write.st && admgr.write.st.allowed && !admgr.demo;
+  return `<span class="mtg ${on ? '' : 'off'} ${can ? '' : 'ro'}" title="${on ? '켜짐' : '꺼짐'}${can ? ' — 클릭하면 ' + (on ? '끄기' : '켜기') : ''}" ${can ? `onclick="event.stopPropagation();admgrToggleStatus('${r.id}','${level}',${on})"` : ''}></span>`;
+}
+function admgrToggleStatus(id, level, on) {
+  const w = admgr.write;
+  if (!w.pin) { admgrPinPrompt(() => admgrToggleStatus(id, level, on)); return; }
+  const R = admgrRows();
+  const node = (level === 'campaign' ? R.camps : level === 'adset' ? R.sets : R.ads).find(x => x.id === id); if (!node) return;
+  const L = { campaign: '캠페인', adset: '광고 세트', ad: '광고' }[level];
+  admgrConfirmModal(`${L} ${on ? '끄기' : '켜기'}`, `<b>${esc(node.name)}</b><br/>${on ? '게재를 중지해요 (일시중지)' : '게재를 시작해요 — 바로 지출이 시작될 수 있어요'}${level !== 'campaign' && !on ? '<br/><span style="color:#9ca3af;font-size:.72rem;">상위 캠페인·세트가 꺼져 있으면 켜도 게재되지 않아요</span>' : ''}`, on ? '끄기' : '켜기', async () => {
+    try {
+      await metaBudgetCall({ action: 'setstatus' }, { object_id: id, object_name: node.name, level, status: on ? 'PAUSED' : 'ACTIVE', pin: w.pin });
+      toast(`${L}을(를) ${on ? '꺼' : '켰'}어요`); admgrFetch();
+    } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('변경 실패: ' + e.message); }
+  });
 }
 function admgrBudget(r) {
   if (r.budget) return '일 ' + won(r.budget);
@@ -2080,8 +2141,11 @@ function renderAdmgr(keepScroll) {
     ['offad', '기존광고 중 OFF', admgr.offad.loaded ? admgr.offad.data.count : null],
     ['best', '베스트소재', admgr.best.loaded ? (admgr.best.rows || []).length : null],
   ];
-  const tabs = `<div class="filter-tabs">${tabDefs.map(([k, label, n]) =>
-    `<button class="filter-tab ${admgr.view === k ? 'active' : ''}" onclick="admgrSetView('${k}')">${label}${n == null ? '' : ' ' + n}</button>`).join('')}
+  /* Meta 광고관리자식 탭 스트립 (캠페인 / 광고 세트 / 광고 + 부가 탭) — 2026-09-07 */
+  const ICON = { camp: '▣', set: '▤', ad: '▥', test: '⚗', offad: '⏻', best: '★' };
+  const tabs = `<div class="mtabs">${tabDefs.map(([k, label, n]) =>
+    `<button class="mtab ${admgr.view === k ? 'on' : ''}" onclick="admgrSetView('${k}')">${ICON[k] || ''} ${label}${n == null ? '' : ` <span class="n">${n}개</span>`}</button>`).join('')}</div>
+    <div class="filter-tabs" style="margin:8px 0 4px;">
     ${!own && (admgr.selCamps.size || admgr.selSets.size) ? `
       <span style="font-size:.75rem;color:#6b7280;font-weight:600;">선택: 캠페인 ${admgr.selCamps.size} · 세트 ${admgr.selSets.size}</span>
       ${admgr.view === 'set' && admgr.selSets.size && cfg && !admgr.demo ? `<button class="filter-tab" style="color:#4f46e5;border-color:#a5b4fc;" onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재 탭에 모아둡니다"><i class="fa-solid fa-star"></i> 베스트소재로</button>` : ''}
@@ -2164,7 +2228,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   </div>`;
   const cpcTd = r => r.clicks ? won(r.spend / r.clicks) : '—';
   const totalRow = (lead, extraCols) => `<tfoot><tr>
-    <td colspan="${lead}" style="text-align:left;">합계 <span style="font-weight:600;color:#9ca3af;font-size:.7rem;">${VIEW_LABEL} ${vis.length}개</span></td>
+    <td colspan="${lead}" style="text-align:left;">${vis.length}개 ${VIEW_LABEL}의 결과</td>
     ${extraCols}
     <td>${won(tot.spend)}</td>${isCamp || isSet ? '' : `<td class="m-hide">${comma(tot.clicks)}</td>`}<td>${comma(tot.purchases)}</td>
     <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td class="m-hide">${cpcTd(tot)}</td>
@@ -2175,22 +2239,23 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th style="width:34px;"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th>${admgrTh('name', VIEW_LABEL)}<th>상태</th>${showJudge ? '<th title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th style="width:34px;"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l" style="width:60px;">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr>
           <td><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
+          <td class="l">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
           <td class="name-cell" style="text-align:left;">
             <b>${esc(r.name || '(이름 없음)')}</b>
             ${!isCamp ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._campName || '')}</div>` : ''}
             <div><button class="btn-ghost" style="padding:2px 8px;font-size:.68rem;margin-top:3px;"
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button></div></td>
-          <td>${admgrStBadge(r.status)}</td>
-          ${showJudge ? `<td>${admgrJudgeCell(r)}</td>` : ''}
-          ${showMid ? `<td class="m-hide">${admgrMidCell(r, isCamp ? 'campaign' : 'adset')}</td>` : ''}
+          <td class="l" style="white-space:nowrap;">${admgrStBadge(r.status)}</td>
+          ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td>` : ''}
+          ${showMid ? `<td class="l m-hide">${admgrMidCell(r, isCamp ? 'campaign' : 'adset')}</td>` : ''}
           <td class="m-hide">${admgrBudgetCell(r, isCamp ? 'campaign' : 'adset')}</td>
-          ${showChg ? `<td class="m-hide">${admgrChgCell(r)}</td>` : ''}
+          ${showChg ? `<td class="l m-hide">${admgrChgCell(r)}</td>` : ''}
           <td><b>${admgrMoney(r.spend)}</b></td>
           <td>${comma(r.purchases || 0)}</td>
           <td class="m-hide">${admgrCpa(r)}</td>
@@ -2198,19 +2263,20 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td>${admgrRoasTd(r)}</td>
           <td class="m-hide">${cpcTd(r)}</td>
         </tr>`).join('')}</tbody>
-      ${totalRow(3 + (showJudge ? 1 : 0), `${showMid ? '<td class="m-hide">—</td>' : ''}<td class="m-hide">—</td>${showChg ? '<td class="m-hide">—</td>' : ''}`)}
+      ${totalRow(4 + (showJudge ? 1 : 0), `${showMid ? '<td class="m-hide">—</td>' : ''}<td class="m-hide">—</td>${showChg ? '<td class="m-hide">—</td>' : ''}`)}
     </table></div>
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">${isSet ? '세트를 체크하고 위의 <b>베스트소재로</b> 버튼을 누르면 그 세트의 소재가 베스트소재 탭에 모여요. ' : ''}${showChg ? "'최근 변경'은 오늘 바뀐 예산(변경 후 설정값·시각) — 클릭하면 히스토리." : ''}</p>`;
   } else {
     table = `<div class="table-wrap"><table>
-      <thead><tr>${admgrTh('name', '광고')}<th>상태</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
+      <thead><tr><th class="l" style="width:60px;">켜기/끄기</th>${admgrTh('name', '광고', 'l')}<th class="l">게재</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
         ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기">
+          <td class="l" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
           <td class="name-cell" style="text-align:left;">
             <b>${esc(r.name || '(이름 없음)')}</b>
             <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._setName || '')}</div></td>
-          <td>${admgrStBadge(r.status)}</td>
+          <td class="l" style="white-space:nowrap;">${admgrStBadge(r.status)}</td>
           <td><b>${admgrMoney(r.spend)}</b></td>
           <td class="m-hide">${comma(r.clicks || 0)}</td>
           <td>${comma(r.purchases || 0)}</td>
@@ -2219,7 +2285,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td>${admgrRoasTd(r)}</td>
           <td class="m-hide">${cpcTd(r)}</td>
         </tr>`).join('')}</tbody>
-      ${totalRow(2, '')}
+      ${totalRow(3, '')}
     </table></div>
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">행 클릭 → 소재 미리보기 · 열 제목 클릭 = 정렬(오름→내림→해제, 먼저 누른 열이 1순위)</p>`;
   }

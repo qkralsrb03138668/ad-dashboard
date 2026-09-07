@@ -153,6 +153,31 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // 켜기/끄기 (2026-09-07) — 캠페인·세트·광고 status 변경. 쓰기 토큰 + PIN, budget_writes에 mode='status'로 기록(new_budget 1=켜짐 0=꺼짐)
+    if (action === "setstatus") {
+      const objectId = String(body.object_id ?? "");
+      const level = String(body.level ?? "");
+      const status = String(body.status ?? "");
+      if (!/^\d{5,25}$/.test(objectId) || !["campaign", "adset", "ad"].includes(level) || !["ACTIVE", "PAUSED"].includes(status)) {
+        return json({ error: "대상/상태가 올바르지 않습니다" }, 400);
+      }
+      if (!env("META_WRITE_TOKEN")) return json({ error: "Meta 쓰기 토큰(META_WRITE_TOKEN)이 아직 설정되지 않았습니다" }, 400);
+      const res = await fetch(`${GRAPH}/${objectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ status, access_token: env("META_WRITE_TOKEN") }),
+      });
+      const rb = await res.json().catch(() => ({}));
+      if (!res.ok || rb?.success === false) return json({ error: `Meta 적용 실패: ${(rb?.error?.message ?? JSON.stringify(rb)).slice(0, 250)}` }, 500);
+      await pg("budget_writes", "POST", {
+        object_id: objectId, object_name: String(body.object_name ?? ""), level,
+        old_budget: null, new_budget: status === "ACTIVE" ? 1 : 0, mode: "status", status: "applied",
+        requested_by: who, applied_at: new Date().toISOString(),
+      }).catch(() => {});
+      await clearMetaCaches();
+      return json({ ok: true, status });
+    }
+
     // apply / schedule 공통 검증
     const objectId = String(body.object_id ?? "");
     const level = String(body.level ?? "");
