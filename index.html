@@ -336,7 +336,25 @@
     #sec-admgr .kpi-tile::before { display: none; }
     #sec-admgr .kpi-tile .kt-label { color: #65676b; font-size: 12px; }
     #sec-admgr .kpi-tile .kt-value { font-size: 1.05rem !important; color: #1c1e21; }
-    #sec-admgr .table-wrap { border-color: #dadde1; border-radius: 8px; }
+    #sec-admgr .table-wrap { border-color: #dadde1; border-radius: 8px; max-height: calc(100vh - 150px); overflow: auto; }
+    /* 고정 폭 표 (2026-09-07 사용자 요청 '조잡한 정렬' → Meta식): 열마다 폭 고정·이름 열만 유동, 숫자는 고정폭 숫자체, 왼쪽 3열·머리글·합계 고정, 넘치면 가로 스크롤 */
+    #sec-admgr table { table-layout: fixed; width: 100%; font-variant-numeric: tabular-nums; }
+    #sec-admgr thead th { position: sticky; top: 0; background: #fff; z-index: 3; white-space: nowrap; }
+    #sec-admgr tbody td { overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+    #sec-admgr tfoot td { position: sticky; bottom: 0; z-index: 3; overflow: hidden; text-overflow: ellipsis; }
+    #sec-admgr .stk { position: sticky; z-index: 2; }
+    #sec-admgr thead th.stk, #sec-admgr tfoot td.stk { z-index: 4; }
+    #sec-admgr tbody td.stk { background: #fff; }
+    #sec-admgr tbody tr:hover td.stk { background: #f5f6f7; }
+    #sec-admgr .stk-last { box-shadow: inset -1px 0 #dadde1; }
+    #sec-admgr td.name-cell { white-space: nowrap; min-width: 0; max-width: none; }
+    #sec-admgr td.name-cell .nm { display: block; overflow: hidden; text-overflow: ellipsis; }
+    #sec-admgr td.name-cell .sub { display: flex; gap: 8px; align-items: center; font-size: 11px; color: #65676b; margin-top: 2px; min-width: 0; }
+    #sec-admgr td.name-cell .sub .e { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    #sec-admgr td.name-cell .drill { color: #1877f2; cursor: pointer; white-space: nowrap; flex: none; font-weight: 600; }
+    #sec-admgr td.name-cell .drill:hover { text-decoration: underline; }
+    #sec-admgr .fitnote { font-size: 11px; color: #65676b; margin-top: 6px; }
+    #sec-admgr .fitnote a { color: #1877f2; cursor: pointer; font-weight: 600; }
     #sec-admgr table { font-size: 13px; }
     #sec-admgr thead tr { background: #fff; }
     #sec-admgr thead th { color: #65676b; font-weight: 600; border-bottom: 1px solid #dadde1; text-align: right; padding: 10px 12px; }
@@ -2182,7 +2200,7 @@ function renderAdmgr(keepScroll) {
   window.scrollTo(0, pageY);
   if (sc) { const w = body.querySelector('.table-wrap'); if (w) { w.scrollTop = sc.t; w.scrollLeft = sc.l; } }
   if (hadFocus) { const i = $('admgr-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
-  if (['camp', 'set', 'ad'].includes(admgr.view)) admgrColsApply();   // 열 표시/순서 (Meta의 '열' 메뉴) — 너비 적용보다 먼저
+  if (['camp', 'set', 'ad'].includes(admgr.view)) { admgrColsApply(); admgrTableFit(); }   // 열 표시/순서 (Meta의 '열' 메뉴) → 고정 폭·고정 열·자동 숨김
   admgrColResize();   // 표를 새로 그릴 때마다 핸들 재부착 + 저장된 너비 재적용 (원본 규칙)
 }
 
@@ -2261,7 +2279,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:55 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:55에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:55 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l nmh')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:55 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:55에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:55 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr>
@@ -2269,10 +2287,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
           <td class="l tg">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
           <td class="name-cell" style="text-align:left;">
-            <b>${esc(r.name || '(이름 없음)')}</b>
-            ${!isCamp ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._campName || '')}</div>` : ''}
-            <div><button class="btn-ghost" style="padding:2px 8px;font-size:.68rem;margin-top:3px;"
-              onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button></div></td>
+            <span class="nm" title="${esc(r.name || '')}"><b>${esc(r.name || '(이름 없음)')}</b></span>
+            <span class="sub">${!isCamp ? `<span class="e" title="${esc(r._campName || '')}">${esc(r._campName || '')}</span>` : ''}<a class="drill" onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</a></span></td>
           <td class="l" style="white-space:nowrap;">${admgrStBadge(r.status)}</td>
           ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td>` : ''}
           ${showMid ? `<td class="l m-hide">${admgrMidCell(r, isCamp ? 'campaign' : 'adset')}</td>` : ''}
@@ -2290,14 +2306,14 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">${isSet ? '세트를 체크하고 위의 <b>베스트소재로</b> 버튼을 누르면 그 세트의 소재가 베스트소재 탭에 모여요. ' : ''}${showChg ? "'최근 변경'은 오늘 바뀐 예산(변경 후 설정값·시각) — 클릭하면 히스토리." : ''}</p>`;
   } else {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="l tg">켜기/끄기</th>${admgrTh('name', '광고', 'l')}<th class="l">게재</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
+      <thead><tr><th class="l tg">켜기/끄기</th>${admgrTh('name', '광고', 'l nmh')}<th class="l">게재</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
         ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기">
           <td class="l tg" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
           <td class="name-cell" style="text-align:left;">
-            <b>${esc(r.name || '(이름 없음)')}</b>
-            <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._setName || '')}</div></td>
+            <span class="nm" title="${esc(r.name || '')}"><b>${esc(r.name || '(이름 없음)')}</b></span>
+            <span class="sub"><span class="e" title="${esc(r._setName || '')}">${esc(r._setName || '')}</span></span></td>
           <td class="l" style="white-space:nowrap;">${admgrStBadge(r.status)}</td>
           <td><b>${admgrMoney(r.spend)}</b></td>
           <td class="m-hide">${comma(r.clicks || 0)}</td>
@@ -2865,6 +2881,67 @@ function admgrColDrop(e) {
   admgrColDragL = null;
   renderAdmgr(true); admgrColsMenuRender();
 }
+
+/* ═══ 고정 폭 표 (2026-09-07 사용자 요청: 열이 늘어도 정렬이 안 흐트러지게) ═══
+   열 라벨별 기본 폭(px). null = 이름 열(남는 공간 전부, 최소 240). 저장된 너비(드래그)가 있으면 그것 우선.
+   ADMGR_COLPRI = 화면이 좁을 때 자동으로 숨기는 순서(작을수록 먼저) — 지출·구매·ROAS·예산·판정·23:55는 절대 안 숨김 */
+const ADMGR_COLW = { '켜기/끄기': 64, '캠페인': null, '광고세트': null, '광고': null, '게재': 84, '판정': 172, '23:55 세팅': 184, '예산': 116, '최근 변경': 150,
+  '지출': 104, '클릭': 72, '구매': 64, '구매당 비용': 104, '전환값': 112, 'ROAS': 72, 'CPC': 82 };
+const ADMGR_COLPRI = { 'CPC': 1, '클릭': 2, '전환값': 3, '구매당 비용': 4, '최근 변경': 5 };
+function admgrAutofit(on) { lsSet('adc_admgr_autofit', !!on); renderAdmgr(true); }
+function admgrTableFit() {
+  const wrap = $('admgr-body').querySelector('.table-wrap'); const table = wrap && wrap.querySelector('table'); if (!table) return;
+  /* 예전 드래그 너비는 새 기본 폭과 안 맞아 한 번 비운다 */
+  if (!lsGet('adc_admgr_colw_v2', false)) { ['camp', 'set', 'ad'].forEach(v => { try { localStorage.removeItem('adc_admgr_colw_' + v); } catch { /* 무시 */ } }); lsSet('adc_admgr_colw_v2', true); }
+  const ths = [...table.querySelectorAll('thead th')];
+  /* 합계 행 colspan 풀기 (열 단위 숨김·고정을 위해) — 라벨은 이름 열로 옮긴다 */
+  table.querySelectorAll('tfoot tr').forEach(tr => {
+    const first = tr.children[0]; const span = parseInt(first.getAttribute('colspan') || '1', 10);
+    if (span > 1) {
+      const txt = first.textContent; first.textContent = ''; first.removeAttribute('colspan');
+      for (let k = 1; k < span; k++) first.insertAdjacentElement('afterend', document.createElement('td'));
+      const ni = ths.findIndex(th => th.classList.contains('nmh'));
+      const cell = tr.children[ni >= 0 ? ni : 0]; cell.textContent = txt; cell.style.textAlign = 'left';
+    }
+  });
+  const saved = admgrColLoad();
+  const autofit = lsGet('adc_admgr_autofit', false);   // 기본은 Meta처럼 가로 스크롤(열 유지). 켜면 좁을 때 우선순위 낮은 열부터 숨김
+  const col = (i, fn) => table.querySelectorAll('tr').forEach(tr => { const c = tr.children[i]; if (c) fn(c); });
+  let need = 0; const auto = [];
+  ths.forEach((th, i) => {
+    if (th.style.display === 'none') return;
+    const l = admgrColLabel(th);
+    const def = l ? (ADMGR_COLW[l] === undefined ? 100 : ADMGR_COLW[l]) : 36;
+    const w = saved[l] || def;
+    if (w == null) { th.style.width = ''; need += 220; }
+    else { th.style.width = w + 'px'; need += w; }
+    if (autofit && ADMGR_COLPRI[l]) auto.push({ i, l, pr: ADMGR_COLPRI[l], w: w || 220 });
+  });
+  const avail = wrap.clientWidth || 0; const hid = [];
+  auto.sort((a, b) => a.pr - b.pr);
+  for (const a of auto) { if (need <= avail) break; need -= a.w; hid.push(a); col(a.i, c => { c.style.display = 'none'; }); }
+  table.style.minWidth = need > avail ? need + 'px' : '';
+  /* 왼쪽 고정: 체크·토글·이름이 앞에서부터 이어지는 만큼 */
+  let left = 0, last = null;
+  for (const th of ths) {
+    if (th.style.display === 'none') continue;
+    if (!(th.classList.contains('cb') || th.classList.contains('tg') || th.classList.contains('nmh'))) break;
+    const i = ths.indexOf(th), l = left;
+    col(i, c => { c.classList.add('stk'); c.style.left = l + 'px'; });
+    left += parseInt(th.style.width) || (th.classList.contains('nmh') ? 220 : 36); last = i;
+  }
+  if (last != null) col(last, c => c.classList.add('stk-last'));
+  const old = wrap.nextElementSibling; if (old && old.classList.contains('fitnote')) old.remove();
+  const note = hid.length
+    ? `화면 폭에 맞춰 자동 숨김: <b>${hid.map(a => esc(a.l)).join(' · ')}</b> — <a onclick="admgrAutofit(false)">모두 보기 (가로 스크롤)</a>`
+    : autofit ? '' : `<a onclick="admgrAutofit(true)">화면 폭에 맞춰 열 자동 숨김 켜기</a>`;
+  if (note) wrap.insertAdjacentHTML('afterend', `<div class="fitnote">${note}</div>`);
+}
+let admgrFitTimer = null;
+window.addEventListener('resize', () => {   // 창 크기 바뀌면 자동 숨김 다시 계산
+  clearTimeout(admgrFitTimer);
+  admgrFitTimer = setTimeout(() => { const sec = $('sec-admgr'); if (sec && sec.offsetParent && ['camp', 'set', 'ad'].includes(admgr.view) && admgr.data) renderAdmgr(true); }, 250);
+});
 
 /* ═══ 표 열 너비 조절 (원본 admgrColResize) — 머리글 오른쪽 가장자리 드래그, 더블클릭 = 원래대로. 탭별 localStorage 저장. 마우스 전용 ═══ */
 function admgrColKey() { return 'adc_admgr_colw_' + admgr.view; }
