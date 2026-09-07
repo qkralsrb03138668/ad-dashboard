@@ -345,8 +345,9 @@
     #sec-admgr th.l, #sec-admgr td.l, #sec-admgr td.name-cell { text-align: left; }
     /* 왼쪽 여백 축소 (2026-09-07 사용자 요청): 체크박스·토글 열을 좁게, 이름이 바로 붙게 */
     /* width:1% = 내용 크기만큼만 (표가 100%로 늘어날 때 남는 공간을 이 열들이 먹지 않게) */
-    #sec-admgr th.cb, #sec-admgr td.cb { width: 1%; padding-left: 8px; padding-right: 2px; text-align: left; }
-    #sec-admgr th.tg, #sec-admgr td.tg { width: 1%; padding-left: 6px; padding-right: 6px; font-size: 11px; white-space: nowrap; text-align: left; }
+    /* 2026-09-07 밤: 체크·토글 간격이 벌어진다는 지적 → 두 열 폭을 픽셀로 못 박음 (!important = 저장된 드래그 너비·인라인 폭보다 우선) */
+    #sec-admgr th.cb, #sec-admgr td.cb { width: 30px !important; min-width: 30px !important; max-width: 30px !important; padding: 9px 0 9px 10px !important; text-align: left; box-sizing: border-box; }
+    #sec-admgr th.tg, #sec-admgr td.tg { width: 54px !important; min-width: 54px !important; max-width: 54px !important; padding: 9px 4px 9px 6px !important; font-size: 10.5px; letter-spacing: -.3px; white-space: nowrap; text-align: left; box-sizing: border-box; }
     #sec-admgr td.name-cell { padding-left: 8px; }
     #sec-admgr td.l > div, #sec-admgr td.l > span { text-align: left; }
     #sec-admgr td.name-cell b { color: #1877f2; font-weight: 600; }
@@ -2885,7 +2886,7 @@ function admgrColResize() {
   const saved = admgrColLoad();
   table.querySelectorAll('thead th').forEach((th, idx) => {
     const key = admgrColLabel(th);
-    if (!key) return;   // 체크박스 열 등 무명 열은 제외
+    if (!key || th.classList.contains('tg')) return;   // 체크박스·토글 열은 폭 고정 (드래그 제외)
     if (saved[key]) admgrColApply(table, idx, saved[key]);
     th.style.position = 'relative';
     const h = document.createElement('span');
