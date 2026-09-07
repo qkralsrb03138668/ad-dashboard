@@ -9,7 +9,15 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- 광고관리자 테스트 소재 탭의 엑셀 추출용 -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="./config.js"></script>
+  <script>
+    // 배포판(GitHub Pages)엔 config.js가 없다 — 공개용 anon key만 기본값으로 넣고 로그인 계정으로 서버 인증. DASH_KEY는 로컬 파일 전용.
+    window.DASH_CFG = Object.assign({
+      SUPABASE_URL: "https://pydxcqfztjogmztvayux.supabase.co",
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
+    }, window.DASH_CFG || {});
+  </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -396,10 +404,23 @@
   </style>
 </head>
 <body>
+<!-- ═══ 로그인 게이트 (Supabase Auth) — 세션 없으면 앱을 가린다 ═══ -->
+<div id="login-gate" style="display:none;position:fixed;inset:0;z-index:500;background:linear-gradient(135deg,#eef2ff,#f8fafc);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border:1px solid #e7e8ee;border-radius:18px;box-shadow:0 16px 44px rgba(17,24,39,.12);padding:30px 28px;width:100%;max-width:380px;">
+    <div style="font-size:1.1rem;font-weight:900;color:#1e1b4b;margin-bottom:4px;"><i class="fa-solid fa-chart-line" style="color:#4f46e5;"></i> 광고소재 대시보드</div>
+    <div id="lg-sub" style="font-size:.8rem;color:#6b7280;margin-bottom:18px;">계정으로 로그인하세요</div>
+    <div id="lg-name-wrap" class="input-group" style="display:none;"><label>이름</label><input class="inp" id="lg-name" placeholder="표시 이름" /></div>
+    <div class="input-group"><label>이메일</label><input class="inp" id="lg-email" type="email" autocomplete="username" placeholder="you@example.com" onkeydown="if(event.key==='Enter')authSubmit()" /></div>
+    <div class="input-group"><label>비밀번호</label><input class="inp" id="lg-pw" type="password" autocomplete="current-password" placeholder="8자 이상" onkeydown="if(event.key==='Enter')authSubmit()" /></div>
+    <div id="lg-err" style="display:none;font-size:.76rem;color:#dc2626;margin-bottom:10px;"></div>
+    <button class="btn-analyze" id="lg-btn" style="width:100%;justify-content:center;" onclick="authSubmit()">로그인</button>
+    <div id="lg-note" style="font-size:.7rem;color:#9ca3af;margin-top:12px;line-height:1.6;">계정이 없으면 관리자에게 등록을 요청하세요.</div>
+  </div>
+</div>
 
 <header class="top-header">
   <h1><i class="fa-solid fa-images" style="color:#6366f1;"></i> 광고소재 <span>대시보드</span></h1>
-  <div class="hdr-note"><i class="fa-solid fa-hard-drive"></i> 이 브라우저에 자동 저장 · <span id="hdr-count">소재 0개</span></div>
+  <div class="hdr-note"><i class="fa-solid fa-hard-drive"></i> 이 브라우저에 자동 저장 · <span id="hdr-count">소재 0개</span> <span id="auth-chip" style="margin-left:10px;"></span></div>
 </header>
 
 <div class="layout">
@@ -412,12 +433,12 @@
     <button class="menu-item" data-menu="list" onclick="showMenu('list')"><i class="fa-solid fa-table-cells"></i> 소재 목록</button>
     <button class="menu-item" data-menu="test" onclick="showMenu('test')"><i class="fa-solid fa-flask"></i> 테스트 소재</button>
     <div class="menu-group">Meta 연동</div>
-    <button class="menu-item" data-menu="admgr" onclick="showMenu('admgr')"><i class="fa-brands fa-meta"></i> 광고관리자</button>
-    <button class="menu-item" data-menu="upload" onclick="showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 광고 업로드</button>
+    <button class="menu-item" data-menu="admgr" data-role="admin" onclick="showMenu('admgr')"><i class="fa-brands fa-meta"></i> 광고관리자</button>
+    <button class="menu-item" data-menu="upload" data-role="admin" onclick="showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 광고 업로드</button>
     <div class="menu-group">카페24 연동</div>
-    <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column"></i> 판매 성과</button>
+    <button class="menu-item" data-menu="perf" data-role="admin" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column"></i> 판매 성과</button>
     <div class="menu-group">관리</div>
-    <button class="menu-item" data-menu="data" onclick="showMenu('data')"><i class="fa-solid fa-database"></i> 데이터 관리</button>
+    <button class="menu-item" data-menu="data" data-role="admin" onclick="showMenu('data')"><i class="fa-solid fa-database"></i> 데이터 관리</button>
       <div class="menu-group">현장</div>
     <a class="menu-item" href="shoot-board.html" target="_blank" rel="noopener" style="text-decoration:none"><i class="fa-solid fa-camera"></i> 출장촬영 보드</a>
 </nav>
@@ -671,6 +692,19 @@
     <div class="section-card page-sec" id="sec-data">
       <div class="section-header"><h2><i class="fa-solid fa-database" style="color:#4f46e5;font-size:.9em;"></i> 데이터 관리</h2></div>
       <div class="section-body">
+
+        <div class="sub-title">사용자 관리 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— 관리자: 광고 생성·예산·전체 메뉴 / 마케터: 소재 등록·체크보드</span></div>
+        <div style="border:1px solid #e7e8ee;border-radius:12px;padding:16px;background:#fff;margin-bottom:22px;">
+          <div class="control-bar" style="flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px;">
+            <div class="input-group" style="margin:0;"><label>이메일</label><input class="inp" id="um-email" type="email" style="width:220px;background:#fff;" /></div>
+            <div class="input-group" style="margin:0;"><label>이름</label><input class="inp" id="um-name" style="width:120px;background:#fff;" /></div>
+            <div class="input-group" style="margin:0;"><label>임시 비밀번호 (8자+)</label><input class="inp" id="um-pw" type="text" style="width:160px;background:#fff;" /></div>
+            <div class="input-group" style="margin:0;"><label>역할</label><select class="inp" id="um-role" style="background:#fff;"><option value="marketer">마케터</option><option value="admin">관리자</option></select></div>
+            <button class="btn-analyze" onclick="umCreate()"><i class="fa-solid fa-user-plus"></i> 계정 만들기</button>
+          </div>
+          <div id="um-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
+          <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">임시 비밀번호를 본인에게 전달하면, 로그인 후 상단 이름 옆 [비밀번호 변경]으로 바꿀 수 있어요.</div>
+        </div>
 
         <div class="sub-title">성과 데이터 가져오기</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px;" id="import-grid">
@@ -1564,6 +1598,115 @@ function renderPTest() {
   ptSelBtn();
 }
 
+/* ═══════════ ⓪ 로그인 (Supabase Auth + profiles 역할) ═══════════
+   세션이 없으면 #login-gate로 앱을 가린다. 서버 함수는 사용자 토큰(Authorization)으로 역할을 확인.
+   로컬 config.js에 DASH_KEY가 있으면 로그인 없이도 관리자로 동작(기존 방식 유지). */
+const AUTH = { sb: null, session: null, me: null, mode: 'login' };
+function authCfg() { const c = window.DASH_CFG || {}; return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null; }
+async function authApi(params, payload) {
+  const cfg = authCfg();
+  const url = cfg.SUPABASE_URL + '/functions/v1/auth-admin?' + new URLSearchParams(params);
+  const res = await fetch(url, payload === undefined ? { headers: metaHeaders(cfg) }
+    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+async function authInit() {
+  const cfg = authCfg();
+  if (!cfg || !window.supabase) return;                       // 연동 정보 없음 → 데모 모드 그대로
+  AUTH.sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const { data } = await AUTH.sb.auth.getSession(); AUTH.session = data.session;
+  AUTH.sb.auth.onAuthStateChange((_e, s) => { AUTH.session = s; });
+  if (cfg.DASH_KEY && !AUTH.session) { AUTH.me = { email: '접근키', name: '로컬', role: 'admin' }; authApplyRole(); return; }   // 로컬 파일: 접근키가 곧 관리자
+  if (!AUTH.session) { await authGate(); return; }
+  await authLoadMe();
+}
+async function authLoadMe() {
+  try { AUTH.me = await authApi({ action: 'me' }); }
+  catch (e) { AUTH.me = null; }
+  if (!AUTH.me || !AUTH.me.role) {
+    await AUTH.sb.auth.signOut(); AUTH.session = null;
+    await authGate('이 계정은 대시보드 권한이 없어요. 관리자에게 등록을 요청하세요.'); return;
+  }
+  $('login-gate').style.display = 'none'; authApplyRole();
+}
+async function authGate(msg) {
+  let boot = false;
+  try { boot = (await authApi({ action: 'status' })).needs_bootstrap; } catch (e) { /* 서버 미배포 등 — 로그인 화면으로 */ }
+  AUTH.mode = (boot && authCfg().DASH_KEY) ? 'bootstrap' : 'login';
+  $('lg-name-wrap').style.display = AUTH.mode === 'bootstrap' ? 'block' : 'none';
+  $('lg-sub').textContent = AUTH.mode === 'bootstrap' ? '아직 계정이 없어요 — 최초 관리자 계정을 만드세요' : '계정으로 로그인하세요';
+  $('lg-btn').textContent = AUTH.mode === 'bootstrap' ? '관리자 계정 만들기' : '로그인';
+  $('lg-note').textContent = AUTH.mode === 'bootstrap' ? '이 이메일·비밀번호로 앞으로 로그인해요. 다른 사람 계정은 로그인 후 데이터 관리 › 사용자 관리에서 만듭니다.'
+    : (boot ? '아직 관리자 계정이 없어요 — 연동 키가 있는 로컬 파일에서 먼저 만들어야 해요.' : '계정이 없으면 관리자에게 등록을 요청하세요.');
+  authErr(msg || ''); $('login-gate').style.display = 'flex';
+  setTimeout(() => $(AUTH.mode === 'bootstrap' ? 'lg-name' : 'lg-email').focus(), 0);
+}
+function authErr(m) { const e = $('lg-err'); e.textContent = m; e.style.display = m ? 'block' : 'none'; }
+async function authSubmit() {
+  const email = $('lg-email').value.trim().toLowerCase(), pw = $('lg-pw').value;
+  if (!email || !pw) { authErr('이메일과 비밀번호를 입력하세요'); return; }
+  const btn = $('lg-btn'); btn.disabled = true; authErr('');
+  try {
+    if (AUTH.mode === 'bootstrap') {
+      const name = $('lg-name').value.trim(); if (!name) throw new Error('이름을 입력하세요');
+      await authApi({ action: 'bootstrap' }, { email, password: pw, name });
+      toast('관리자 계정을 만들었어요 — 로그인합니다');
+    }
+    const { data, error } = await AUTH.sb.auth.signInWithPassword({ email, password: pw });
+    if (error) throw new Error(/invalid/i.test(error.message) ? '이메일 또는 비밀번호가 틀렸어요' : error.message);
+    AUTH.session = data.session; $('lg-pw').value = '';
+    await authLoadMe();
+  } catch (e) { authErr(e.message); }
+  finally { btn.disabled = false; }
+}
+async function authLogout() { if (AUTH.sb) await AUTH.sb.auth.signOut(); location.reload(); }
+async function authChangePw() {
+  const pw = prompt('새 비밀번호 (8자 이상)'); if (pw === null) return;
+  if (pw.length < 8) { toast('8자 이상이어야 해요'); return; }
+  const { error } = await AUTH.sb.auth.updateUser({ password: pw });
+  toast(error ? '변경 실패: ' + error.message : '비밀번호를 바꿨어요');
+}
+function authIsAdmin() { return !AUTH.me || AUTH.me.role === 'admin'; }   // me 없음 = 연동 없는 데모 → 제한 없음
+function authApplyRole() {
+  const admin = authIsAdmin();
+  document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = admin ? '' : 'none');
+  const chip = $('auth-chip');
+  if (AUTH.me && chip) chip.innerHTML = `<i class="fa-solid fa-user" style="color:#4f46e5;"></i> ${esc(AUTH.me.name || AUTH.me.email)} <span style="color:#9ca3af;">(${admin ? '관리자' : '마케터'})</span>`
+    + (AUTH.session ? ` · <a href="#" onclick="authChangePw();return false;">비밀번호 변경</a> · <a href="#" onclick="authLogout();return false;">로그아웃</a>` : '');
+  if (!admin && ['admgr', 'upload', 'perf', 'data'].includes(curMenu)) showMenu('ptest');
+}
+
+/* 사용자 관리 (데이터 관리 탭, 관리자) */
+async function umLoad() {
+  const box = $('um-list'); if (!box) return;
+  if (!authCfg()) { box.textContent = '연동 정보가 없어 계정 관리를 쓸 수 없어요'; return; }
+  try {
+    const { users } = await authApi({ action: 'users' });
+    box.innerHTML = users.length ? `<div class="table-wrap"><table><thead><tr><th style="text-align:left;">이메일</th><th style="text-align:left;">이름</th><th>역할</th><th>만든 날</th><th></th></tr></thead><tbody>
+      ${users.map(u => `<tr><td>${esc(u.email)}</td><td>${esc(u.name || '')}</td>
+        <td style="text-align:center;"><select class="inp" style="padding:3px 6px;font-size:.78rem;background:#fff;" onchange="umRole('${u.user_id}', this.value)"><option value="marketer" ${u.role==='marketer'?'selected':''}>마케터</option><option value="admin" ${u.role==='admin'?'selected':''}>관리자</option></select></td>
+        <td style="text-align:center;font-size:.76rem;color:#6b7280;">${(u.created_at||'').slice(0,10)}</td>
+        <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="umDel('${u.user_id}','${esc(u.email)}')"><i class="fa-solid fa-xmark"></i></button></td></tr>`).join('')}
+      </tbody></table></div>` : '<div style="padding:8px;">계정이 없어요</div>';
+  } catch (e) { box.textContent = '불러오기 실패: ' + e.message; }
+}
+async function umCreate() {
+  const email = $('um-email').value.trim().toLowerCase(), name = $('um-name').value.trim(), password = $('um-pw').value, role = $('um-role').value;
+  if (!email || !password) { toast('이메일과 임시 비밀번호를 입력하세요'); return; }
+  try {
+    await authApi({ action: 'user_create' }, { email, name, password, role });
+    toast(`${email} 계정을 만들었어요 — 임시 비밀번호를 전달하세요`);
+    $('um-email').value = ''; $('um-name').value = ''; $('um-pw').value = ''; umLoad();
+  } catch (e) { toast('실패: ' + e.message); }
+}
+async function umRole(user_id, role) { try { await authApi({ action: 'user_role' }, { user_id, role }); toast('역할을 바꿨어요'); } catch (e) { toast('실패: ' + e.message); umLoad(); } }
+async function umDel(user_id, email) {
+  if (!confirm(`${email} 계정을 삭제할까요? 더 이상 로그인할 수 없어요.`)) return;
+  try { await authApi({ action: 'user_del' }, { user_id }); toast('삭제했어요'); umLoad(); } catch (e) { toast('실패: ' + e.message); }
+}
+
 /* ═══════════ ④-4 광고 업로드 (Meta) — Ads Uploader 대체 v1 ═══════════
    사용자 실사용 패턴: 모델 광고(직전 테스트 광고) 선택 → 파일 N개 → 파일당 새 세트(예산만 입력)+광고 1개,
    문구는 직접 기입, 강화옵션·페이지·타겟은 모델 그대로. 미디어는 meta-upload 함수를 거쳐 조각 전송(토큰은 서버에만). */
@@ -1850,7 +1993,8 @@ function admgrCfg() {
   return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null;
 }
 function metaHeaders(cfg) {
-  return { apikey: cfg.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + cfg.SUPABASE_ANON_KEY,
+  const tok = (AUTH.session && AUTH.session.access_token) || cfg.SUPABASE_ANON_KEY;   // 로그인 세션이 있으면 사용자 토큰, 아니면 anon(+로컬 DASH_KEY)
+  return { apikey: cfg.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + tok,
     ...(cfg.DASH_KEY ? { 'x-dash-key': cfg.DASH_KEY } : {}) };
 }
 async function metaGet(params) {
@@ -3746,6 +3890,7 @@ function openDetail(id) {
 
 /* ═══════════ ⑦ 데이터 관리 ═══════════ */
 function renderData() {
+  umLoad();
   /* 소재 셀렉트 */
   $('rec-cid').innerHTML = creatives.length
     ? creatives.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')
@@ -5013,11 +5158,12 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const p = getPeriod();
   $('pd-start').value = p.s; $('pd-end').value = p.e;
   updateHdr();
   showMenu('home');
+  await authInit();
 });
 </script>
 </body>

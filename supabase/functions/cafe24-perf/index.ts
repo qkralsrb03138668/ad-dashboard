@@ -19,7 +19,7 @@
 // 인증은 meta-ads와 같은 DASH_KEY(x-dash-key). 저장 기록(perf_archive)도 이 함수의 archive_* 액션으로만 접근한다.
 // 카페24 판매 데이터(매출 금액 포함)가 나가므로 DASH_KEY 없이 운영하지 말 것.
 // ═══════════════════════════════════════════════════════════════
-import { cacheGet, cacheSet, checkDashKey, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, requireRole, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -230,7 +230,8 @@ Deno.serve(async (req) => {
 
   try {
     // ── 인증: meta-ads와 동일한 DASH_KEY(x-dash-key) — 이식 패키지의 x-api-key 어댑터를 이걸로 교체 ──
-    if (!checkDashKey(req)) return json({ error: "인증 실패" }, 401);
+    // 상품 목록은 마케터도(소재 등록 매칭용), 매출 데이터는 관리자만
+    const me = await requireRole(req, action === "products" ? ["admin", "marketer"] : ["admin"]); if (me instanceof Response) return me;
 
     // ── 저장 기록(perf_archive) CRUD — 카페24 토큰이 없어도 되므로 토큰 확보보다 먼저 처리 ──
     if (action === "archive_list") {

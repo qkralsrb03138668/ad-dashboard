@@ -22,7 +22,7 @@
 // 필요 secrets: META_WRITE_TOKEN(ads_management 시스템 사용자 토큰 — 사용자가 발급), WRITE_PIN, CRON_SECRET,
 //               DASH_KEY, META_ACCESS_TOKEN(읽기 — 현재값 조회용). secrets 변경 후에는 이 함수 재배포 필요.
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, checkDashKey, dbRest, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheSet, requireRole, dbRest, handleOptions, json } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const MAX_BUDGET = 300_000;   // 개당 일예산 상한
@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
       return json(await runPending());
     }
 
-    if (!checkDashKey(req)) return json({ error: "접근 권한이 없습니다 (x-dash-key)" }, 403);
+    const me = await requireRole(req, ["admin"]); if (me instanceof Response) return me;
     // ⚠ DASH_KEY가 비어 있으면 누구나 예산을 바꿀 수 있으므로 쓰기 기능 자체를 잠근다
     if (!env("DASH_KEY")) return json({ error: "DASH_KEY가 설정되지 않아 예산 변경을 사용할 수 없습니다" }, 403);
 

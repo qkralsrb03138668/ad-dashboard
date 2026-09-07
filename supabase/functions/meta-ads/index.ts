@@ -14,7 +14,7 @@
 //   ② 60초 캐시 = 호출 한도 방어선 (원본에서 "User request limit reached" 실사고)
 //   ③ 하향식 조립 — /ads 무필터 500 한도 잘림으로 캠페인 통째 누락 사고를 피하는 구조
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheGetAny, cacheSet, checkDashKey, dbRest, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheGetAny, cacheSet, getAuth, dbRest, handleOptions, json } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 
@@ -315,7 +315,7 @@ Deno.serve(async (req) => {
   if (action === "sync") {
     const secret = Deno.env.get("CRON_SECRET") ?? "";
     if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
-  } else if (!checkDashKey(req)) return json({ error: "접근 권한이 없습니다 (x-dash-key)" }, 403);
+  } else if (!(await getAuth(req))) return json({ error: "로그인이 필요합니다" }, 401);
 
   // Meta 사용량·쿨다운 상태 (우리 서버만 조회 — Meta 호출 없음)
   if (action === "usage") {

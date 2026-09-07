@@ -30,6 +30,33 @@ export function checkDashKey(req: Request): boolean {
   return req.headers.get("x-dash-key") === key;
 }
 
+// ── 로그인 인증 (2026-09-07): DASH_KEY(로컬 파일용, admin 취급) 또는 Supabase Auth 사용자 JWT + profiles 역할 ──
+//   프로필이 없는 계정은 거부 — 계정은 관리자가 '데이터 관리 › 사용자 관리'에서 만든다 (auth-admin 함수).
+export interface AuthUser { id: string; email: string; name: string; role: "admin" | "marketer" }
+export async function getAuth(req: Request): Promise<AuthUser | null> {
+  const key = Deno.env.get("DASH_KEY") ?? "";
+  if (key && req.headers.get("x-dash-key") === key) return { id: "dash-key", email: "dash-key", name: "접근키", role: "admin" };
+  const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!token || token === anon) return null;
+  try {
+    const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const u = await r.json();
+    const pr = await rest(`profiles?user_id=eq.${u.id}&select=role,email,name`);
+    const row = (await pr.json())[0];
+    if (!row) return null;
+    return { id: u.id, email: row.email ?? u.email, name: row.name ?? "", role: row.role };
+  } catch { return null; }
+}
+// 역할 검사 헬퍼 — 통과하면 사용자, 아니면 403 응답
+export async function requireRole(req: Request, roles: Array<"admin" | "marketer">): Promise<AuthUser | Response> {
+  const me = await getAuth(req);
+  if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+  if (!roles.includes(me.role)) return json({ error: "권한이 없습니다 (관리자만)" }, 403);
+  return me;
+}
+
 // ── Supabase PostgREST 접근 (service_role — api_cache 테이블용) ──
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
