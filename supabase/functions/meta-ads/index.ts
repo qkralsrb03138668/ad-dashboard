@@ -14,9 +14,78 @@
 //   ② 60초 캐시 = 호출 한도 방어선 (원본에서 "User request limit reached" 실사고)
 //   ③ 하향식 조립 — /ads 무필터 500 한도 잘림으로 캠페인 통째 누락 사고를 피하는 구조
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, checkDashKey, dbRest, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheGetAny, cacheSet, checkDashKey, dbRest, handleOptions, json } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
+
+// ═══ Meta 호출 한도 방어 (2026-09-07) ═══
+// ① 응답 헤더의 사용량(%)을 기억 → 80% 넘으면 캐시 유효시간을 3배로 늘려 호출을 줄인다
+// ② 한도 초과 오류(코드 4/17/32/613/80xxx)면 쿨다운(Meta가 알려준 시간, 없으면 10분)을 기록하고, 그동안은 Meta를 부르지 않고 마지막 데이터(stale)를 돌려준다
+// ③ 오류가 나도 마지막 데이터가 있으면 stale 표시로 반환 → 화면이 비지 않는다
+type Usage = { pct: number; regain: number; at: string; detail: Record<string, unknown> };
+let lastUsage: Usage | null = null;
+let curKey = "";   // 현재 처리 중인 액션의 캐시 키 (오류 시 stale 반환용)
+function readUsage(res: Response) {
+  let pct = 0, regain = 0; const detail: Record<string, unknown> = {};
+  for (const h of ["x-business-use-case-usage", "x-ad-account-usage", "x-fb-ads-insights-throttle", "x-app-usage"]) {
+    const v = res.headers.get(h); if (!v) continue;
+    try {
+      const j = JSON.parse(v); detail[h] = j;
+      const walk = (o: unknown) => {
+        if (Array.isArray(o)) { o.forEach(walk); return; }
+        if (!o || typeof o !== "object") return;
+        for (const [k, x] of Object.entries(o as Record<string, unknown>)) {
+          if (typeof x === "number") {
+            if (k === "estimated_time_to_regain_access") regain = Math.max(regain, x);
+            else if (/pct|call_count|total_cputime|total_time/.test(k)) pct = Math.max(pct, x);
+          } else walk(x);
+        }
+      };
+      walk(j);
+    } catch { /* 헤더 형식이 바뀌어도 무해 */ }
+  }
+  if (Object.keys(detail).length) { lastUsage = { pct, regain, at: new Date().toISOString(), detail }; cacheSet("meta:usage", lastUsage).catch(() => {}); }
+}
+async function metaFetch(url: string): Promise<Record<string, unknown>> {
+  const res = await fetch(url);
+  readUsage(res);
+  const body = await res.json();
+  if (!res.ok) {
+    const err = ((body as Record<string, unknown>)?.error ?? {}) as Record<string, unknown>;
+    const e = new Error(`Meta API ${res.status}: ${String(err.message ?? JSON.stringify(body)).slice(0, 300)}`) as Error & { code?: number };
+    e.code = Number(err.code ?? 0);
+    throw e;
+  }
+  return body;
+}
+function isRateLimit(e: unknown): boolean {
+  const c = Number((e as { code?: number })?.code ?? 0);
+  return [4, 17, 32, 613].includes(c) || (c >= 80000 && c < 80100) || /request limit|rate limit|too many calls|throttle/i.test(String((e as Error)?.message ?? e));
+}
+async function cooldownUntil(): Promise<string | null> {
+  const cd = await cacheGetAny("meta:cooldown") as { until?: string } | null;
+  return cd?.until && new Date(cd.until).getTime() > Date.now() ? cd.until : null;
+}
+async function setCooldown(): Promise<string> {
+  const mins = Math.max(5, Math.min(60, lastUsage?.regain || 10));
+  const until = new Date(Date.now() + mins * 60_000).toISOString();
+  await cacheSet("meta:cooldown", { until, set_at: new Date().toISOString() });
+  return until;
+}
+function withMeta(body: unknown, meta: Record<string, unknown>): Response {
+  return json({ ...(body as Record<string, unknown>), _meta: { usage_pct: lastUsage?.pct ?? null, ...meta } });
+}
+// 액션 시작 시: 캐시가 살아 있으면 그것, 쿨다운 중이면 마지막 데이터(stale), 아니면 null(→ Meta 호출 진행)
+async function metaPre(key: string, ttlMs: number): Promise<Response | null> {
+  curKey = key;
+  if (!lastUsage) lastUsage = (await cacheGetAny("meta:usage")) as Usage | null;
+  const ttl = (lastUsage?.pct ?? 0) >= 80 ? ttlMs * 3 : ttlMs;
+  const fresh = await cacheGet(key, ttl);
+  if (fresh) return withMeta(fresh, { cached: true });
+  const until = await cooldownUntil();
+  if (until) { const stale = await cacheGetAny(key); if (stale) return withMeta(stale, { stale: true, cooldown_until: until }); }
+  return null;
+}
 
 function creds(): { token: string; account: string } | null {
   const token = Deno.env.get("META_ACCESS_TOKEN") ?? "";
@@ -28,13 +97,7 @@ function creds(): { token: string; account: string } | null {
 
 async function graphGet(path: string, params: Record<string, string>, token: string): Promise<Record<string, unknown>> {
   const qs = new URLSearchParams({ ...params, access_token: token });
-  const res = await fetch(`${GRAPH}/${path}?${qs}`);
-  const body = await res.json();
-  if (!res.ok) {
-    const msg = (body?.error?.message ?? JSON.stringify(body)).slice(0, 300);
-    throw new Error(`Meta API ${res.status}: ${msg}`);
-  }
-  return body;
+  return await metaFetch(`${GRAPH}/${path}?${qs}`);
 }
 
 // 페이지네이션 — Meta는 한 번에 최대 500개. paging.next를 따라가며 모은다 (maxPages 상한 = 호출 폭주 방지)
@@ -45,9 +108,7 @@ async function graphGetAll(path: string, params: Record<string, string>, token: 
     out.push(...((body.data ?? []) as Record<string, unknown>[]));
     const next = (body.paging as { next?: string } | undefined)?.next;
     if (!next) break;
-    const res = await fetch(next);   // next에는 access_token이 이미 포함돼 있다
-    body = await res.json();
-    if (!res.ok) throw new Error(`Meta API ${res.status}: ${String((body as { error?: { message?: string } })?.error?.message ?? "").slice(0, 300)}`);
+    body = await metaFetch(next);   // next에는 access_token이 이미 포함돼 있다
   }
   return out;
 }
@@ -124,6 +185,12 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const action = url.searchParams.get("action") ?? "hierarchy";
 
+  // Meta 사용량·쿨다운 상태 (우리 서버만 조회 — Meta 호출 없음)
+  if (action === "usage") {
+    if (!lastUsage) lastUsage = (await cacheGetAny("meta:usage")) as Usage | null;
+    return json({ usage_pct: lastUsage?.pct ?? null, usage_at: lastUsage?.at ?? null, cooldown_until: await cooldownUntil() });
+  }
+
   const c = creds();
   if (!c) {
     return json({ error: "not_connected", message: "Meta 연동이 설정되지 않았습니다 (META_ACCESS_TOKEN / META_AD_ACCOUNT_ID)" }, 200);
@@ -141,8 +208,8 @@ Deno.serve(async (req) => {
         : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
         : { start: addDays(t, -30), end: addDays(t, -1) };
       const cacheKey = `meta:hierarchy:${preset}:${t}`;   // 오늘 날짜 포함 — 자정 넘김 대비
-      const hit = await cacheGet(cacheKey, 60 * 1000);
-      if (hit) return json(hit);
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
+      if (pre) return pre;
 
       type Node = Record<string, unknown>;
       const [camps, adsets, adsAct, ins] = await Promise.all([
@@ -231,6 +298,9 @@ Deno.serve(async (req) => {
     if (action === "adstats") {
       const adId = url.searchParams.get("ad_id");
       if (!adId) return json({ error: "ad_id 필수" }, 400);
+      const cacheKey = `meta:adstats:${adId}:${seoulToday()}`;   // 미리보기 1회 = 7호출 → 10분 캐시
+      const pre = await metaPre(cacheKey, 10 * 60 * 1000);
+      if (pre) return pre;
       const FIELDS = "spend,purchase_roas,action_values,date_start,date_stop";
       const presets = ["today", "yesterday", "last_3d", "last_7d", "last_14d", "last_30d"];
       const results = await Promise.all(presets.map((p) =>
@@ -267,7 +337,9 @@ Deno.serve(async (req) => {
         byPreset.today, byPreset.yesterday, byPreset.last_3d, byPreset.last_7d,
         prevStat, byPreset.last_14d, byPreset.last_30d,
       ];
-      return json({ ad_id: adId, stats });
+      const out = { ad_id: adId, stats };
+      await cacheSet(cacheKey, out);
+      return json(out);
     }
 
     // ── 소재 미리보기 — 실제 게재 형태의 iframe + 썸네일 ──
@@ -278,6 +350,9 @@ Deno.serve(async (req) => {
       // fmt: feed(기본) / reels / story — 모달의 형식 전환 버튼. 거부되면 표준 → 데스크톱 피드 순으로 폴백
       const fmtParam = url.searchParams.get("fmt") ?? "feed";
       const fmt = fmtParam === "reels" ? "INSTAGRAM_REELS" : fmtParam === "story" ? "INSTAGRAM_STORY" : "INSTAGRAM_STANDARD";
+      const cacheKey = `meta:preview:${adId}:${fmt}`;   // 소재는 잘 안 바뀜 → 30분 캐시
+      const pre = await metaPre(cacheKey, 30 * 60 * 1000);
+      if (pre) return pre;
       const [prev, meta] = await Promise.all([
         graphGet(`${adId}/previews`, { ad_format: fmt }, c.token)
           .catch(() => graphGet(`${adId}/previews`, { ad_format: "INSTAGRAM_STANDARD" }, c.token))
@@ -287,12 +362,14 @@ Deno.serve(async (req) => {
       ]);
       const iframe = String(((prev.data ?? []) as { body?: string }[])[0]?.body ?? "");
       const creative = (meta as Record<string, Record<string, unknown>>).creative ?? {};
-      return json({
+      const out = {
         ad_id: adId,
         name: String((meta as Record<string, unknown>).name ?? ""),
         iframe,
         thumbnail: String(creative.thumbnail_url ?? ""),
-      });
+      };
+      await cacheSet(cacheKey, out);
+      return json(out);
     }
 
     // ═══ 이식 2단계 — 테스트 소재 (원본 testads 그대로) ═══
@@ -302,8 +379,8 @@ Deno.serve(async (req) => {
       const today = seoulToday();
       const kw = (url.searchParams.get("kw") ?? "test").slice(0, 30);
       const cacheKey = `meta:testads:${kw.toLowerCase()}:${today}`;
-      const hit = await cacheGet(cacheKey, 60 * 1000);
-      if (hit) return json(hit);
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
+      if (pre) return pre;
 
       const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
@@ -406,8 +483,8 @@ Deno.serve(async (req) => {
       const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
       if (!ids.length) return json({ ads: [] });
       const cacheKey = `meta:creatives:${[...ids].sort().join(",")}`;
-      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
-      if (hit) return json(hit);
+      const pre = await metaPre(cacheKey, 10 * 60 * 1000);
+      if (pre) return pre;
       const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]);
       const baseParams = { filtering: setFilter, limit: "500" };
       let rows: Record<string, unknown>[];
@@ -450,8 +527,8 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date") ?? addDays(seoulToday(), -7);
       const e = url.searchParams.get("end_date") ?? seoulToday();
       const cacheKey = `meta:offsets:${s}:${e}`;
-      const hit = await cacheGet(cacheKey, 60 * 1000);
-      if (hit) return json(hit);
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
+      if (pre) return pre;
 
       const [acts, allSets] = await Promise.all([
         graphGetAll(`${c.account}/activities`, {
@@ -540,8 +617,8 @@ Deno.serve(async (req) => {
       if (!/^\d{5,25}$/.test(objId)) return json({ error: "object_id 필수 (광고세트/캠페인 id)" }, 400);
       const t = seoulToday(), y = addDays(t, -1);
       const cacheKey = `meta:hourly:${objId}:${t}`;
-      const hit = await cacheGet(cacheKey, 5 * 60 * 1000);
-      if (hit) return json(hit);
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);
+      if (pre) return pre;
       const body = await graphGet(`${objId}/insights`, {
         time_range: JSON.stringify({ since: y, until: t }),
         time_increment: "1",
@@ -569,8 +646,8 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date") ?? seoulToday();
       const e = url.searchParams.get("end_date") ?? seoulToday();
       const cacheKey = `meta:budgethist:${s}:${e}`;
-      const hit = await cacheGet(cacheKey, 60 * 1000);
-      if (hit) return json(hit);
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
+      if (pre) return pre;
       const rows = await graphGetAll(`${c.account}/activities`, {
         fields: "event_type,event_time,object_id,object_name,object_type,extra_data",
         since: s,
@@ -652,6 +729,12 @@ Deno.serve(async (req) => {
 
     return json({ error: "unknown action" }, 400);
   } catch (e) {
+    if (isRateLimit(e)) {
+      const until = await setCooldown();
+      const stale = curKey ? await cacheGetAny(curKey) : null;
+      if (stale) return withMeta(stale, { stale: true, cooldown_until: until, error: String((e as Error).message).slice(0, 200) });
+      return json({ error: "Meta 조회 한도 초과 — 잠시 후 자동 재시도", rate_limited: true, cooldown_until: until }, 429);
+    }
     return json({ error: String(e).slice(0, 400) }, 500);
   }
 });

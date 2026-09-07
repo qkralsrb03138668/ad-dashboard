@@ -61,6 +61,16 @@ export async function cacheGet(key: string, ttlMs: number): Promise<unknown | nu
   } catch { return null; }
 }
 
+// 나이 상관없이 마지막 저장값 (한도 초과 시 stale 응답용, 24시간 이내)
+export async function cacheGetAny(key: string): Promise<unknown | null> {
+  try {
+    const res = await rest(`api_cache?cache_key=eq.${encodeURIComponent(key)}&select=payload`);
+    if (!res.ok) return null;
+    const row = (await res.json())[0];
+    return row ? row.payload : null;
+  } catch { return null; }
+}
+
 export async function cacheSet(key: string, payload: unknown): Promise<void> {
   try {
     await rest(`api_cache?on_conflict=cache_key`, {
@@ -69,7 +79,8 @@ export async function cacheSet(key: string, payload: unknown): Promise<void> {
       body: JSON.stringify({ cache_key: key, payload, created_at: new Date().toISOString() }),
     });
     // 오래된 항목 정리 (실패해도 무해)
-    await rest(`api_cache?created_at=lt.${encodeURIComponent(new Date(Date.now() - 3600_000).toISOString())}`, {
+    // 24시간 지난 것만 정리 — 한도 초과 시 '마지막 데이터'(stale)로 돌려쓰려면 하루는 남아 있어야 한다 (2026-09-07)
+    await rest(`api_cache?created_at=lt.${encodeURIComponent(new Date(Date.now() - 24 * 3600_000).toISOString())}`, {
       method: "DELETE", headers: { Prefer: "return=minimal" },
     });
   } catch { /* 캐시는 실패해도 기능에 영향 없음 */ }

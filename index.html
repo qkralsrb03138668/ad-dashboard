@@ -1892,6 +1892,7 @@ async function admgrFetch() {
     admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
     if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
     admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
+    metaGet({ action: 'usage' }).then(u => { admgr.usage = u; renderAdmgr(true); }).catch(() => {});   // Meta 사용량·쿨다운 표시 (우리 서버만 조회)
   } catch (e) {
     toast('Meta 불러오기 실패: ' + e.message);   // 실패해도 보고 있던 데이터는 유지
   }
@@ -2115,10 +2116,16 @@ function renderAdmgr(keepScroll) {
   } else if (admgr.demo) {
     banner = `<div class="info-bar"><i class="fa-solid fa-wand-magic-sparkles"></i> <b>데모 데이터</b> 표시 중 — 실제 연동 후에는 이 자리에 내 광고계정이 나옵니다.</div>`;
   } else if (!ADMGR_OWN.includes(admgr.view) && admgr.data) {
-    banner = `<div class="info-bar"><i class="fa-regular fa-clock"></i>
+    /* 한도 방어 상태 표시 (2026-09-07): 서버가 쿨다운 중이면 마지막 데이터를 stale로 주고 _meta.cooldown_until을 실어준다 */
+    const m = admgr.data._meta || {}, u = admgr.usage || {};
+    const until = m.cooldown_until || u.cooldown_until;
+    const pct = u.usage_pct != null ? u.usage_pct : m.usage_pct;
+    banner = `<div class="info-bar" ${until ? 'style="background:#fff7ed;border-color:#fdba74;color:#9a3412;"' : ''}><i class="fa-regular fa-clock"></i>
       ${esc(admgr.data.range ? admgr.data.range.start + ' ~ ' + admgr.data.range.end : '')} ·
-      ${admgrAgo(admgr.data.fetched_at)} 기준 (서버 60초 캐시)
-      ${admgr.data.truncated ? ' · <b style="color:#c2410c;">⚠ 500개 한도로 일부 잘림</b>' : ''}</div>`;
+      ${admgrAgo(admgr.data.fetched_at)} 기준 (서버 5분 캐시)
+      ${admgr.data.truncated ? ' · <b style="color:#c2410c;">⚠ 500개 한도로 일부 잘림</b>' : ''}
+      ${until ? ` · <b>⚠ Meta 조회 한도 대기 중 — ${admgrKstLabel(until)} 이후 자동 재시도 · 마지막으로 받은 데이터를 보여주고 있어요</b>` : ''}
+      ${pct != null ? ` · <span style="color:${pct >= 80 ? '#c2410c' : '#65676b'};">Meta 사용량 ${Math.round(pct)}%</span>` : ''}</div>`;
   }
 
   /* 컨트롤 */
