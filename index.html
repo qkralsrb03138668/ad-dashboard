@@ -353,6 +353,7 @@
     #sec-admgr .mtg::after { content: ''; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
     #sec-admgr .mtg.off { background: #ccd0d5; } #sec-admgr .mtg.off::after { right: auto; left: 2px; }
     #sec-admgr .mtg.ro { cursor: default; opacity: .6; }
+    #sec-admgr .mtg.pend { box-shadow: 0 0 0 2px #f7b928; }   /* 임시 저장된 토글 — 게시 전 */
 
     /* ── 모바일 ── */
     @media (max-width: 900px) {
@@ -2044,24 +2045,26 @@ function admgrStBadge(st) {
   return '<span class="mdot off"></span>' + esc(st);
 }
 /* 켜기/끄기 토글 (2026-09-07) — 쓰기 가능(토큰·PIN)하면 클릭으로 status 변경, 아니면 보기용 */
+/* 토글은 즉시 반영이 아니라 '임시 저장'(id → {level,name,status}) — '임시 저장 전체 게시'에서 예산과 함께 반영 (2026-09-07 사용자 요청) */
+const admgrSDraft = lsGet('adc_admgr_sdraft', {});
 function admgrOnOff(r, level) {
   if (!r.status) return '<span style="color:#ccd0d5;">—</span>';
-  const on = r.status === 'ACTIVE';
+  const d = admgrSDraft[r.id];
+  const on = d ? d.status === 'ACTIVE' : r.status === 'ACTIVE';
   const can = admgr.write.st && admgr.write.st.allowed && !admgr.demo;
-  return `<span class="mtg ${on ? '' : 'off'} ${can ? '' : 'ro'}" title="${on ? '켜짐' : '꺼짐'}${can ? ' — 클릭하면 ' + (on ? '끄기' : '켜기') : ''}" ${can ? `onclick="event.stopPropagation();admgrToggleStatus('${r.id}','${level}',${on})"` : ''}></span>`;
+  const tip = d ? `임시 저장됨 (${on ? '켜기' : '끄기'} 예정) — 클릭하면 취소, 게시는 위의 '임시 저장 전체 게시'` : `${on ? '켜짐' : '꺼짐'}${can ? ' — 클릭하면 ' + (on ? '끄기' : '켜기') + ' 임시 저장' : ''}`;
+  return `<span class="mtg ${on ? '' : 'off'} ${d ? 'pend' : ''} ${can ? '' : 'ro'}" title="${tip}" ${can ? `onclick="event.stopPropagation();admgrToggleStatus('${r.id}','${level}')"` : ''}></span>${d ? '<div style="font-size:.6rem;color:#b45309;">임시</div>' : ''}`;
 }
-function admgrToggleStatus(id, level, on) {
-  const w = admgr.write;
-  if (!w.pin) { admgrPinPrompt(() => admgrToggleStatus(id, level, on)); return; }
+function admgrToggleStatus(id, level) {
   const R = admgrRows();
   const node = (level === 'campaign' ? R.camps : level === 'adset' ? R.sets : R.ads).find(x => x.id === id); if (!node) return;
-  const L = { campaign: '캠페인', adset: '광고 세트', ad: '광고' }[level];
-  admgrConfirmModal(`${L} ${on ? '끄기' : '켜기'}`, `<b>${esc(node.name)}</b><br/>${on ? '게재를 중지해요 (일시중지)' : '게재를 시작해요 — 바로 지출이 시작될 수 있어요'}${level !== 'campaign' && !on ? '<br/><span style="color:#9ca3af;font-size:.72rem;">상위 캠페인·세트가 꺼져 있으면 켜도 게재되지 않아요</span>' : ''}`, on ? '끄기' : '켜기', async () => {
-    try {
-      await metaBudgetCall({ action: 'setstatus' }, { object_id: id, object_name: node.name, level, status: on ? 'PAUSED' : 'ACTIVE', pin: w.pin });
-      toast(`${L}을(를) ${on ? '꺼' : '켰'}어요`); admgrFetch();
-    } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('변경 실패: ' + e.message); }
-  });
+  if (admgrSDraft[id]) { delete admgrSDraft[id]; toast('켜기/끄기 임시 저장을 취소했어요'); }
+  else {
+    const next = node.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    admgrSDraft[id] = { level, name: node.name, status: next };
+    toast(`${next === 'ACTIVE' ? '켜기' : '끄기'} 임시 저장 — '임시 저장 전체 게시'에서 반영돼요`);
+  }
+  lsSet('adc_admgr_sdraft', admgrSDraft); renderAdmgr(true);
 }
 function admgrBudget(r) {
   if (r.budget) return '일 ' + won(r.budget);
@@ -2542,10 +2545,11 @@ function admgrWriteCtrlHtml() {
   return pinBtn + mid + pub;
 }
 function admgrClearDrafts() {
-  const n = Object.keys(admgrDraft).length;
-  admgrConfirmModal('임시 저장 전체 취소', `임시 저장 ${n}개를 전부 지울까요?<br/><span style="color:#9ca3af;font-size:.72rem;">Meta 예산은 바뀌지 않아요</span>`, '전체 취소', () => {
+  const n = Object.keys(admgrDraft).length + Object.keys(admgrSDraft).length;
+  admgrConfirmModal('임시 저장 전체 취소', `임시 저장 ${n}개(예산·켜기/끄기)를 전부 지울까요?<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에는 아무 변화 없어요</span>`, '전체 취소', () => {
     Object.keys(admgrDraft).forEach(k => delete admgrDraft[k]);
-    lsSet('adc_admgr_draft', admgrDraft); toast('임시 저장을 모두 취소했어요'); renderAdmgr(true);
+    Object.keys(admgrSDraft).forEach(k => delete admgrSDraft[k]);
+    lsSet('adc_admgr_draft', admgrDraft); lsSet('adc_admgr_sdraft', admgrSDraft); toast('임시 저장을 모두 취소했어요'); renderAdmgr(true);
   });
 }
 /* 임시 저장 중 현재 표에 있고 금액이 실제와 다른 것만 (캠페인·세트 모두) */
@@ -2555,7 +2559,15 @@ function admgrDraftTargets() {
   for (const [id, amt] of Object.entries(admgrDraft)) {
     const c = R.camps.find(x => x.id === id), s = c ? null : R.sets.find(x => x.id === id);
     const node = c || s; if (!node || !(amt > 0) || amt === node.budget) continue;
-    out.push({ id, level: c ? 'campaign' : 'adset', name: node.name, from: node.budget, to: amt });
+    out.push({ id, kind: 'budget', level: c ? 'campaign' : 'adset', name: node.name, from: node.budget, to: amt });
+  }
+  /* 켜기/끄기 임시 저장 — 현재 상태와 같아졌으면 건너뜀 */
+  const R2 = admgrRows();
+  for (const [id, d] of Object.entries(admgrSDraft)) {
+    const node = (d.level === 'campaign' ? R2.camps : d.level === 'adset' ? R2.sets : R2.ads).find(x => x.id === id);
+    if (!node) continue;
+    if ((node.status === 'ACTIVE') === (d.status === 'ACTIVE')) { delete admgrSDraft[id]; continue; }
+    out.push({ id, kind: 'status', level: d.level, name: node.name, status: d.status });
   }
   return out;
 }
@@ -2564,18 +2576,26 @@ async function admgrPublishDrafts() {
   if (!w.pin) { admgrPinPrompt(admgrPublishDrafts); return; }
   const targets = admgrDraftTargets();
   if (!targets.length) { toast('게시할 임시 저장이 없어요'); return; }
-  const bad = targets.filter(t => t.to < 1000 || t.to > w.st.max_budget);
+  const bad = targets.filter(t => t.kind === 'budget' && (t.to < 1000 || t.to > w.st.max_budget));
   if (bad.length) { toast(`상한(${comma(w.st.max_budget)}원)·하한(1,000원)을 벗어난 임시 저장이 ${bad.length}개 있어요 — 고친 뒤 다시 눌러주세요`); return; }
-  const lines = targets.map(t => `· ${esc(t.name)}: ${comma(t.from)} → <b>${comma(t.to)}</b>`).join('<br/>');
+  const lines = targets.map(t => t.kind === 'status'
+    ? `· ${esc(t.name)}: <b style="color:${t.status === 'ACTIVE' ? '#1e7b34' : '#c9372c'};">${t.status === 'ACTIVE' ? '켜기' : '끄기'}</b>`
+    : `· ${esc(t.name)}: ${comma(t.from)} → <b>${comma(t.to)}</b>`).join('<br/>');
   admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
     let ok = 0, fail = 0;
     for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
       try {
-        await metaBudgetCall({ action: 'apply' }, { object_id: t.id, object_name: t.name, level: t.level, new_budget: t.to, pin: w.pin });
-        delete admgrDraft[t.id]; ok++;
+        if (t.kind === 'status') {
+          await metaBudgetCall({ action: 'setstatus' }, { object_id: t.id, object_name: t.name, level: t.level, status: t.status, pin: w.pin });
+          delete admgrSDraft[t.id];
+        } else {
+          await metaBudgetCall({ action: 'apply' }, { object_id: t.id, object_name: t.name, level: t.level, new_budget: t.to, pin: w.pin });
+          delete admgrDraft[t.id];
+        }
+        ok++;
       } catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
     }
-    lsSet('adc_admgr_draft', admgrDraft);
+    lsSet('adc_admgr_draft', admgrDraft); lsSet('adc_admgr_sdraft', admgrSDraft);
     toast(`게시 완료 ${ok}개${fail ? ` · 실패 ${fail}개 (임시 저장 유지)` : ''}`);
     admgrFetch();
   });
