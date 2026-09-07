@@ -415,6 +415,7 @@
     <div id="lg-err" style="display:none;font-size:.76rem;color:#dc2626;margin-bottom:10px;"></div>
     <button class="btn-analyze" id="lg-btn" style="width:100%;justify-content:center;" onclick="authSubmit()">로그인</button>
     <div id="lg-note" style="font-size:.7rem;color:#9ca3af;margin-top:12px;line-height:1.6;">계정이 없으면 관리자에게 등록을 요청하세요.</div>
+    <a id="lg-skip" href="#" style="display:none;font-size:.72rem;color:#6b7280;margin-top:10px;" onclick="$('login-gate').style.display='none';return false;">나중에 만들기 — 지금은 접근키로 계속</a>
   </div>
 </div>
 
@@ -484,6 +485,35 @@
           <button class="btn-ghost" onclick="ptAddType()"><i class="fa-solid fa-table-columns"></i> 소재 유형 추가</button>
           <button class="btn-ghost btn-danger-ghost" style="margin-left:auto;" id="pt-del-sel" onclick="ptDelSel()" disabled><i class="fa-solid fa-square-check"></i> 선택 삭제</button>
           <button class="btn-ghost btn-danger-ghost" onclick="ptDelAll()"><i class="fa-solid fa-trash"></i> 상품 전체 삭제</button>
+        </div>
+        <!-- ═══ 소재 등록 (마케터·관리자) — 파일명→상품 매칭, Meta 보관함 업로드, 등록 기록 ═══ -->
+        <div style="border:1px solid #e7e8ee;border-radius:12px;padding:16px;background:#fff;margin-bottom:22px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <b style="color:#1e1b4b;"><i class="fa-solid fa-cloud-arrow-up" style="color:#4f46e5;"></i> 소재 등록</b>
+            <span style="font-size:.74rem;color:#6b7280;">파일명 앞부분(첫 _ 앞)으로 카페24 상품을 찾아 URL을 자동 기입 · 파일은 Meta 광고 보관함에 올라가고 광고 업로드 탭에서 바로 쓸 수 있어요</span>
+          </div>
+          <div id="reg-drop" style="border:2px dashed #c7d2fe;border-radius:12px;padding:16px;text-align:center;color:#6b7280;cursor:pointer;background:#fafaff;"
+               onclick="$('reg-file').click()" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background='#fafaff'"
+               ondrop="event.preventDefault();this.style.background='#fafaff';regAddFiles(event.dataTransfer.files)">
+            <i class="fa-solid fa-upload" style="color:#4f46e5;"></i> 스토리 이미지(JPG·PNG)·영상(MP4·MOV)을 끌어다 놓거나 클릭 — 예: <code>뉴 내티 원피스_인스타 260907.mp4</code>
+            <input type="file" id="reg-file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" style="display:none;" onchange="regAddFiles(this.files);this.value=''" />
+          </div>
+          <datalist id="reg-dl"></datalist>
+          <div id="reg-rows" style="margin-top:10px;"></div>
+          <div class="control-bar" id="reg-bar" style="display:none;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:10px;">
+            <button class="btn-ghost" onclick="regTextOpen(-1)"><i class="fa-solid fa-pen"></i> 전체 문구 기입</button>
+            <button class="btn-ghost" id="reg-text-sel" onclick="regTextOpen(-2)" disabled><i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입</button>
+            <div class="input-group" style="margin:0;margin-left:auto;"><label>등록 PIN</label>
+              <input class="inp" id="reg-pin" type="password" inputmode="numeric" placeholder="등록용 PIN" style="width:120px;background:#fff;" /></div>
+            <button class="btn-analyze" id="reg-run" onclick="regRun()"><i class="fa-solid fa-check"></i> 등록</button>
+          </div>
+          <div id="reg-log" style="display:none;margin-top:10px;background:#0f172a;color:#cbd5e1;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;border-radius:10px;padding:10px 12px;max-height:180px;overflow:auto;line-height:1.6;"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;">
+            <b style="color:#1e1b4b;font-size:.85rem;">등록된 소재</b>
+            <div class="filter-tabs" id="reg-tabs" style="margin:0;"></div>
+            <button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;margin-left:auto;" onclick="regRefresh(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+          </div>
+          <div id="reg-list" style="margin-top:8px;font-size:.8rem;color:#6b7280;"></div>
         </div>
         <div id="pt-summary"></div>
         <div class="filter-tabs" id="pt-tabs"></div>
@@ -1484,7 +1514,14 @@ function ptCycle(pid, type) {
   else                     delete p.cells[type];
   ptSave(); renderPTest();
 }
-function ptDone(p) { return pt.types.filter(t => p.cells[t] && p.cells[t].st === 'run').length; }
+/* 칸 상태 = 소재 등록 기록(자동, 우선) 또는 수동 클릭 */
+let ptRegIdx = new Map();
+function ptCellState(p, t) {
+  const c = regCellFor(ptRegIdx, p, t);
+  if (c) return c.run ? 'run' : 'made';
+  return p.cells[t] ? p.cells[t].st : null;
+}
+function ptDone(p) { return pt.types.filter(t => ptCellState(p, t) === 'run').length; }
 function setPtFilter(v) { ptFilter = v; ptPage = 1; renderPTest(); }
 function setPtPer(v) { ptPer = Number(v); lsSet('adc_pt_per', ptPer); ptPage = 1; renderPTest(); }
 function setPtPage(n) { ptPage = n; renderPTest(); }
@@ -1510,6 +1547,9 @@ function ptDelAll() {
 }
 
 function renderPTest() {
+  if (!reg.list && !reg.listLoading && admgrCfg()) regRefresh();   // 등록 기록은 서버에서 (처음 한 번, 이후 새로고침 버튼)
+  regSyncBoard(); ptRegIdx = regBoardIndex();
+  if (reg.list) regRenderList();
   const N = pt.types.length;
   const doneAll = pt.products.filter(p => N && ptDone(p) === N).length;
   const partial = pt.products.filter(p => ptDone(p) > 0 && ptDone(p) < N).length;
@@ -1568,6 +1608,8 @@ function renderPTest() {
       <button class="btn-ghost" style="padding:3px 10px;" ${ptPage>=pages?'disabled':''} onclick="setPtPage(${ptPage+1})">›</button></span></div>`;
 
   const cellHtml = (p, t) => {
+    const rc = regCellFor(ptRegIdx, p, t);
+    if (rc) return `<span class="status-badge ${rc.run ? 'badge-green' : 'badge-blue'}">${rc.run ? '진행중' : '제작완료'}</span><span class="pt-date" title="소재 등록 ${rc.n}개 · 광고 생성 ${rc.run}개">${rc.n}개 · ${fmtMD(rc.latest)}</span>`;
     const c = p.cells[t];
     if (!c) return `<span class="pt-empty" title="클릭 → 제작완료"></span>`;
     if (c.st === 'made') return `<span class="status-badge badge-blue">제작완료</span><span class="pt-date">${fmtMD(c.date)}</span>`;
@@ -1586,7 +1628,7 @@ function renderPTest() {
       return `<tr>
         <td><input type="checkbox" value="${p.id}" ${ptSel.has(p.id)?'checked':''} onchange="ptSelToggle(this.value, this.checked)" /></td>
         <td class="name-cell" style="font-weight:700;">${esc(p.name)}</td>
-        ${pt.types.map(t => `<td class="pt-cell" onclick="ptCycle('${p.id}','${esc(t)}')">${cellHtml(p, t)}</td>`).join('')}
+        ${pt.types.map(t => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" title="소재 등록 기록으로 자동 표시 — 클릭으로 못 바꿔요">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}','${esc(t)}')">${cellHtml(p, t)}</td>`).join('')}
         <td><span class="pt-prog-wrap"><span class="pt-prog-bar"><span class="pt-prog-fill" style="width:${N ? done / N * 100 : 0}%;"></span></span>
           <b style="font-size:.78rem;">${done}/${N}</b></span></td>
         <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="ptDelProduct('${p.id}')"><i class="fa-solid fa-xmark"></i></button></td>
@@ -1618,7 +1660,12 @@ async function authInit() {
   AUTH.sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   const { data } = await AUTH.sb.auth.getSession(); AUTH.session = data.session;
   AUTH.sb.auth.onAuthStateChange((_e, s) => { AUTH.session = s; });
-  if (cfg.DASH_KEY && !AUTH.session) { AUTH.me = { email: '접근키', name: '로컬', role: 'admin' }; authApplyRole(); return; }   // 로컬 파일: 접근키가 곧 관리자
+  if (cfg.DASH_KEY && !AUTH.session) {   // 로컬 파일: 접근키가 곧 관리자. 단 계정이 하나도 없으면 최초 관리자 만들기를 먼저 안내
+    AUTH.me = { email: '접근키', name: '로컬', role: 'admin' }; authApplyRole();
+    let boot = false; try { boot = (await authApi({ action: 'status' })).needs_bootstrap; } catch (e) { /* 무시 */ }
+    if (boot) { await authGate(); $('lg-skip').style.display = 'block'; }
+    return;
+  }
   if (!AUTH.session) { await authGate(); return; }
   await authLoadMe();
 }
@@ -1640,7 +1687,7 @@ async function authGate(msg) {
   $('lg-btn').textContent = AUTH.mode === 'bootstrap' ? '관리자 계정 만들기' : '로그인';
   $('lg-note').textContent = AUTH.mode === 'bootstrap' ? '이 이메일·비밀번호로 앞으로 로그인해요. 다른 사람 계정은 로그인 후 데이터 관리 › 사용자 관리에서 만듭니다.'
     : (boot ? '아직 관리자 계정이 없어요 — 연동 키가 있는 로컬 파일에서 먼저 만들어야 해요.' : '계정이 없으면 관리자에게 등록을 요청하세요.');
-  authErr(msg || ''); $('login-gate').style.display = 'flex';
+  $('lg-skip').style.display = 'none'; authErr(msg || ''); $('login-gate').style.display = 'flex';
   setTimeout(() => $(AUTH.mode === 'bootstrap' ? 'lg-name' : 'lg-email').focus(), 0);
 }
 function authErr(m) { const e = $('lg-err'); e.textContent = m; e.style.display = m ? 'block' : 'none'; }
@@ -1707,6 +1754,210 @@ async function umDel(user_id, email) {
   try { await authApi({ action: 'user_del' }, { user_id }); toast('삭제했어요'); umLoad(); } catch (e) { toast('실패: ' + e.message); }
 }
 
+/* ═══════════ ④-2b 소재 등록 (광고소재 대시보드 안) ═══════════
+   파일명 → 핵심 상품명(괄호 묶음 제거) → 카페24 상품 매칭(정확히 1개면 자동, 여러 개면 선택, 없으면 후보) →
+   URL 자동 → 문구(선택) → 파일은 Meta 보관함(meta-upload image/video_*)으로, 메타데이터는 creatives 표로.
+   체크보드는 creatives를 읽어 스토리(이미지)·릴스(영상) 칸을 자동 채운다. */
+const reg = { products: null, aliases: null, rows: [], list: null, listLoading: false, filter: 'registered', running: false };
+const SHOP_URL = (window.DASH_CFG && window.DASH_CFG.SHOP_URL) || 'https://danarobe.com';
+const REG_KIND_TYPE = { image: '스토리', video: '릴스' };
+function coreName(n) { let s = String(n || ''); for (let i = 0; i < 6; i++) s = s.replace(/\([^()]*\)|\[[^\[\]]*\]/g, ' '); return s.replace(/\s+/g, ' ').trim(); }
+function fileCore(fileName) { let n = fileName.replace(/\.[^.]+$/, ''); n = n.split('_')[0]; n = n.replace(/\s+\d{6}\b.*$/, ''); return coreName(n); }
+const normKey = s => coreName(s).toLowerCase().replace(/\s+/g, '');
+const productUrl = no => `${SHOP_URL}/product/detail.html?product_no=${no}`;
+
+async function regLoadRefs(force) {
+  if (force || !reg.products) reg.products = (await perfApi({ action: 'products' })).rows.map(r => ({ ...r, core: coreName(r.name), key: normKey(r.name) }));
+  if (force || !reg.aliases) reg.aliases = (await uplCall({ action: 'aliases' })).rows;
+  $('reg-dl').innerHTML = reg.products.map(p => `<option value="${esc(p.name)}"></option>`).join('');
+}
+function regMatch(fileName) {
+  const core = fileCore(fileName), key = normKey(core);
+  const exact = reg.products.filter(p => p.key === key);
+  const alias = reg.aliases.find(a => normKey(a.core_name) === key);
+  let cands = exact;
+  if (!cands.length && key) cands = reg.products.filter(p => p.key.includes(key) || key.includes(p.key)).slice(0, 8);
+  if (!cands.length && key) {
+    const toks = core.split(' ').filter(t => t.length > 1);
+    cands = reg.products.filter(p => toks.filter(t => p.core.includes(t)).length >= Math.max(1, Math.ceil(toks.length * 0.6))).slice(0, 8);
+  }
+  const aliasHit = alias && reg.products.find(p => p.product_no === alias.product_no);
+  let pick = null, why = 'none';
+  if (exact.length === 1) { pick = exact[0]; why = 'auto'; }
+  else if (aliasHit) { pick = aliasHit; why = 'alias'; if (!cands.find(p => p.product_no === aliasHit.product_no)) cands = [aliasHit, ...cands]; }
+  return { core, cands, pick, why, multi: exact.length > 1 };
+}
+async function regAddFiles(list) {
+  try { await regLoadRefs(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
+  for (const f of list) {
+    const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name);
+    const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
+    if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
+    if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
+    if (reg.rows.some(r => r.file.name === f.name && r.file.size === f.size)) continue;
+    const m = regMatch(f.name);
+    reg.rows.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), core: m.core, cands: m.cands, product: m.pick, why: m.why, multi: m.multi,
+      url: m.pick ? productUrl(m.pick.product_no) : '', text: null, sel: false, status: '대기', media: null, done: false });
+  }
+  regRender();
+  const ask = reg.rows.filter(r => !r.done && (r.multi || !r.product)).length;
+  if (ask) toast(`상품을 골라야 하는 파일 ${ask}개 — 노란 행을 확인하세요`);
+}
+function regDel(id) { reg.rows = reg.rows.filter(r => r.id !== id); regRender(); }
+function regPick(i, no) {
+  const r = reg.rows[i], p = reg.products.find(p => String(p.product_no) === String(no));
+  r.product = p || null; r.url = p ? productUrl(p.product_no) : ''; r.why = p ? 'manual' : 'none'; regRender();
+}
+function regSearch(i, name) { const p = reg.products.find(p => p.name === name); if (p) { if (!reg.rows[i].cands.find(c => c.product_no === p.product_no)) reg.rows[i].cands.unshift(p); regPick(i, p.product_no); } }
+function regSelBtn() { const n = reg.rows.filter(r => r.sel && !r.done).length, b = $('reg-text-sel'); if (!b) return; b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입${n ? ` (${n})` : ''}`; }
+function regRender() {
+  const box = $('reg-rows'), bar = $('reg-bar');
+  if (!reg.rows.length) { box.innerHTML = ''; bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  box.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th style="width:28px;"><input type="checkbox" onchange="reg.rows.forEach(r=>r.sel=this.checked);regRender()" ${reg.rows.every(r => r.sel) ? 'checked' : ''} /></th>
+      <th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th style="text-align:left;">URL</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
+    <tbody>${reg.rows.map((r, i) => {
+      const warn = !r.done && (r.multi || !r.product);
+      const opts = r.cands.map(c => `<option value="${c.product_no}" ${r.product && r.product.product_no === c.product_no ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+      return `<tr style="${warn ? 'background:#fffbeb;' : ''}">
+        <td><input type="checkbox" ${r.sel ? 'checked' : ''} ${r.done ? 'disabled' : ''} onchange="reg.rows[${i}].sel=this.checked;regSelBtn()" /></td>
+        <td style="font-size:.78rem;"><i class="fa-solid ${r.kind === 'video' ? 'fa-video' : 'fa-image'}" style="color:#4f46e5;"></i> ${esc(r.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · 인식한 상품명: <b>${esc(r.core || '-')}</b></div></td>
+        <td style="min-width:240px;">${r.done ? esc(r.product ? r.product.name : '-') : `
+          <select class="inp" style="width:100%;font-size:.78rem;background:#fff;padding:5px 8px;" onchange="regPick(${i}, this.value)">
+            <option value="">— 상품 선택 —</option>${opts}</select>
+          ${r.multi ? `<div style="font-size:.7rem;color:#b45309;margin-top:3px;"><i class="fa-solid fa-triangle-exclamation"></i> 같은 이름 상품 ${r.cands.length}개 (버전 다름) — 어느 상품인지 골라주세요${r.why === 'alias' ? ' · 지난번 선택을 기본으로 넣었어요' : ''}</div>`
+            : !r.product ? `<div style="font-size:.7rem;color:#b45309;margin-top:3px;"><i class="fa-solid fa-triangle-exclamation"></i> 자동 매칭 실패 — ${r.cands.length ? '비슷한 상품을 골라주세요' : '아래에서 검색하세요'}</div>` : ''}
+          <input class="inp" list="reg-dl" placeholder="🔍 상품명 검색" style="width:100%;font-size:.74rem;background:#fff;padding:4px 8px;margin-top:4px;" onchange="regSearch(${i}, this.value)" />`}</td>
+        <td><input class="inp" value="${esc(r.url)}" style="min-width:220px;font-size:.74rem;background:#fff;padding:5px 8px;" oninput="reg.rows[${i}].url=this.value" ${r.done ? 'disabled' : ''} /></td>
+        <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="regTextOpen(${i})" ${r.done ? 'disabled' : ''}>${r.text ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 기입됨' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
+        <td style="font-size:.78rem;${/실패/.test(r.status) ? 'color:#dc2626;' : r.done ? 'color:#15803d;font-weight:700;' : ''}">${esc(r.status)}</td>
+        <td>${r.done || reg.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="regDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td></tr>`; }).join('')}</tbody></table></div>`;
+  const todo = reg.rows.filter(r => !r.done).length;
+  $('reg-run').innerHTML = `<i class="fa-solid fa-check"></i> 등록 (${todo}개)`; $('reg-run').disabled = !todo || reg.running;
+  regSelBtn();
+}
+/* 문구 모달 공용 사용 — 등록 행: idx>=0 / 전체 -1 / 선택 -2 */
+function regTextOpen(idx) {
+  const targets = idx >= 0 ? [reg.rows[idx]] : idx === -2 ? reg.rows.filter(r => r.sel && !r.done) : reg.rows.filter(r => !r.done);
+  if (!targets.length) { toast(idx === -2 ? '파일을 먼저 체크하세요' : '파일이 없어요'); return; }
+  const first = targets[0];
+  const base = first.text || { message: '', title: '', description: '', link: first.url || '', cta: 'LEARN_MORE' };
+  textModalOpen(idx >= 0 ? `광고 문구 — ${first.name}` : `광고 문구 — ${idx === -2 ? '선택한' : '전체'} ${targets.length}개 파일에 적용 (URL은 파일별 상품 URL 유지)`, base, t => {
+    for (const r of targets) { r.text = { ...t, link: targets.length > 1 && r.url ? r.url : t.link }; r.sel = false; }
+    regRender(); toast(`${targets.length}개 파일에 문구를 넣었어요`);
+  }, { linkOptional: targets.length > 1 });
+}
+function regLog(msg, cls) {
+  const box = $('reg-log'); box.style.display = 'block';
+  box.insertAdjacentHTML('beforeend', `<div style="${cls === 'ok' ? 'color:#4ade80;' : cls === 'err' ? 'color:#f87171;' : ''}">${new Date().toTimeString().slice(0, 8)} ${cls === 'ok' ? '✓' : cls === 'err' ? '✗' : '→'} ${esc(msg)}</div>`);
+  box.scrollTop = box.scrollHeight;
+}
+async function regRun() {
+  if (reg.running) return;
+  const todo = reg.rows.filter(r => !r.done);
+  if (!todo.length) return;
+  const pin = ($('reg-pin').value || '').trim(); if (!pin) { toast('등록 PIN을 입력하세요'); $('reg-pin').focus(); return; }
+  const noProd = todo.filter(r => !r.product);
+  if (noProd.length && !confirm(`상품이 안 정해진 파일 ${noProd.length}개가 있어요. 상품 없이(URL만) 등록할까요?\n취소하면 돌아가서 고를 수 있어요.`)) return;
+  const ask = todo.filter(r => r.multi && r.why !== 'manual' && r.why !== 'alias');
+  if (ask.length && !confirm(`같은 이름 상품이 여러 개인데 아직 고르지 않은 파일 ${ask.length}개가 있어요. 첫 번째 후보로 등록할까요?`)) return;
+  reg.running = true; regRender(); lsSet('adc_reg_pin', pin);
+  regLog(`등록 시작 — ${todo.length}개, ${UPL_PARALLEL}개씩 동시 전송`);
+  const t0 = Date.now(); let ok = 0, pinFail = false;
+  const queue = [...todo];
+  const worker = async () => {
+    while (queue.length && !pinFail) {
+      const r = queue.shift();
+      try {
+        r.status = r.kind === 'video' ? '영상 전송 0%' : '이미지 업로드 중'; regRender();
+        if (!r.media) r.media = await uplUploadMedia({ kind: r.kind, file: r.file, name: r.name, _reg: r }, pin);
+        r.status = '기록 저장 중'; regRender();
+        const p = r.product || (r.multi ? r.cands[0] : null);
+        await uplCall({ action: 'creative_add' }, { file_name: r.file.name, kind: r.kind, core_name: r.core, product_no: p ? p.product_no : null, product_name: p ? p.name : null, url: r.url || null, text: r.text, media: r.media });
+        r.done = true; r.status = '등록됨'; ok++; regLog(`${r.file.name}: 등록 완료`, 'ok');
+      } catch (e) {
+        r.status = '실패: ' + e.message; regLog(`${r.file.name}: ${e.message}`, 'err');
+        if (/PIN/.test(e.message)) pinFail = true;
+      }
+      regRender();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(UPL_PARALLEL, queue.length) }, worker));
+  reg.running = false; regRender();
+  regLog(`끝 — 성공 ${ok} / ${todo.length} · ${Math.round((Date.now() - t0) / 1000)}초`, ok === todo.length ? 'ok' : 'err');
+  toast(`소재 등록 ${ok}/${todo.length} 완료`);
+  reg.aliases = null; regRefresh(true);
+}
+/* 등록된 소재 목록 + 체크보드 반영 */
+async function regRefresh(force) {
+  if (reg.listLoading) return;
+  if (reg.list && !force) { regRenderList(); return; }
+  reg.listLoading = true;
+  try { reg.list = (await uplCall({ action: 'creatives_list', status: 'all', limit: 500 })).rows; }
+  catch (e) { reg.list = reg.list || []; if (force) toast('등록 목록 불러오기 실패: ' + e.message); }
+  reg.listLoading = false; regRenderList(); renderPTest();
+}
+function regRenderList() {
+  const box = $('reg-list'); if (!box || !reg.list) return;
+  const all = reg.list, wait = all.filter(r => r.status === 'registered'), made = all.filter(r => r.status === 'ad_created');
+  $('reg-tabs').innerHTML = [['registered', `대기 ${wait.length}`], ['ad_created', `광고 생성됨 ${made.length}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="filter-tab ${reg.filter === k ? 'active' : ''}" onclick="reg.filter='${k}';regRenderList()">${l}</button>`).join('');
+  const rows = reg.filter === 'all' ? all : all.filter(r => r.status === reg.filter);
+  if (!rows.length) { box.innerHTML = '<div style="padding:10px;">없음</div>'; return; }
+  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th>등록자</th><th></th></tr></thead><tbody>
+    ${rows.slice(0, 200).map(r => `<tr>
+      <td style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
+      <td style="font-size:.78rem;">${esc(r.file_name)}</td>
+      <td style="font-size:.78rem;">${esc(r.product_name || '-')}${r.url ? ` <a href="${esc(r.url)}" target="_blank" style="font-size:.7rem;">↗</a>` : ''}</td>
+      <td style="text-align:center;font-size:.74rem;">${REG_KIND_TYPE[r.kind] || r.kind}</td>
+      <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
+      <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
+      <td style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
+      <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListDel('${r.id}','${esc(r.file_name)}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function regListText(id) {
+  const r = reg.list.find(x => x.id === id); if (!r) return;
+  textModalOpen(`광고 문구 — ${r.file_name}`, r.text || { message: '', title: '', description: '', link: r.url || '', cta: 'LEARN_MORE' }, async t => {
+    try { const res = await uplCall({ action: 'creative_save' }, { id, text: t, url: t.link }); Object.assign(r, res.row); regRenderList(); toast('문구를 저장했어요'); }
+    catch (e) { toast('저장 실패: ' + e.message); }
+  });
+}
+async function regListDel(id, name) {
+  if (!confirm(`'${name}' 등록을 삭제할까요? (Meta 보관함의 파일은 남아요)`)) return;
+  try { await uplCall({ action: 'creative_del' }, { id }); reg.list = reg.list.filter(x => x.id !== id); regRenderList(); renderPTest(); toast('삭제했어요'); }
+  catch (e) { toast('삭제 실패: ' + e.message); }
+}
+/* 체크보드용: 상품번호 → 유형별 {n, run, latest}. 이름만 있는 행은 핵심 이름으로 연결 */
+function regBoardIndex() {
+  const idx = new Map();
+  for (const r of (reg.list || [])) {
+    const type = REG_KIND_TYPE[r.kind]; if (!type) continue;
+    const keys = [r.product_no ? 'no:' + r.product_no : null, r.core_name ? 'nm:' + normKey(r.core_name) : null].filter(Boolean);
+    for (const k of keys) {
+      if (!idx.has(k)) idx.set(k, {});
+      const cell = idx.get(k)[type] || (idx.get(k)[type] = { n: 0, run: 0, latest: '' });
+      cell.n++; if (r.status === 'ad_created') cell.run++;
+      const d = (r.ad_created_at || r.created_at || '').slice(0, 10); if (d > cell.latest) cell.latest = d;
+    }
+  }
+  return idx;
+}
+function regCellFor(idx, p, t) { return (p.product_no && idx.get('no:' + p.product_no) || idx.get('nm:' + normKey(p.name)) || {})[t] || null; }
+/* 등록된 소재의 상품이 체크보드에 없으면 행 추가 (마케터 PC에서 등록한 것도 관리자 보드에 보이게) */
+function regSyncBoard() {
+  if (!reg.list) return;
+  let changed = false;
+  for (const r of reg.list) {
+    if (!r.product_no) continue;
+    if (pt.products.some(p => p.product_no === r.product_no)) continue;
+    const byName = pt.products.find(p => !p.product_no && normKey(p.name) === normKey(r.product_name || r.core_name || ''));
+    if (byName) { byName.product_no = r.product_no; changed = true; continue; }
+    pt.products.unshift({ id: newId(), name: r.product_name || r.core_name, product_no: r.product_no, cells: {} }); changed = true;
+  }
+  if (changed) ptSave();
+}
+
 /* ═══════════ ④-4 광고 업로드 (Meta) — Ads Uploader 대체 v1 ═══════════
    사용자 실사용 패턴: 모델 광고(직전 테스트 광고) 선택 → 파일 N개 → 파일당 새 세트(예산만 입력)+광고 1개,
    문구는 직접 기입, 강화옵션·페이지·타겟은 모델 그대로. 미디어는 meta-upload 함수를 거쳐 조각 전송(토큰은 서버에만). */
@@ -1732,7 +1983,21 @@ function renderUpload() {
   if (!admgrCfg()) { $('upl-model').innerHTML = `<div class="empty-state" style="padding:24px;"><p>config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP-광고관리자.md)</p></div>`; return; }
   if (!$('upl-pin').value) $('upl-pin').value = lsGet('adc_admgr_pin', '') || '';
   if (!upl.data) { upl.data = admgr.data; }   // 광고관리자에서 이미 불러왔으면 재사용
-  uplRenderModel(); uplRenderFiles();
+  uplRenderModel(); uplRenderFiles(); uplLoadRegistered();
+}
+/* ② 등록된 소재(대기) 자동 채움 — 파일은 이미 Meta 보관함에 있어 전송 없이 바로 생성 */
+async function uplLoadRegistered() {
+  try {
+    const { rows } = await uplCall({ action: 'creatives_list', status: 'registered', limit: 300 });
+    let added = 0;
+    for (const r of rows) {
+      if (upl.files.some(f => f.creative_id === r.id)) continue;
+      upl.files.push({ id: newId(), creative_id: r.id, file: null, kind: r.kind, name: r.file_name.replace(/\.[^.]+$/, ''), product_name: r.product_name || '', url: r.url || '',
+        text: r.text && r.text.message ? { ...r.text, link: r.text.link || r.url } : null, status: '등록됨 (전송 불필요)', media: r.media, result: null, sel: false, registered_at: r.created_at });
+      added++;
+    }
+    if (added) { uplRenderFiles(); toast(`등록된 소재 ${added}개를 불러왔어요`); }
+  } catch (e) { /* 미배포·권한 없음 등은 조용히 */ }
 }
 async function uplLoad() {
   $('upl-model').innerHTML = '<div style="padding:16px;color:#6b7280;">Meta 광고 목록 불러오는 중…</div>';
@@ -1799,7 +2064,7 @@ function uplRenderFiles() {
     <thead><tr><th style="width:28px;"><input type="checkbox" title="전체 선택" ${upl.files.length && upl.files.every(f => f.sel) ? 'checked' : ''} onchange="uplSelAll(this.checked)" /></th><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
     <tbody>${upl.files.map((f, i) => `<tr>
       <td><input type="checkbox" ${f.sel ? 'checked' : ''} onchange="upl.files[${i}].sel=this.checked;uplSelBtn()" /></td>
-      <td style="font-size:.78rem;"><i class="fa-solid ${f.kind==='video'?'fa-video':'fa-image'}" style="color:#4f46e5;"></i> ${esc(f.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(f.file.size)}</div></td>
+      <td style="font-size:.78rem;"><i class="fa-solid ${f.kind==='video'?'fa-video':'fa-image'}" style="color:#4f46e5;"></i> ${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></td>
       <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})">${f.text ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 기입됨' : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
@@ -1816,28 +2081,41 @@ function uplSelBtn() {
 
 /* ── 문구 모달: idx=-1 → 전체 일괄, 아니면 해당 행 ── */
 let uplTextIdx = -1;
-function uplTextOpen(idx) {
-  uplTextIdx = idx;
-  const selected = upl.files.filter(f => f.sel);
-  if (idx === -2 && !selected.length) { toast('파일을 먼저 체크하세요'); return; }
-  const base = (idx >= 0 && upl.files[idx].text) || (idx === -2 && selected[0].text) || upl.commonText || (upl.model && upl.model.text) || { message: '', title: '', description: '', link: '', cta: 'LEARN_MORE' };
-  $('upl-text-title').textContent = idx >= 0 ? `광고 문구 — ${upl.files[idx].name}` : idx === -2 ? `광고 문구 — 선택한 ${selected.length}개 파일에 적용` : '광고 문구 일괄 기입 (모든 파일에 적용)';
+/* 공용 문구 모달: title, 초기값, 적용 콜백. opts.linkOptional → 여러 파일에 적용할 때 URL 비워도 됨(파일별 URL 유지) */
+const TEXT_MODAL = { onApply: null, linkOptional: false };
+function textModalOpen(title, base, onApply, opts) {
+  TEXT_MODAL.onApply = onApply; TEXT_MODAL.linkOptional = !!(opts && opts.linkOptional);
+  $('upl-text-title').textContent = title;
   $('ut-cta').innerHTML = UPL_CTA.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   uplTextFill(base);
   $('upl-text-modal').classList.add('show'); $('ut-message').focus();
 }
+function uplTextOpen(idx) {
+  uplTextIdx = idx;
+  const selected = upl.files.filter(f => f.sel);
+  if (idx === -2 && !selected.length) { toast('파일을 먼저 체크하세요'); return; }
+  const f0 = idx >= 0 ? upl.files[idx] : idx === -2 ? selected[0] : null;
+  const fallback = upl.commonText || (upl.model && upl.model.text) || { message: '', title: '', description: '', link: '', cta: 'LEARN_MORE' };
+  const base = (f0 && f0.text) || (f0 && f0.url ? { ...fallback, link: f0.url } : fallback);   // 등록 소재는 상품 URL을 기본으로
+  const title = idx >= 0 ? `광고 문구 — ${upl.files[idx].name}` : idx === -2 ? `광고 문구 — 선택한 ${selected.length}개 파일에 적용` : '광고 문구 일괄 기입 (모든 파일에 적용 · 등록 소재는 상품 URL 유지)';
+  textModalOpen(title, base, t => {
+    let n = 0;
+    if (uplTextIdx >= 0) upl.files[uplTextIdx].text = t;
+    else if (uplTextIdx === -2) { for (const f of upl.files) if (f.sel) { f.text = { ...t, link: f.url || t.link }; f.sel = false; n++; } }
+    else { upl.commonText = t; for (const f of upl.files) f.text = null; }
+    uplRenderFiles();
+    toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : uplTextIdx === -2 ? `선택한 ${n}개 파일에 문구를 적용했어요` : '모든 파일에 문구를 적용했어요');
+  }, { linkOptional: idx < 0 });
+}
 function uplTextFill(t) { $('ut-message').value = t.message || ''; $('ut-title').value = t.title || ''; $('ut-description').value = t.description || ''; $('ut-link').value = t.link || ''; $('ut-cta').value = t.cta || 'LEARN_MORE'; }
-function uplTextReset() { if (!upl.model) { toast('모델 광고를 먼저 선택하세요'); return; } uplTextFill(upl.model.text); }
+function uplTextReset() { if (!upl.model) { toast('모델 광고를 먼저 선택하세요 (광고 업로드 탭)'); return; } const link = $('ut-link').value; uplTextFill({ ...upl.model.text, link: link || upl.model.text.link }); }
 function uplTextApply() {
   const t = { message: $('ut-message').value.trim(), title: $('ut-title').value.trim(), description: $('ut-description').value.trim(), link: $('ut-link').value.trim(), cta: $('ut-cta').value };
-  if (!/^https?:\/\//.test(t.link)) { toast('웹사이트 URL을 http(s)://로 입력하세요'); return; }
+  if (t.link && !/^https?:\/\//.test(t.link)) { toast('웹사이트 URL은 http(s)://로 시작해야 해요'); return; }
+  if (!t.link && !TEXT_MODAL.linkOptional) { toast('웹사이트 URL을 입력하세요'); return; }
   if (!t.message) { toast('본문을 입력하세요'); return; }
-  let n = 0;
-  if (uplTextIdx >= 0) upl.files[uplTextIdx].text = t;
-  else if (uplTextIdx === -2) { for (const f of upl.files) if (f.sel) { f.text = { ...t }; f.sel = false; n++; } }
-  else { upl.commonText = t; for (const f of upl.files) f.text = null; }
-  closeModal('upl-text-modal'); uplRenderFiles();
-  toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : uplTextIdx === -2 ? `선택한 ${n}개 파일에 문구를 적용했어요` : '모든 파일에 문구를 적용했어요');
+  closeModal('upl-text-modal');
+  if (TEXT_MODAL.onApply) TEXT_MODAL.onApply(t);
 }
 
 /* ── 진단: 쓰기 토큰의 페이지 권한 + validate_only (생성 없음) ── */
@@ -1909,7 +2187,8 @@ async function uplRun() {
   const budget = Number($('upl-budget').value || 0);
   if (!upl.model.cbo && (budget < 1000 || budget > 300000)) { toast('세트당 일예산은 1,000~300,000원'); $('upl-budget').focus(); return; }
   const mode = document.querySelector('input[name=upl-mode]:checked').value;
-  const missing = upl.files.filter(f => !(f.text || upl.commonText));
+  const effText = f => f.text || (upl.commonText ? { ...upl.commonText, link: f.url || upl.commonText.link } : null);
+  const missing = upl.files.filter(f => !effText(f));
   if (missing.length) { toast(`문구가 없는 파일 ${missing.length}개 — 기입하거나 일괄 기입하세요`); return; }
   const dup = upl.files.filter(f => !f.name.trim()); if (dup.length) { toast('이름이 빈 파일이 있어요'); return; }
   const pending = upl.files.filter(f => !f.result);
@@ -1944,7 +2223,7 @@ async function uplRun() {
     if (!f.media || pinFail) continue;
     try {
       uplSetStatus(f, '세트·광고 생성 중');
-      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget, status: mode, media: f.media, text: f.text || upl.commonText });
+      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget, status: mode, media: f.media, text: effText(f), creative_id: f.creative_id || null });
       f.result = r; ok++;
       uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id})`);
       uplLog(`${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
@@ -1956,6 +2235,7 @@ async function uplRun() {
   }
   upl.running = false; $('upl-run').disabled = false; uplRenderFiles();
   uplLog(`끝 — 성공 ${ok} / ${pending.length} · 총 ${Math.round((Date.now() - t0) / 1000)}초`, ok === pending.length ? 'ok' : 'err');
+  if (ok) reg.list = null;   // 체크보드·등록 목록은 다음 렌더에서 다시 읽음
   toast(`광고 생성 ${ok}/${pending.length} 완료`);
 }
 

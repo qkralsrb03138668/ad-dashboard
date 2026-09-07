@@ -13,13 +13,20 @@
 //   POST ?action=video_chunk   multipart(pin, session_id, start_offset, chunk) → { start_offset, end_offset }
 //   POST ?action=video_finish  { pin, session_id, title }                   → { ok }
 //   GET  ?action=video_status&video_id=…   → { ready, progress, thumbnail_url }
-//   POST ?action=create        { pin, model_ad_id, name, budget, status, media:{type,image_hash|video_id,thumbnail_url}, text:{message,title,description,link,cta} }
-//                                          → { adset_id, creative_id, ad_id }
+//   POST ?action=create        { pin, model_ad_id, name, budget, status, media:{type,image_hash|video_id,thumbnail_url}, text:{message,title,description,link,cta}, creative_id? }
+//                                          → { adset_id, creative_id, ad_id }   (creative_id 있으면 creatives 행을 ad_created로 갱신)
+//   ── 소재 등록 (마케터·관리자, 2026-09-07) — 파일은 위 image/video_* 로 Meta 보관함에 올리고 여기엔 메타데이터만 ──
+//   GET  ?action=creatives_list&status=registered|ad_created|all&limit=200
+//   GET  ?action=aliases                   → { rows:[{core_name, product_no, product_name}] }
+//   POST ?action=creative_add  { file_name, kind, core_name, product_no, product_name, url, text, media }
+//   POST ?action=creative_save { id, product_no, product_name, url, text, file_name }
+//   POST ?action=creative_del  { id }      (registered 상태만)
+//   PIN: image/video_* 는 UPLOAD_PIN(등록용) 또는 WRITE_PIN, create/verify 는 WRITE_PIN만
 //
 // 보안: DASH_KEY + 매 쓰기 요청 PIN(WRITE_PIN, meta-budget과 동일 규칙: 15분 5회 잠금) + 일예산 상한 300,000원.
 // 필요 secrets: META_WRITE_TOKEN, WRITE_PIN, DASH_KEY, META_AD_ACCOUNT_ID
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, requireRole, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheSet, dbRest, requireRole, handleOptions, json } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const MAX_BUDGET = 300_000, MIN_BUDGET = 1_000;
@@ -51,9 +58,10 @@ async function graph(path: string, init: { method?: string; params?: Record<stri
 }
 
 // PIN 검증 — meta-budget과 같은 카운터 키를 써서 잠금도 공유
-async function checkPin(pin: unknown): Promise<string | null> {
+async function checkPin(pin: unknown, allowUpload = false): Promise<string | null> {
   const set = env("WRITE_PIN");
   if (!set) return "PIN이 아직 설정되지 않았습니다 (WRITE_PIN secret)";
+  if (allowUpload && env("UPLOAD_PIN") && String(pin ?? "") === env("UPLOAD_PIN")) return null;   // 등록용 PIN (미디어 업로드만)
   const key = "pinfail:dashboard";
   const rec = (await cacheGet(key, 15 * 60 * 1000)) as { n?: number } | null;
   const n = rec?.n ?? 0;
@@ -193,6 +201,18 @@ Deno.serve(async (req) => {
       } catch (e) { out.ad = String((e as Error).message); }
       return json(out);
     }
+    if (action === "creatives_list") {
+      const st = url.searchParams.get("status") ?? "registered";
+      const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
+      const q = st === "all" ? "" : `&status=eq.${st}`;
+      const r = await dbRest(`creatives?select=*${q}&order=created_at.desc&limit=${limit}`);
+      if (!r.ok) return json({ error: `목록 실패: ${await r.text()}` }, 500);
+      return json({ rows: await r.json() });
+    }
+    if (action === "aliases") {
+      const r = await dbRest("product_alias?select=core_name,product_no,product_name");
+      return json({ rows: r.ok ? await r.json() : [] });
+    }
     if (action === "video_status") {
       const id = url.searchParams.get("video_id") ?? "";
       if (!/^\d{5,25}$/.test(id)) return json({ error: "video_id 형식 오류" }, 400);
@@ -213,8 +233,51 @@ Deno.serve(async (req) => {
     const isForm = (req.headers.get("content-type") ?? "").includes("multipart/form-data");
     const form = isForm ? await req.formData() : null;
     const body: Rec = form ? Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === "string")) : await req.json();
-    const pinErr = await checkPin(body.pin);
-    if (pinErr) return json({ error: pinErr }, 403);
+    const MEDIA_ACTIONS = ["image", "video_start", "video_chunk", "video_finish"];
+    const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
+    if (!CREATIVE_ACTIONS.includes(action)) {   // 소재 메타데이터 저장은 로그인 역할만으로 충분 (파일은 이미 PIN으로 올라감)
+      const pinErr = await checkPin(body.pin, MEDIA_ACTIONS.includes(action));
+      if (pinErr) return json({ error: pinErr }, 403);
+    }
+
+    if (action === "creative_add") {
+      const media = (body.media ?? {}) as Rec;
+      if (!(media.type === "video" ? media.video_id : media.image_hash)) return json({ error: "미디어 정보 부족" }, 400);
+      const row = {
+        created_by: me.id === "dash-key" ? null : me.id, created_by_email: me.email,
+        file_name: String(body.file_name ?? "").slice(0, 200), kind: media.type === "video" ? "video" : "image",
+        core_name: body.core_name ? String(body.core_name).slice(0, 200) : null,
+        product_no: body.product_no ? Number(body.product_no) : null, product_name: body.product_name ? String(body.product_name).slice(0, 300) : null,
+        url: body.url ? String(body.url).slice(0, 1000) : null, text: body.text ?? null, media,
+      };
+      if (!row.file_name) return json({ error: "file_name 필요" }, 400);
+      const r = await dbRest("creatives", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(row) });
+      if (!r.ok) return json({ error: `저장 실패: ${await r.text()}` }, 500);
+      if (row.core_name && row.product_no) {   // 이 상품명은 이 상품 — 다음 매칭 기본값
+        await dbRest("product_alias?on_conflict=core_name", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ core_name: row.core_name, product_no: row.product_no, product_name: row.product_name, updated_at: new Date().toISOString() }) }).catch(() => {});
+      }
+      return json({ row: (await r.json())[0] });
+    }
+    if (action === "creative_save") {
+      const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);
+      const patch: Rec = {};
+      for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name"]) if (k in body) patch[k] = body[k];
+      const r = await dbRest(`creatives?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) });
+      if (!r.ok) return json({ error: `수정 실패: ${await r.text()}` }, 500);
+      const row = (await r.json())[0];
+      if (row?.core_name && row?.product_no) {
+        await dbRest("product_alias?on_conflict=core_name", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ core_name: row.core_name, product_no: row.product_no, product_name: row.product_name, updated_at: new Date().toISOString() }) }).catch(() => {});
+      }
+      return json({ row });
+    }
+    if (action === "creative_del") {
+      const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);
+      const r = await dbRest(`creatives?id=eq.${id}&status=eq.registered`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+      if (!r.ok) return json({ error: `삭제 실패: ${await r.text()}` }, 500);
+      return json({ ok: true, deleted: (await r.json()).length });
+    }
 
     if (action === "verify") return json({ ok: true });
 
@@ -264,6 +327,11 @@ Deno.serve(async (req) => {
       const creative_id = await createCreative(model, name, media, text);
       // 광고는 항상 활성 — 일시중지 모드는 세트만 멈춤(세트가 꺼져 있으면 지출 없음). 사용자가 세트만 켜면 바로 게재.
       const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id, creative: JSON.stringify({ creative_id }), status: "ACTIVE" } });
+      const cid = String(body.creative_id ?? "");
+      if (/^[0-9a-f-]{36}$/.test(cid)) {   // 등록된 소재로 만든 경우 → 기록 갱신 (체크보드 '진행중' 근거)
+        await dbRest(`creatives?id=eq.${cid}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ status: "ad_created", ad_id: ad.id, adset_id, ad_created_at: new Date().toISOString(), ad_created_by: me.email, model_ad_id: String(body.model_ad_id ?? ""), text }) }).catch(() => {});
+      }
       return json({ adset_id, creative_id, ad_id: ad.id });
     }
     return json({ error: `알 수 없는 action: ${action}` }, 400);
