@@ -2628,7 +2628,11 @@ async function admgrPublishDrafts() {
     ? `· ${esc(t.name)}: <b style="color:${t.status === 'ACTIVE' ? '#1e7b34' : '#c9372c'};">${t.status === 'ACTIVE' ? '켜기' : '끄기'}</b>`
     : `· ${esc(t.name)}: ${comma(t.from)} → <b>${comma(t.to)}</b>`).join('<br/>');
   admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
-    let ok = 0, fail = 0;
+    /* 진행 중 → 결과 알림창 (2026-09-07 사용자 요청: 적용됐는지 안 됐는지 창으로) */
+    const results = [];
+    const prog = () => { const el = $('abm-body'); if (el) el.innerHTML = `<div style="font-size:.85rem;padding:8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> Meta에 게시 중… <b>${results.length}/${targets.length}</b><div style="font-size:.72rem;color:#9ca3af;margin-top:6px;">창을 닫지 말고 잠시 기다려 주세요</div></div>`; };
+    $('abm-title').textContent = '임시 저장 게시 중'; prog(); $('admgr-budget-modal').classList.add('show');
+    let stopped = false;
     for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
       try {
         if (t.kind === 'status') {
@@ -2638,13 +2642,31 @@ async function admgrPublishDrafts() {
           await metaBudgetCall({ action: 'apply' }, { object_id: t.id, object_name: t.name, level: t.level, new_budget: t.to, pin: w.pin });
           delete admgrDraft[t.id];
         }
-        ok++;
-      } catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
+        results.push({ t, ok: true });
+      } catch (e) {
+        results.push({ t, ok: false, err: e.message });
+        if (String(e.message).includes('PIN')) { admgrPinInvalidate(); stopped = true; break; }
+      }
+      prog();
     }
     lsSet('adc_admgr_draft', admgrDraft); lsSet('adc_admgr_sdraft', admgrSDraft);
-    toast(`게시 완료 ${ok}개${fail ? ` · 실패 ${fail}개 (임시 저장 유지)` : ''}`);
+    admgrPublishResult(results, targets.length, stopped);
     admgrFetch();
   });
+}
+/* 게시 결과 알림창 — 항목별 ✓/✗ 와 오류 내용. 실패분은 임시 저장에 그대로 남는다 */
+function admgrPublishResult(results, total, stopped) {
+  const ok = results.filter(r => r.ok).length, fail = results.length - ok, skipped = total - results.length;
+  const what = t => t.kind === 'status' ? (t.status === 'ACTIVE' ? '켜기' : '끄기') : `${comma(t.from)} → ${comma(t.to)}`;
+  const lines = results.map(r => `<div style="display:flex;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px solid #f3f4f6;">
+      <span style="flex:none;font-weight:800;color:${r.ok ? '#15803d' : '#dc2626'};">${r.ok ? '✓' : '✗'}</span>
+      <span style="min-width:0;"><b>${esc(r.t.name)}</b> · ${what(r.t)}${r.ok ? '' : `<div style="color:#dc2626;font-size:.72rem;">${esc(r.err || '실패')}</div>`}</span></div>`).join('');
+  $('abm-title').textContent = fail || skipped ? `게시 결과 — 성공 ${ok} · 실패 ${fail}${skipped ? ` · 미처리 ${skipped}` : ''}` : `게시 완료 — ${ok}개 모두 Meta에 반영됐어요`;
+  $('abm-body').innerHTML = `<div style="max-height:50vh;overflow:auto;font-size:.8rem;line-height:1.6;color:#374151;">${lines}</div>
+    ${fail || skipped ? `<div class="info-bar" style="margin-top:8px;font-size:.72rem;background:#fef2f2;border-color:#fecaca;color:#991b1b;">${stopped ? 'PIN 오류로 중단됐어요 — 다시 인증한 뒤 ' : '실패·미처리 항목은 임시 저장에 그대로 남아 있어요 — '}<b>임시 저장 전체 게시</b>를 다시 누르면 남은 것만 게시돼요</div>` : ''}
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+  toast(fail || skipped ? `게시 ${ok}개 성공 · ${fail + skipped}개 실패/미처리` : `게시 완료 ${ok}개`);
 }
 const admgrBP = { id: null, level: null, name: '', after: null };
 function admgrPinPrompt(after) {
