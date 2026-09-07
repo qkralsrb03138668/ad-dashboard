@@ -69,6 +69,65 @@ async function metaSetBudget(id: string, won: number): Promise<void> {
   }
 }
 
+// 광고세트 전체(id·이름·일예산) — 읽기 토큰, 페이지네이션
+async function metaAllAdsets(): Promise<{ id: string; name: string; budget: number }[]> {
+  const token = env("META_ACCESS_TOKEN") || env("META_WRITE_TOKEN");
+  let account = env("META_AD_ACCOUNT_ID"); if (!account.startsWith("act_")) account = "act_" + account;
+  const out: { id: string; name: string; budget: number }[] = [];
+  let url: string | null = `${GRAPH}/${account}/adsets?${new URLSearchParams({ fields: "id,name,daily_budget", limit: "500", access_token: token })}`;
+  for (let i = 0; i < 6 && url; i++) {
+    const res = await fetch(url); const body = await res.json();
+    if (!res.ok) throw new Error(`Meta 세트 조회 실패: ${(body?.error?.message ?? "").slice(0, 200)}`);
+    for (const r of (body.data ?? []) as Record<string, unknown>[]) out.push({ id: String(r.id), name: String(r.name ?? ""), budget: num(r.daily_budget) });
+    url = (body.paging as { next?: string } | undefined)?.next ?? null;
+  }
+  return out;
+}
+
+// 00:10 KST — 오늘 시작 예산 스냅샷 (budget_daystart). 자정 예약 반영(00:00) 뒤의 값이 '하루 시작 예산'
+async function snapshotDayStart(): Promise<Record<string, unknown>> {
+  const day = seoulToday();
+  const sets = (await metaAllAdsets()).filter((s) => s.budget > 0);
+  if (sets.length) {
+    await dbRest("budget_daystart?on_conflict=day,adset_id", {
+      method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(sets.map((s) => ({ day, adset_id: s.id, name: s.name, budget: s.budget, taken_at: new Date().toISOString() }))),
+    });
+  }
+  return { day, count: sets.length };
+}
+
+// 23:55 KST — 오늘 '원복 승인'(budget_writes mode=reset_approve, pending, apply_date=오늘)이 있으면
+// 스냅샷 예산과 다른 세트를 시작 예산으로 되돌린다 (2026-09-07 사용자 운영 규칙)
+async function runReset(): Promise<Record<string, unknown>> {
+  const day = seoulToday();
+  const appr = (await pg(`budget_writes?mode=eq.reset_approve&status=eq.pending&apply_date=eq.${day}&limit=1`, "GET")) as Record<string, unknown>[];
+  if (!appr.length) return { day, skipped: "승인 없음" };
+  const snap = (await pg(`budget_daystart?day=eq.${day}&select=adset_id,name,budget`, "GET")) as Record<string, unknown>[];
+  if (!snap.length) {
+    await pg(`budget_writes?id=eq.${appr[0].id}`, "PATCH", { status: "failed", applied_at: new Date().toISOString(), error: "오늘 시작 예산 스냅샷이 없음(00:10 기록 전)" });
+    return { day, skipped: "스냅샷 없음" };
+  }
+  const cur = new Map((await metaAllAdsets()).map((s) => [s.id, s]));
+  let ok = 0, fail = 0, same = 0;
+  for (const s of snap) {
+    const id = String(s.adset_id), target = Math.round(num(s.budget));
+    const now = cur.get(id); if (!now) continue;
+    if (Math.round(now.budget) === target) { same++; continue; }
+    try {
+      await metaSetBudget(id, target);
+      await pg("budget_writes", "POST", { object_id: id, object_name: now.name, level: "adset", old_budget: now.budget, new_budget: target, mode: "reset", status: "applied", requested_by: "cron", applied_at: new Date().toISOString() });
+      ok++;
+    } catch (e) {
+      await pg("budget_writes", "POST", { object_id: id, object_name: now.name, level: "adset", old_budget: now.budget, new_budget: target, mode: "reset", status: "failed", requested_by: "cron", applied_at: new Date().toISOString(), error: String(e).slice(0, 300) }).catch(() => {});
+      fail++;
+    }
+  }
+  await pg(`budget_writes?id=eq.${appr[0].id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString(), error: `원복 ${ok}·동일 ${same}·실패 ${fail}` });
+  if (ok) await clearMetaCaches();
+  return { day, reset: ok, same, failed: fail };
+}
+
 // 예산 변경 후 관련 서버 캐시 비우기 — 화면이 바로 새 값을 보게 (이 프로젝트의 api_cache 키 컬럼은 cache_key)
 async function clearMetaCaches(): Promise<void> {
   await pg(`api_cache?cache_key=like.${encodeURIComponent("meta:hierarchy")}*`, "DELETE").catch(() => {});
@@ -118,9 +177,11 @@ Deno.serve(async (req) => {
 
   try {
     // 자정 실행 경로 — 접근키 대신 cron 비밀 헤더
-    if (action === "run") {
+    if (action === "run" || action === "snapshot" || action === "run_reset") {
       const secret = env("CRON_SECRET");
       if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
+      if (action === "snapshot") return json(await snapshotDayStart());
+      if (action === "run_reset") return json(await runReset());
       return json(await runPending());
     }
 
@@ -145,6 +206,17 @@ Deno.serve(async (req) => {
     const who = "dashboard";
 
     if (action === "verify") return json({ ok: true });
+
+    // 오늘 23:55 원복 승인 등록 (PIN) — 같은 날 기존 승인은 교체. 취소는 기존 cancel 액션(id)
+    if (action === "approve_reset") {
+      const day = seoulToday();
+      await pg(`budget_writes?mode=eq.reset_approve&status=eq.pending&apply_date=eq.${day}`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
+      const rows = (await pg("budget_writes", "POST", {
+        object_id: "*", object_name: "23:55 시작 예산 원복 승인", level: "adset",
+        old_budget: null, new_budget: 0, mode: "reset_approve", apply_date: day, status: "pending", requested_by: who,
+      })) as Record<string, unknown>[];
+      return json({ ok: true, id: rows?.[0]?.id, apply_date: day });
+    }
 
     if (action === "cancel") {
       const id = Math.round(num(body.id));
