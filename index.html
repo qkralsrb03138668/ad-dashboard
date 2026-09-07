@@ -1635,7 +1635,8 @@ function uplAddFiles(list) {
     const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
     if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
     if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
-    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), text: null, status: '대기', media: null, result: null, sel: false });
+    /* normalize('NFC'): 맥 파일명은 한글 자모 분리형(NFD) — 그대로 세트·광고명에 쓰면 Meta 검색·상품 매칭이 안 된다 (2026-09-07) */
+    upl.files.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, '').normalize('NFC'), text: null, status: '대기', media: null, result: null, sel: false });
   }
   uplRenderFiles();
 }
@@ -3173,7 +3174,7 @@ function admgrTestRowSets() {
     : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at)
     : t.filter === 'gone' ? vis.filter(a => a.gone)
     : vis.filter(a => a.st === t.filter);
-  if (admgr.q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).toLowerCase().includes(admgr.q));
+  if (admgr.q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).normalize('NFC').toLowerCase().includes(admgr.q.normalize('NFC')));
   return { vis, hid, rows: rows.slice().sort(admgrCmp) };
 }
 /* 엑셀 추출 — 지금 화면에 보이는 표 그대로 */
