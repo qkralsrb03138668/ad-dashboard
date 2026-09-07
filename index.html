@@ -2261,7 +2261,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:55 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 자정 00:00에 따로 예약할 금액(선택)">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr>
@@ -2433,6 +2433,7 @@ async function admgrWritePending() {
     const pend = d.pending || [];
     admgr.write.resetRow = pend.find(p => p.mode === 'reset_approve' && p.apply_date === todayStr(0)) || null;   // 오늘 23:55 원복 승인
     admgr.write.pendingByObj = new Map(pend.filter(p => p.mode !== 'reset_approve').map(p => [p.object_id, p]));
+    admgr.write.daystart = new Map((d.daystart || []).map(r => [String(r.adset_id), Number(r.budget)]));   // 오늘 시작 예산(00:10 스냅샷) — 자정세팅 열
     renderAdmgr(true);
   } catch { /* 무시 */ }
 }
@@ -2454,7 +2455,6 @@ function admgrBudgetCell(r, level) {
 }
 /* '자정세팅' 열 (2026-09-04 사용자 요청) — 버튼 한 번 = 현재 일예산 뒤에 0 하나 붙인 금액(×10)으로 자정 예약.
    이미 그 금액으로 예약돼 있으면 ✓ 배지. 취소는 예산 연필 팝업의 '자정 예약 취소'. 서버 상한(30만원)을 넘으면 버튼이 흐려지고 안내. */
-const admgrIsTestSet = r => /test/i.test(String(r.name || ''));   // 테스트 소재 세트 (세트명에 test) — 자정세팅 자동 제외 (2026-09-04 사용자 지정)
 /* 지난 자정에 적용된 값 = 오늘 예산 변경 이력 중 00시대(KST) 이벤트의 변경 후 금액 (자정 예약은 00:00에 실행되므로) */
 function admgrLastMidnight(r) {
   const evs = (admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || [];
@@ -2463,30 +2463,39 @@ function admgrLastMidnight(r) {
 }
 function admgrMidCell(r, level) {
   const last = admgrLastMidnight(r);
-  const lastTxt = last ? `<div style="font-size:.62rem;color:#6b7280;white-space:nowrap;margin-bottom:3px;" title="오늘 00시에 적용된 자정세팅값">지난 자정 <b>${comma(last)}</b></div>` : '';
+  const lastTxt = last ? `<div style="font-size:.62rem;color:#6b7280;white-space:nowrap;" title="오늘 00시에 적용된 자정세팅값">지난 자정 <b>${comma(last)}</b></div>` : '';
   if (!(r.budget > 0)) return lastTxt + '<span style="color:#d1d5db;">—</span>';
-  /* (test 세트 제외는 2026-09-07 사용자 요청으로 해제 — 모든 세트 대상)
-     금액 입력칸(기본 = ×10, 예약이 있으면 그 금액) + ⏰ 예약 버튼 — 그대로 누르면 ×10, 고쳐서 누르면 그 금액 (2026-09-04 사용자 요청) */
-  const target = Math.round(r.budget * 10);
-  const pend = admgr.write.pendingByObj && admgr.write.pendingByObj.get(r.id);
-  const max = (admgr.write.st && admgr.write.st.max_budget) || 300000;
-  const val = pend ? Math.round(pend.new_budget) : target;
-  const over = val > max;
+  /* 2026-09-07 사용자가 자정세팅법을 바꿈: "매일 처음 세팅된 일예산으로 23:55에 자동 원복(승인제)".
+     → 첫 줄 = 시작 예산 + 23:55 원복 상태. ×10 기본값은 폐기(시작 예산이 이미 ×10 수준이라 상한만 넘겼음).
+     아래 입력칸+⏰는 자정 00:00에 따로 금액을 걸고 싶을 때만(기본 빈칸) */
+  const w = admgr.write;
+  const start = w.daystart && w.daystart.get(r.id);
+  const cur = Math.round(r.budget);
+  let startTxt;
+  if (start == null) startTxt = `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;" title="00:10 스냅샷이 아직 없어요 (오늘 도입 시 '스냅샷 복원' 후 표시)">시작 기록 없음</div>`;
+  else {
+    const st = Math.round(start), diff = st !== cur;
+    const tail = w.resetRow
+      ? (diff ? `<b style="color:#15803d;">→ 23:55 원복</b>` : `<span style="color:#15803d;">· 23:55 유지</span>`)
+      : (diff ? `<span style="color:#b45309;" title="상단 '23:55 원복 승인'을 누르면 23:55에 시작 예산으로 돌아가요">· 승인 전</span>` : '');
+    startTxt = `<div style="font-size:.66rem;color:#374151;white-space:nowrap;" title="오늘 00:10에 기록된 하루 시작 예산">시작 <b>${comma(st)}</b> ${tail}</div>`;
+  }
+  const pend = w.pendingByObj && w.pendingByObj.get(r.id);
+  const max = (w.st && w.st.max_budget) || 300000;
+  const val = pend ? Math.round(pend.new_budget) : '';
   /* 텍스트 입력(위아래 화살표 없음, 클릭한 자리에 커서) — 2026-09-06 사용자 요청 */
-  const inp = `<input type="text" inputmode="numeric" value="${val}" onclick="event.stopPropagation()" ${pend ? 'readonly' : ''}
+  const inp = `<input type="text" inputmode="numeric" value="${val}" placeholder="자정 예약" onclick="event.stopPropagation()" ${pend ? 'readonly' : ''}
       onkeydown="if(event.key==='Enter'){event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.value)}"
-      style="width:96px;padding:3px 6px;font-size:.74rem;font-weight:700;text-align:right;border:1.5px solid ${pend ? '#86efac' : over ? '#fca5a5' : '#fcd34d'};border-radius:7px;background:${pend ? '#f0fdf4' : '#fff'};color:#1e1b4b;font-family:inherit;outline:none;" />`;
+      style="width:84px;padding:2px 6px;font-size:.72rem;font-weight:700;text-align:right;border:1.5px solid ${pend ? '#86efac' : '#e5e7eb'};border-radius:7px;background:${pend ? '#f0fdf4' : '#fff'};color:#1e1b4b;font-family:inherit;outline:none;" />`;
   /* 예약돼 있으면 ⏰가 ✓(초록)으로 바뀌고, 한 번 더 누르면 예약 취소 */
   const btn = pend
-    ? `<button class="filter-tab" style="padding:3px 8px;font-size:.72rem;color:#fff;background:#16a34a;border-color:transparent;white-space:nowrap;"
+    ? `<button class="filter-tab" style="padding:2px 8px;font-size:.72rem;color:#fff;background:#16a34a;border-color:transparent;white-space:nowrap;"
         onclick="event.stopPropagation();admgrMidUnschedule(${pend.id})" title="자정 예약됨 — 한 번 더 누르면 예약 취소"><i class="fa-solid fa-check"></i></button>`
-    : `<button class="filter-tab" style="padding:3px 8px;font-size:.72rem;color:#b45309;border-color:#fcd34d;background:#fffbeb;white-space:nowrap;"
+    : `<button class="filter-tab" style="padding:2px 8px;font-size:.72rem;color:#6b7280;border-color:#e5e7eb;background:#fff;white-space:nowrap;"
         onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.previousElementSibling.value)"
-        title="입력한 금액으로 자정 예약 (기본값 = 현재 ${comma(r.budget)}원 ×10)"><i class="fa-regular fa-clock"></i></button>`;
-  const note = pend
-    ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 00:00 · ${comma(pend.new_budget)}원 예약됨</div>`
-    : over ? `<div style="font-size:.6rem;color:#dc2626;font-weight:700;" title="서버 상한 ${comma(max)}원">⚠ ×10은 상한 초과 — 금액 고쳐서 예약</div>` : '';
-  return `<div style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">${lastTxt}<div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
+        title="입력한 금액으로 자정 00:00 예약 (1,000 ~ ${comma(max)}원)"><i class="fa-regular fa-clock"></i></button>`;
+  const note = pend ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 00:00 · ${comma(pend.new_budget)}원 예약됨</div>` : '';
+  return `<div style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">${startTxt}${lastTxt}<div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
 }
 /* ✓ 버튼 = 예약 취소 (admgrMidCancel은 예약 목록 모달용이라 별도 — 셀에서는 목록을 다시 열지 않는다) */
 async function admgrMidUnschedule(pid) {
@@ -2504,7 +2513,8 @@ async function admgrMidQuick(id, level, amountStr) {
   const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
   if (!node || !(node.budget > 0)) return;
   const typed = Math.round(Number(String(amountStr || '').replace(/[^0-9]/g, '')));   // 텍스트 입력칸 — 콤마·공백 무시
-  const target = typed > 0 ? typed : Math.round(node.budget * 10);   // 비었으면 ×10
+  const target = typed;   // 2026-09-07: 빈칸이면 예약 안 함 (×10 기본값 폐기 — 23:55 원복이 시작 예산 복귀를 맡음)
+  if (!(target > 0)) { toast('자정에 걸 금액을 먼저 입력해 주세요'); return; }
   if (target < 1000 || target > w.st.max_budget) { toast(`예산은 1,000원 ~ ${comma(w.st.max_budget)}원 사이여야 해요 (입력: ${comma(target)}원)`); return; }
   try {
     const d = await metaBudgetCall({ action: 'schedule' }, { object_id: id, object_name: node.name, level, new_budget: target, pin: w.pin });

@@ -74,7 +74,9 @@ async function metaAllAdsets(): Promise<{ id: string; name: string; budget: numb
   const token = env("META_ACCESS_TOKEN") || env("META_WRITE_TOKEN");
   let account = env("META_AD_ACCOUNT_ID"); if (!account.startsWith("act_")) account = "act_" + account;
   const out: { id: string; name: string; budget: number }[] = [];
-  let url: string | null = `${GRAPH}/${account}/adsets?${new URLSearchParams({ fields: "id,name,daily_budget", limit: "500", access_token: token })}`;
+  // 활성 세트만 — 무필터면 종료·일시중지 세트까지 3,000개 가까이 나와 스냅샷·원복 대상이 부풀었다 (2026-09-07 실측 2,942개)
+  let url: string | null = `${GRAPH}/${account}/adsets?${new URLSearchParams({ fields: "id,name,daily_budget", limit: "500", access_token: token,
+    filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]) })}`;
   for (let i = 0; i < 6 && url; i++) {
     const res = await fetch(url); const body = await res.json();
     if (!res.ok) throw new Error(`Meta 세트 조회 실패: ${(body?.error?.message ?? "").slice(0, 200)}`);
@@ -85,10 +87,23 @@ async function metaAllAdsets(): Promise<{ id: string; name: string; budget: numb
 }
 
 // 00:10 KST — 오늘 시작 예산 스냅샷 (budget_daystart). 자정 예약 반영(00:00) 뒤의 값이 '하루 시작 예산'
-async function snapshotDayStart(): Promise<Record<string, unknown>> {
+// backfill=true: 00:10을 놓친 날(첫 도입일 등) 낮에 불러도 '하루 시작 예산'을 복원 — 오늘 예산 변경 이력의 첫 old_value, 변경 없던 세트는 현재값
+async function snapshotDayStart(backfill = false): Promise<Record<string, unknown>> {
   const day = seoulToday();
   const sets = (await metaAllAdsets()).filter((s) => s.budget > 0);
+  if (backfill) {
+    // meta-ads의 budgethistory(오늘, 5분 캐시/서버 수집분)를 재사용 — Meta 추가 호출 없음
+    const r = await fetch(`${env("SUPABASE_URL")}/functions/v1/meta-ads?action=budgethistory`, { headers: { "x-dash-key": env("DASH_KEY") } });
+    const hist = r.ok ? (await r.json()) as { events?: { time: string; level: string; object_id: string; old_value: number }[] } : {};
+    const first = new Map<string, number>();
+    const cut = `${addDays(day, -1)}T15:10:00Z`;   // 00:10 KST — 그 전(자정 ×10 예약 반영)은 '시작' 이전 변경이라 제외
+    for (const ev of (hist.events ?? []).filter((e) => e.level === "adset" && e.old_value > 0 && e.time >= cut).sort((a, b) => a.time.localeCompare(b.time))) {
+      if (!first.has(ev.object_id)) first.set(ev.object_id, ev.old_value);
+    }
+    for (const s of sets) if (first.has(s.id)) s.budget = first.get(s.id)!;
+  }
   if (sets.length) {
+    await dbRest(`budget_daystart?day=eq.${day}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });   // 그날 스냅샷은 통째로 새로 (재실행·복원 시 잔여 행 제거)
     await dbRest("budget_daystart?on_conflict=day,adset_id", {
       method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(sets.map((s) => ({ day, adset_id: s.id, name: s.name, budget: s.budget, taken_at: new Date().toISOString() }))),
@@ -180,7 +195,7 @@ Deno.serve(async (req) => {
     if (action === "run" || action === "snapshot" || action === "run_reset") {
       const secret = env("CRON_SECRET");
       if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
-      if (action === "snapshot") return json(await snapshotDayStart());
+      if (action === "snapshot") return json(await snapshotDayStart(url.searchParams.get("backfill") === "1"));
       if (action === "run_reset") return json(await runReset());
       return json(await runPending());
     }
@@ -195,7 +210,8 @@ Deno.serve(async (req) => {
     if (action === "pending") {
       const pending = await pg("budget_writes?status=eq.pending&order=requested_at.desc&limit=100", "GET");
       const recent = await pg("budget_writes?status=neq.pending&order=requested_at.desc&limit=20", "GET");
-      return json({ pending, recent });
+      const daystart = await pg(`budget_daystart?day=eq.${seoulToday()}&select=adset_id,budget`, "GET");   // 자정세팅 열: 시작 예산·23:55 원복 대상 표시용
+      return json({ pending, recent, daystart });
     }
 
     // 이하 쓰기 — 매 요청 PIN 검증
