@@ -2809,7 +2809,7 @@ function admgrColsMenuRender() {
            style="display:flex;align-items:center;gap:8px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;background:#fff;cursor:grab;font-size:.78rem;">
         <span style="color:#c4c8d4;">⋮⋮</span><input type="checkbox" ${cfg.hidden.includes(l) ? '' : 'checked'} onchange="admgrColToggle('${esc(l)}',this.checked)" style="margin:0;" /><span>${esc(l)}</span></div>`).join('')}</div>
     <div style="display:flex;gap:6px;margin-top:8px;">
-      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" onclick="admgrColsSave({hidden:[],order:[]});renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
+      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" title="표시·순서·저장된 열 너비를 모두 초기화" onclick="admgrColsSave({hidden:[],order:[]});try{localStorage.removeItem(admgrColKey())}catch{};renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
       <button class="btn-analyze" style="flex:1;justify-content:center;font-size:.72rem;" onclick="document.getElementById('admgr-bpop').style.display='none'">닫기</button></div>`;
   const r0 = admgrColsAnchor || { left: 100, bottom: 100 };
   pop.style.display = 'block';
