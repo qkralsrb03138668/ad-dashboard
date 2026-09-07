@@ -343,6 +343,10 @@
     #sec-admgr tbody td { text-align: right; border-bottom: 1px solid #e4e6eb; color: #1c1e21; padding: 9px 12px; }
     #sec-admgr tbody tr:hover { background: #f5f6f7; }
     #sec-admgr th.l, #sec-admgr td.l, #sec-admgr td.name-cell { text-align: left; }
+    /* 왼쪽 여백 축소 (2026-09-07 사용자 요청): 체크박스·토글 열을 좁게, 이름이 바로 붙게 */
+    #sec-admgr th.cb, #sec-admgr td.cb { width: 26px; padding-left: 8px; padding-right: 2px; text-align: left; }
+    #sec-admgr th.tg, #sec-admgr td.tg { width: 44px; padding-left: 4px; padding-right: 4px; font-size: 11px; white-space: nowrap; }
+    #sec-admgr td.name-cell { padding-left: 6px; }
     #sec-admgr td.name-cell b { color: #1877f2; font-weight: 600; }
     #sec-admgr tfoot td { background: #f5f6f7; color: #1c1e21; border-top: 2px solid #dadde1; text-align: right; }
     #sec-admgr tfoot td:first-child { text-align: left; }
@@ -2248,13 +2252,13 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th style="width:34px;"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l" style="width:60px;">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg">켜기/끄기</th>${admgrTh('name', VIEW_LABEL, 'l')}<th class="l">게재</th>${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 위의 1차/2차 칩에 따라 판정">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="버튼 한 번 = 현재 일예산 ×10(뒤에 0 하나)으로 자정 예약">자정세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr>
-          <td><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
+          <td class="cb"><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
-          <td class="l">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
+          <td class="l tg">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
           <td class="name-cell" style="text-align:left;">
             <b>${esc(r.name || '(이름 없음)')}</b>
             ${!isCamp ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._campName || '')}</div>` : ''}
@@ -2277,11 +2281,11 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">${isSet ? '세트를 체크하고 위의 <b>베스트소재로</b> 버튼을 누르면 그 세트의 소재가 베스트소재 탭에 모여요. ' : ''}${showChg ? "'최근 변경'은 오늘 바뀐 예산(변경 후 설정값·시각) — 클릭하면 히스토리." : ''}</p>`;
   } else {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="l" style="width:60px;">켜기/끄기</th>${admgrTh('name', '광고', 'l')}<th class="l">게재</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
+      <thead><tr><th class="l tg">켜기/끄기</th>${admgrTh('name', '광고', 'l')}<th class="l">게재</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
         ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}</tr></thead>
       <tbody>${vis.map(r => `
         <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기">
-          <td class="l" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
+          <td class="l tg" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
           <td class="name-cell" style="text-align:left;">
             <b>${esc(r.name || '(이름 없음)')}</b>
             <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._setName || '')}</div></td>
@@ -3257,7 +3261,7 @@ function renderAdmgrTest() {
   const allChecked = rows.length && rows.every(r => t.sel.has(r.id));
   const table = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
-      <th style="width:34px;"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrTestSelAll()" title="표시된 전체 선택/해제" /></th>
+      <th class="cb"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrTestSelAll()" title="표시된 전체 선택/해제" /></th>
       ${admgrTh('aname', '광고세트명')}${admgrTh('reg', '등록일')}<th>상태</th>
       ${admgrTh('spend', '누적 지출')}${admgrTh('purchases', '구매', 'm-hide')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('roas', 'ROAS')}
       <th>추가소재</th><th class="m-hide">메모</th>
@@ -3265,7 +3269,7 @@ function renderAdmgrTest() {
       const checked = t.sel.has(a.id);
       const dp = admgrDPlus(a);
       return `<tr onclick="admgrTestSel('${a.id}')" style="cursor:pointer;${checked ? 'background:#eef2ff;' : ''}">
-        <td><input type="checkbox" ${checked ? 'checked' : ''} style="pointer-events:none;" /></td>
+        <td class="cb"><input type="checkbox" ${checked ? 'checked' : ''} style="pointer-events:none;" /></td>
         <td class="name-cell" style="text-align:left;">
           <span onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="클릭하면 소재 미리보기" style="font-weight:700;color:#4338ca;cursor:pointer;">${esc(a.adset_name)}</span>
           <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">${esc(a.name)}</div></td>
