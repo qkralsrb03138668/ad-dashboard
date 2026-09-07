@@ -7,9 +7,10 @@
 //   GET  ?action=pending  → { pending: [...], recent: [...] }
 //   POST ?action=verify   { pin } → PIN 인증만 (메뉴의 'PIN 인증' 버튼 — 세션 단위 활성화)
 //   POST ?action=apply    { object_id, level, new_budget, pin } → 즉시 적용
-//   POST ?action=schedule { object_id, object_name, level, new_budget, pin } → 다음 자정 예약
+//   POST ?action=schedule { object_id, object_name, level, new_budget, pin } → 23:55 예약 (23:55 전이면 오늘, 지나면 내일)
 //   POST ?action=cancel   { id, pin } → 예약 취소
-//   POST ?action=run      (헤더 x-cron-secret) → 자정 예약분 일괄 적용 — pg_cron이 00:00 KST(15:00 UTC)에 호출
+//   POST ?action=run_reset(헤더 x-cron-secret) → 23:55 KST: 원복 승인분 적용(예약 있는 세트 제외) → 예약분 적용
+//   POST ?action=run      (헤더 x-cron-secret) → 00:00 KST: 남은 예약분 적용(23:55 실행을 놓쳤을 때의 보조)
 //
 // 보안 (전부 서버 강제 — 화면 우회 불가):
 //   ① DASH_KEY(x-dash-key) — 원본의 '로그인 + admin + 허용 사용자 목록' 자리. 이 대시보드는 로그인이 없어 접근키가 그 역할
@@ -124,10 +125,13 @@ async function runReset(): Promise<Record<string, unknown>> {
     return { day, skipped: "스냅샷 없음" };
   }
   const cur = new Map((await metaAllAdsets()).map((s) => [s.id, s]));
-  let ok = 0, fail = 0, same = 0;
+  // 23:55 예약이 걸린 세트는 원복하지 않는다 — 바로 이어지는 runPending이 예약 금액을 넣는다 (2026-09-07 사용자 확인)
+  const reserved = new Set(((await pg(`budget_writes?status=eq.pending&mode=eq.midnight&apply_date=lte.${day}&select=object_id`, "GET")) as { object_id: string }[]).map((r) => String(r.object_id)));
+  let ok = 0, fail = 0, same = 0, skipped = 0;
   for (const s of snap) {
     const id = String(s.adset_id), target = Math.round(num(s.budget));
     const now = cur.get(id); if (!now) continue;
+    if (reserved.has(id)) { skipped++; continue; }
     if (Math.round(now.budget) === target) { same++; continue; }
     try {
       await metaSetBudget(id, target);
@@ -138,9 +142,9 @@ async function runReset(): Promise<Record<string, unknown>> {
       fail++;
     }
   }
-  await pg(`budget_writes?id=eq.${appr[0].id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString(), error: `원복 ${ok}·동일 ${same}·실패 ${fail}` });
+  await pg(`budget_writes?id=eq.${appr[0].id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString(), error: `원복 ${ok}·동일 ${same}·예약우선 ${skipped}·실패 ${fail}` });
   if (ok) await clearMetaCaches();
-  return { day, reset: ok, same, failed: fail };
+  return { day, reset: ok, same, reserved: skipped, failed: fail };
 }
 
 // 예산 변경 후 관련 서버 캐시 비우기 — 화면이 바로 새 값을 보게 (이 프로젝트의 api_cache 키 컬럼은 cache_key)
@@ -164,7 +168,7 @@ async function checkPin(pin: string): Promise<string | null> {
   return null;
 }
 
-// 자정 예약분 일괄 적용 — pg_cron이 00:00 KST(15:00 UTC)에 호출
+// 예약분 일괄 적용 — 23:55(run_reset 뒤) 및 00:00(run, 보조)에 호출. apply_date ≤ 오늘인 pending 전부
 async function runPending(): Promise<Record<string, unknown>> {
   const today = seoulToday();
   const due = (await pg(`budget_writes?status=eq.pending&apply_date=lte.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];
@@ -196,7 +200,7 @@ Deno.serve(async (req) => {
       const secret = env("CRON_SECRET");
       if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
       if (action === "snapshot") return json(await snapshotDayStart(url.searchParams.get("backfill") === "1"));
-      if (action === "run_reset") return json(await runReset());
+      if (action === "run_reset") { const r = await runReset(); return json({ ...r, pending: await runPending() }); }   // 원복 → 예약 순서 (같은 실행)
       return json(await runPending());
     }
 
@@ -295,7 +299,9 @@ Deno.serve(async (req) => {
     if (action === "schedule") {
       // 같은 대상의 기존 예약은 자동 대체 (최신 예약 하나만 유효)
       await pg(`budget_writes?object_id=eq.${objectId}&status=eq.pending`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
-      const applyDate = addDays(seoulToday(), 1);   // 다음 자정 = 내일 날짜 00:00 KST
+      // 2026-09-07 저녁: 예약 시각 00:00 → 23:55. 지금이 23:55 전이면 오늘 23:55, 지났으면 내일 23:55
+      const hm = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+      const applyDate = hm < "23:55" ? seoulToday() : addDays(seoulToday(), 1);
       await pg("budget_writes", "POST", {
         object_id: objectId, object_name: cur.name || String(body.object_name ?? ""), level,
         old_budget: cur.daily || null, new_budget: newBudget, mode: "midnight", apply_date: applyDate,
