@@ -2002,7 +2002,7 @@ function admgrRows() {
 function admgrVisible(rows) {
   let r = rows;
   if (admgr.activeOnly) r = r.filter(x => x.status === 'ACTIVE' || (x.spend || 0) > 0);
-  if (admgr.q) r = r.filter(x => String(x.name || '').toLowerCase().includes(admgr.q));
+  if (admgr.q) r = r.filter(x => String(x.name || '').normalize('NFC').toLowerCase().includes(admgr.q.normalize('NFC')));   // NFD 세트명도 검색되게
   return r.slice().sort(admgrCmp);
 }
 
@@ -2306,7 +2306,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
    2차: 1차에서 감액했는데(오늘 ↓ 이력) 구매가 잡힘 → 재증액 검토 / 안 건드린 세트 중 구매당 비용 > 마진 또는 ROAS < 5 → 수동 조정
    ponytail: '추가 증액 검토'(11시 대비 효율 상승)는 스냅샷이 필요해 2단계로 미룸 */
 /* 이름 비교 키: 한글·영문·숫자만 남긴다 (공백·_·/ 무시 — "덴버 라운드/브이넥" ↔ "덴버 라운드_브이넥") */
-const admgrNorm = s => String(s || '').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+/* ⚠ normalize('NFC') 필수 — 맥에서 파일명으로 만든 세트명은 한글이 자모 분리형(NFD)이라 그대로 비교하면 [가-힣]에 안 걸려 매칭 0 (2026-09-07 실사례: '안스 후드 집업 … 다나스토리') */
+const admgrNorm = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
 /* 카페24 상품명 핵심: 앞뒤 괄호 설명 "(자체제작,2사이즈) … (3 colors)"를 전부 벗긴 뒤 키로 (원본 paKey 규칙) */
 const admgrProdKey = name => admgrNorm(String(name || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
 let admgrPI = null;
