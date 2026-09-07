@@ -344,9 +344,11 @@
     #sec-admgr tbody tr:hover { background: #f5f6f7; }
     #sec-admgr th.l, #sec-admgr td.l, #sec-admgr td.name-cell { text-align: left; }
     /* 왼쪽 여백 축소 (2026-09-07 사용자 요청): 체크박스·토글 열을 좁게, 이름이 바로 붙게 */
-    #sec-admgr th.cb, #sec-admgr td.cb { width: 26px; padding-left: 8px; padding-right: 2px; text-align: left; }
-    #sec-admgr th.tg, #sec-admgr td.tg { width: 44px; padding-left: 4px; padding-right: 4px; font-size: 11px; white-space: nowrap; }
-    #sec-admgr td.name-cell { padding-left: 6px; }
+    /* width:1% = 내용 크기만큼만 (표가 100%로 늘어날 때 남는 공간을 이 열들이 먹지 않게) */
+    #sec-admgr th.cb, #sec-admgr td.cb { width: 1%; padding-left: 8px; padding-right: 2px; text-align: left; }
+    #sec-admgr th.tg, #sec-admgr td.tg { width: 1%; padding-left: 6px; padding-right: 6px; font-size: 11px; white-space: nowrap; text-align: left; }
+    #sec-admgr td.name-cell { padding-left: 8px; }
+    #sec-admgr td.l > div, #sec-admgr td.l > span { text-align: left; }
     #sec-admgr td.name-cell b { color: #1877f2; font-weight: 600; }
     #sec-admgr tfoot td { background: #f5f6f7; color: #1c1e21; border-top: 2px solid #dadde1; text-align: right; }
     #sec-admgr tfoot td:first-child { text-align: left; }
@@ -2475,7 +2477,7 @@ function admgrMidCell(r, level) {
   const note = pend
     ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 00:00 · ${comma(pend.new_budget)}원 예약됨</div>`
     : over ? `<div style="font-size:.6rem;color:#dc2626;font-weight:700;" title="서버 상한 ${comma(max)}원">⚠ ×10은 상한 초과 — 금액 고쳐서 예약</div>` : '';
-  return `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;">${lastTxt}<div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
+  return `<div style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">${lastTxt}<div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
 }
 /* ✓ 버튼 = 예약 취소 (admgrMidCancel은 예약 목록 모달용이라 별도 — 셀에서는 목록을 다시 열지 않는다) */
 async function admgrMidUnschedule(pid) {
@@ -2869,7 +2871,7 @@ function admgrColResize() {
       e.preventDefault(); e.stopPropagation();
       const startX = e.clientX, startW = th.getBoundingClientRect().width;
       const move = ev => {
-        const w = Math.max(46, Math.round(startW + ev.clientX - startX));
+        const w = Math.max(28, Math.round(startW + ev.clientX - startX));   // 토글·좁은 열도 줄일 수 있게
         th.style.width = th.style.minWidth = th.style.maxWidth = w + 'px';   // 드래그 중엔 머리글만 (가볍게)
       };
       const up = () => {
@@ -2924,7 +2926,7 @@ function admgrChgCell(r) {
       const hm = k ? `${admgrPad2(k.getUTCHours())}:${admgrPad2(k.getUTCMinutes())}` : '';
       return `<span class="status-badge ${up ? 'badge-blue' : 'badge-red'}" style="font-size:.68rem;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.58rem;"></i> ${comma(ev.new_value)} <span style="opacity:.65;font-weight:600;">${hm}</span></span>`;
     }).join('');
-    return `<div onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리" style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;">${startTxt}${badges}</div>`;
+    return `<div onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;">${startTxt}${badges}</div>`;
   }
   if (b.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#e5e7eb;font-size:.65rem;"></i>';
   return '<span style="color:#d1d5db;">—</span>';
