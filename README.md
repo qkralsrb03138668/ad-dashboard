@@ -3,7 +3,7 @@
 광고소재(크리에이티브)별 성과를 모아 보는 단일 페이지 대시보드.
 [DNRB 성과 분석 대시보드](https://danarobe.github.io/dnrb-dashboard/)의 디자인·구조를 기반으로 만들었다.
 
-- `index.html` 파일 하나가 전부 — 서버·DB 없이 동작 (Chart.js·FontAwesome은 CDN)
+- 정적 파일만 (`index.html` + `js/` + `css/`) — 빌드 없음, 브라우저로 열면 동작 (Chart.js·FontAwesome은 CDN)
 - 데이터는 브라우저(localStorage)에 저장, JSON 백업/복원 지원
 
 ## 기능
@@ -35,7 +35,21 @@ MD·포토·모델이 현장에서 폰으로 같이 보는 촬영 계획판. 대
 ## 구조
 
 ```
-index.html                        대시보드 전체 (정적 파일)
+index.html                        대시보드 화면(HTML)만 — 스크립트는 js/, 스타일은 css/ (2026-09-08 분리)
+css/style.css                     대시보드 스타일
+js/core.js                        공통: 유틸·저장소(localStorage)·기간·집계·메뉴·차트·토스트(오류 알림)·초기화
+js/auth.js                        로그인·사용자 관리
+js/home.js                        대시보드 탭
+js/creatives.js                   소재 목록·비교·테스트 소재·소재 등록/수정·상세
+js/checkboard.js                  광고소재 대시보드(체크보드)
+js/register.js                    소재 등록 (파일 → 카페24 상품 매칭 → Meta 보관함)
+js/upload.js                      광고 업로드 (Meta)
+js/admgr.js                       광고관리자: 상태·정렬·계층 3탭·오늘의 판정
+js/admgr-budget.js                광고관리자: 예산 변경·23:55 예약/원복·PIN·열 표시/너비·최근 변경
+js/admgr-tabs.js                  광고관리자: 테스트 소재·OFF·베스트소재 탭·미리보기·데모
+js/data.js                        데이터 관리: 성과 기록·Meta CSV·JSON 백업/복원·샘플
+js/perf.js                        판매 성과 (카페24)
+test/run.mjs                      자동 검사 — `node test/run.mjs` (CSV 업로드·소재 매칭·판매 성과 계산). 기능을 고친 뒤 꼭 한 번 돌릴 것
 shoot-board.html                 출장촬영 보드 (+ shoot-sw.js 오프라인, shoot-board.webmanifest, shoot-icon-*.png)
 deploy-shoot-board.sh            촬영 보드 서버 배포 스크립트
 deploy-cafe24-perf.sh            판매 성과(카페24) 서버 배포 스크립트

@@ -1,0 +1,229 @@
+/* ④-2 광고소재 대시보드 (상품 × 소재유형 체크보드)
+   (index.html에서 분리 — 2026-09-08 2단계. 파일 순서는 index.html의 <script> 순서, 전역 함수·변수를 그대로 공유) */
+'use strict';
+
+/* ═══════════ ④-2 광고소재 대시보드 (상품별 소재 테스트 체크보드) ═══════════
+   pt = { types: ['스토리','썸네일릴스','릴스', ...],
+          products: [{ id, name, cells: { 유형명: {st:'made'|'run', date:'YYYY-MM-DD'} } }] }
+   칸 클릭 순환: 없음 → made(제작완료) → run(진행중) → 없음                              */
+let pt = lsGet(LS.pt, null);
+if (!pt) { pt = ptSampleData(); lsSet(LS.pt, pt); }   // 최초 1회 예시 데이터
+let ptSel = new Set(), ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
+
+function ptSave() { lsSet(LS.pt, pt); }
+function ptSampleData() {
+  const d = n => todayStr(-n);
+  return {
+    types: ['스토리', '썸네일릴스', '릴스'],
+    products: [
+      { id: newId(), name: '클레르 블라우스',   cells: { '스토리': { st:'run',  date:d(12) }, '썸네일릴스': { st:'run',  date:d(9) },  '릴스': { st:'made', date:d(3) } } },
+      { id: newId(), name: '내티 원피스',       cells: { '스토리': { st:'run',  date:d(15) }, '썸네일릴스': { st:'made', date:d(5) },  '릴스': { st:'run',  date:d(7) } } },
+      { id: newId(), name: '프레시 훌 티셔츠',  cells: { '스토리': { st:'made', date:d(4) },  '썸네일릴스': { st:'run', date:d(2) } } },
+      { id: newId(), name: '모튼 가디건',       cells: { '릴스': { st:'made', date:d(1) } } },
+      { id: newId(), name: '센느 후드 원피스',  cells: {} },
+    ],
+  };
+}
+function ptAddProduct() {
+  const name = $('pt-new-name').value.trim();
+  if (!name) { toast('상품명을 입력해 주세요'); return; }
+  if (pt.products.some(p => p.name === name)) { toast('이미 있는 상품이에요'); return; }
+  pt.products.push({ id: newId(), name, cells: {} });
+  $('pt-new-name').value = '';
+  ptSave(); renderPTest();
+  toast(`'${name}' 상품을 추가했어요`);
+}
+/* 카페24 진열·판매 중 상품 목록을 모달로 띄우고, 체크한 상품만 체크보드에 추가 (이미 있는 상품은 표시만) */
+let ptCafe24Rows = [], ptPickSel = new Set();
+async function ptImportCafe24() {
+  const btn = $('pt-import-btn'); btn.disabled = true;
+  try {
+    ptCafe24Rows = (await perfApi({ action: 'products' })).rows.filter(r => r.name);
+    ptPickSel = new Set(); $('pt-pick-q').value = '';
+    renderPtPick(); $('pt-pick-modal').classList.add('show'); $('pt-pick-q').focus();
+  } catch (e) { toast('불러오기 실패: ' + e.message); }
+  finally { btn.disabled = false; }
+}
+function ptHas(r) { return pt.products.some(p => p.product_no === r.product_no || p.name === r.name); }
+function renderPtPick() {
+  const q = $('pt-pick-q').value.trim().toLowerCase();
+  const rows = ptCafe24Rows.filter(r => !q || r.name.toLowerCase().includes(q) || String(r.product_no).includes(q));
+  $('pt-pick-list').innerHTML = rows.map(r => {
+    const has = ptHas(r), on = ptPickSel.has(r.product_no);
+    return `<label style="display:flex;align-items:center;gap:10px;padding:7px 6px;border-bottom:1px solid #f1f2f6;cursor:${has ? 'default' : 'pointer'};opacity:${has ? .5 : 1};">
+      <input type="checkbox" ${has ? 'disabled' : ''} ${on ? 'checked' : ''} onchange="ptPickToggle(${r.product_no}, this.checked)" />
+      ${r.image ? `<img src="${esc(r.image)}" style="width:34px;height:34px;object-fit:cover;border-radius:6px;background:#f3f4f6;" loading="lazy" />` : '<span style="width:34px;height:34px;border-radius:6px;background:#f3f4f6;"></span>'}
+      <span style="flex:1;font-size:.84rem;">${esc(r.name)}</span>
+      <span style="font-size:.72rem;color:#9ca3af;">${has ? '이미 추가됨' : '#' + r.product_no}</span></label>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:#9ca3af;">검색 결과 없음</div>';
+  $('pt-pick-count').textContent = `${rows.length}개 표시 · 전체 ${ptCafe24Rows.length}개`;
+  $('pt-pick-add').textContent = `선택한 ${ptPickSel.size}개 추가`;
+  $('pt-pick-add').disabled = !ptPickSel.size;
+}
+function ptPickToggle(no, on) {   // 목록은 다시 그리지 않음 (스크롤·검색 유지)
+  on ? ptPickSel.add(no) : ptPickSel.delete(no);
+  $('pt-pick-add').textContent = `선택한 ${ptPickSel.size}개 추가`;
+  $('pt-pick-add').disabled = !ptPickSel.size;
+}
+function ptPickAdd() {
+  const added = ptCafe24Rows.filter(r => ptPickSel.has(r.product_no) && !ptHas(r))
+    .map(r => ({ id: newId(), name: r.name, product_no: r.product_no, cells: {} }));
+  pt.products = [...added, ...pt.products];
+  ptSave(); renderPTest(); closeModal('pt-pick-modal');
+  toast(`상품 ${added.length}개를 추가했어요`);
+}
+function ptDelProduct(id) {
+  const p = pt.products.find(x => x.id === id); if (!p) return;
+  if (!confirm(`'${p.name}' 행을 삭제할까요?`)) return;
+  pt.products = pt.products.filter(x => x.id !== id);
+  ptSave(); renderPTest();
+}
+function ptAddType() {
+  const name = (prompt('추가할 소재 유형 이름 (예: 후킹영상, 카드뉴스)') || '').trim();
+  if (!name) return;
+  if (pt.types.includes(name)) { toast('이미 있는 유형이에요'); return; }
+  pt.types.push(name);
+  ptSave(); renderPTest();
+}
+function ptDelType(ti) {   // 유형은 인덱스로 (이름을 onclick 문자열에 넣으면 따옴표가 든 이름이 스크립트로 새어 나간다)
+  const name = pt.types[ti]; if (name == null) return;
+  const used = pt.products.filter(p => p.cells[name]).length;
+  if (!confirm(`'${name}' 유형 열을 삭제할까요?${used ? ` (체크된 상품 ${used}개의 기록도 지워져요)` : ''}`)) return;
+  pt.types = pt.types.filter(t => t !== name);
+  for (const p of pt.products) delete p.cells[name];
+  ptSave(); renderPTest();
+}
+function ptCycle(pid, ti) {
+  const type = pt.types[ti]; if (type == null) return;
+  const p = pt.products.find(x => x.id === pid); if (!p) return;
+  const cur = p.cells[type] ? p.cells[type].st : null;
+  if (cur === null)        p.cells[type] = { st: 'made', date: todayStr(0) };
+  else if (cur === 'made') p.cells[type] = { st: 'run',  date: todayStr(0) };
+  else                     delete p.cells[type];
+  ptSave(); renderPTest();
+}
+/* 칸 상태 = 소재 등록 기록(자동, 우선) 또는 수동 클릭 */
+let ptRegIdx = new Map();
+function ptCellState(p, t) {
+  const c = regCellFor(ptRegIdx, p, t);
+  if (c) return c.run ? 'run' : 'made';
+  return p.cells[t] ? p.cells[t].st : null;
+}
+function ptDone(p) { return pt.types.filter(t => ptCellState(p, t) === 'run').length; }
+function setPtFilter(v) { ptFilter = v; ptPage = 1; renderPTest(); }
+function setPtPer(v) { ptPer = Number(v); lsSet('adc_pt_per', ptPer); ptPage = 1; renderPTest(); }
+function setPtPage(n) { ptPage = n; renderPTest(); }
+function ptSelToggle(id, on) { on ? ptSel.add(id) : ptSel.delete(id); ptSelBtn(); }
+function ptSelPage(on) {   // 현재 페이지 행 전체 선택/해제
+  for (const cb of document.querySelectorAll('#pt-body tbody input[type=checkbox]')) { cb.checked = on; on ? ptSel.add(cb.value) : ptSel.delete(cb.value); }
+  ptSelBtn();
+}
+function ptSelBtn() {
+  const b = $('pt-del-sel'); b.disabled = !ptSel.size;
+  b.innerHTML = `<i class="fa-solid fa-square-check"></i> 선택 삭제${ptSel.size ? ` (${ptSel.size})` : ''}`;
+}
+function ptDelSel() {
+  if (!ptSel.size || !confirm(`선택한 상품 ${ptSel.size}개를 삭제할까요?`)) return;
+  pt.products = pt.products.filter(p => !ptSel.has(p.id));
+  ptSel.clear(); ptSave(); renderPTest(); toast('선택한 상품을 삭제했어요');
+}
+function ptDelAll() {
+  if (!pt.products.length) return;
+  if (!confirm(`상품 ${pt.products.length}개를 전부 삭제할까요? 체크 기록도 모두 지워져요.`)) return;
+  pt.products = []; ptPage = 1; ptSel.clear();
+  ptSave(); renderPTest(); toast('상품을 전부 삭제했어요');
+}
+
+function renderPTest() {
+  if (!reg.list && !reg.listLoading && admgrCfg()) regRefresh();   // 등록 기록은 서버에서 (처음 한 번, 이후 새로고침 버튼)
+  regSyncBoard(); ptRegIdx = regBoardIndex();
+  if (reg.list) regRenderList();
+  const N = pt.types.length;
+  const doneAll = pt.products.filter(p => N && ptDone(p) === N).length;
+  const partial = pt.products.filter(p => ptDone(p) > 0 && ptDone(p) < N).length;
+  const none = pt.products.length - doneAll - partial;
+  const totalCells = pt.products.length * N;
+  const runCells = pt.products.reduce((s, p) => s + ptDone(p), 0);
+
+  /* 요약 타일 */
+  $('pt-summary').innerHTML = pt.products.length ? `
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:16px;">
+      <div class="kpi-tile kt-hero"><div class="kt-label"><i class="fa-solid fa-box"></i> 상품</div>
+        <div class="kt-value">${pt.products.length}개</div><div class="kt-sub">소재 유형 ${N}종</div></div>
+      <div class="kpi-tile"><div class="kt-label"><i class="fa-solid fa-circle-check" style="color:#15803d;"></i> 전 유형 진행</div>
+        <div class="kt-value">${doneAll}개</div><div class="kt-sub">모든 소재 진행중</div></div>
+      <div class="kpi-tile"><div class="kt-label"><i class="fa-solid fa-circle-half-stroke" style="color:#d97706;"></i> 일부 진행</div>
+        <div class="kt-value">${partial}개</div><div class="kt-sub">진행 안 한 유형 남음</div></div>
+      <div class="kpi-tile"><div class="kt-label"><i class="fa-regular fa-circle" style="color:#9ca3af;"></i> 미진행</div>
+        <div class="kt-value">${none}개</div><div class="kt-sub">아직 진행 소재 없음</div></div>
+      <div class="kpi-tile"><div class="kt-label"><i class="fa-solid fa-chart-pie"></i> 전체 진행률</div>
+        <div class="kt-value">${totalCells ? Math.round(runCells / totalCells * 100) : 0}%</div>
+        <div class="kt-sub">${runCells}/${totalCells} 칸 진행중</div></div>
+    </div>` : '';
+
+  /* 필터 칩 */
+  $('pt-tabs').innerHTML = `
+    <button class="filter-tab ${ptFilter==='all'?'active':''}" onclick="setPtFilter('all')">전체 ${pt.products.length}</button>
+    <button class="filter-tab ${ptFilter==='todo'?'active':''}" onclick="setPtFilter('todo')">미완료 ${partial + none}</button>
+    <button class="filter-tab ${ptFilter==='done'?'active':''}" onclick="setPtFilter('done')">전 유형 진행 ${doneAll}</button>`;
+
+  let rows = pt.products;
+  if (ptFilter === 'todo') rows = rows.filter(p => !N || ptDone(p) < N);
+  else if (ptFilter === 'done') rows = rows.filter(p => N && ptDone(p) === N);
+
+  const body = $('pt-body');
+  ptSelBtn();
+  if (!pt.products.length) {
+    body.innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-clipboard-check"></i></div>
+      <p>위에서 <b>상품을 추가</b>하면 소재 유형별 체크보드가 만들어져요.</p></div>`;
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = `<div class="empty-state" style="padding:32px;"><p>조건에 맞는 상품이 없어요.</p></div>`;
+    return;
+  }
+  const total = rows.length, pages = Math.ceil(total / ptPer);
+  if (ptPage > pages) ptPage = pages;
+  const from = (ptPage - 1) * ptPer;
+  rows = rows.slice(from, from + ptPer);
+  const pager = `<div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:.8rem;color:#6b7280;">
+    <span>${total}개 중 ${from + 1}–${from + rows.length}</span>
+    <select class="inp" style="width:auto;padding:4px 8px;font-size:.8rem;background:#fff;" onchange="setPtPer(this.value)">
+      ${[10,20,30,50,100].map(n => `<option value="${n}" ${n===ptPer?'selected':''}>${n}개씩</option>`).join('')}</select>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+      <button class="btn-ghost" style="padding:3px 10px;" ${ptPage<=1?'disabled':''} onclick="setPtPage(${ptPage-1})">‹</button>
+      <b>${ptPage} / ${pages}</b>
+      <button class="btn-ghost" style="padding:3px 10px;" ${ptPage>=pages?'disabled':''} onclick="setPtPage(${ptPage+1})">›</button></span></div>`;
+
+  const cellHtml = (p, t) => {
+    const rc = regCellFor(ptRegIdx, p, t);
+    if (rc) return `<span class="status-badge ${rc.run ? 'badge-green' : 'badge-blue'}">${rc.run ? '진행중' : '제작완료'}</span><span class="pt-date" title="소재 등록 ${rc.n}개 · 광고 생성 ${rc.run}개">${rc.n}개 · ${fmtMD(rc.latest)}</span>`;
+    const c = p.cells[t];
+    if (!c) return `<span class="pt-empty" title="클릭 → 제작완료"></span>`;
+    if (c.st === 'made') return `<span class="status-badge badge-blue">제작완료</span><span class="pt-date">${fmtMD(c.date)}</span>`;
+    return `<span class="status-badge badge-green">진행중</span><span class="pt-date">${fmtMD(c.date)}</span>`;
+  };
+
+  body.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th style="width:28px;"><input type="checkbox" title="이 페이지 전체 선택" onchange="ptSelPage(this.checked)" /></th>
+      <th style="text-align:left;">상품명</th>
+      ${pt.types.map((t, ti) => `<th>${esc(t)}<button class="pt-th-x" title="'${esc(t)}' 유형 삭제" onclick="ptDelType(${ti})"><i class="fa-solid fa-xmark"></i></button></th>`).join('')}
+      <th>진행률</th><th></th>
+    </tr></thead>
+    <tbody>${rows.map(p => {
+      const done = ptDone(p);
+      return `<tr>
+        <td><input type="checkbox" value="${p.id}" ${ptSel.has(p.id)?'checked':''} onchange="ptSelToggle(this.value, this.checked)" /></td>
+        <td class="name-cell" style="font-weight:700;">${esc(p.name)}</td>
+        ${pt.types.map((t, ti) => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" title="소재 등록 기록으로 자동 표시 — 클릭으로 못 바꿔요">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}',${ti})">${cellHtml(p, t)}</td>`).join('')}
+        <td><span class="pt-prog-wrap"><span class="pt-prog-bar"><span class="pt-prog-fill" style="width:${N ? done / N * 100 : 0}%;"></span></span>
+          <b style="font-size:.78rem;">${done}/${N}</b></span></td>
+        <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="ptDelProduct('${p.id}')"><i class="fa-solid fa-xmark"></i></button></td>
+      </tr>`; }).join('')}</tbody>
+  </table></div>${pager}
+  <p style="font-size:.75rem;color:#9ca3af;margin-top:10px;line-height:1.7;">
+    칸을 클릭할 때마다 <b>— → 제작완료 → 진행중 → 해제</b> 순서로 바뀌고, 바꾼 날짜가 함께 기록돼요.
+    소재 유형 열은 위의 <b>소재 유형 추가</b>로 자유롭게 늘릴 수 있어요 (예: 후킹영상, 카드뉴스).</p>`;
+  ptSelBtn();
+}
