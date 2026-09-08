@@ -149,11 +149,45 @@ function toast(msg, cls) {
   t.textContent = msg; t.classList.toggle('err', err); t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), err ? 6000 : 2600);
+  if (err) logError(msg);
 }
 /* 조용한 실패 방지 (2026-09-08 1단계): 어디서든 잡히지 않은 오류는 반드시 화면에 보인다 */
 const errText = r => !r ? '알 수 없음' : typeof r === 'string' ? r : r.message || (() => { try { return JSON.stringify(r); } catch { return String(r); } })();
-window.addEventListener('error', e => { if (e.message === 'Script error.') return; toast('오류: ' + (e.message || '알 수 없음'), 'err'); });   // 'Script error.' = 외부 스크립트의 내용 없는 오류
-window.addEventListener('unhandledrejection', e => toast('오류: ' + errText(e.reason), 'err'));
+window.addEventListener('error', e => { if (e.message === 'Script error.') return; toast('오류: ' + (e.message || '알 수 없음'), 'err'); logError(e.message, e.error && e.error.stack); });   // 'Script error.' = 외부 스크립트의 내용 없는 오류
+window.addEventListener('unhandledrejection', e => { toast('오류: ' + errText(e.reason), 'err'); logError(errText(e.reason), e.reason && e.reason.stack); });
+
+/* ═══════════ 운영 (2026-09-08 3단계): 오류 서버 기록 · 브라우저 데이터 서버 백업 ═══════════
+   서버 함수 client-log (deploy-client-log.sh). 둘 다 실패해도 화면 기능엔 영향 없음 — 조용히 넘긴다. */
+var __errSeen = {};   // ponytail: 같은 문구 30초 내 1번만 전송 (렌더 루프에서 같은 오류가 반복돼도 서버를 안 때린다)
+function logError(message, stack) {
+  try {
+    if (!message || typeof sbCall !== 'function' || !admgrCfg() || !(typeof AUTH === 'object' && AUTH.me)) return;
+    const now = Date.now(); if (__errSeen[message] > now - 30000) return; __errSeen[message] = now;
+    sbCall('client-log', { action: 'error' }, { message: String(message), stack: stack ? String(stack) : null, url: location.href }).catch(() => {});
+  } catch { /* 기록 실패는 무시 */ }
+}
+/* 백업 대상 = 사용자가 만든 데이터(adc_*) — PIN과 서버에서 받아둔 캐시는 제외 */
+const BACKUP_SKIP = /^adc_(admgr_(pin|last|test|off|best|products)|reg_pin)$/;
+function backupPayload() {
+  const out = {};
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('adc_') && !BACKUP_SKIP.test(k)) out[k] = localStorage.getItem(k); }
+  return out;
+}
+async function backupToServer(force) {
+  const today = todayStr(0);
+  if (!force && lsGet('adc_backup_day', '') === today) return null;   // 하루 1회
+  if (!admgrCfg() || !AUTH.me) return null;
+  const d = await sbCall('client-log', { action: 'backup' }, { payload: backupPayload() });
+  lsSet('adc_backup_day', today);
+  return d;
+}
+async function restoreFromServer(day) {
+  const { payload } = await sbCall('client-log', { action: 'backup', day });
+  if (!confirm(`${day} 서버 백업으로 이 브라우저의 소재·기록·체크보드를 교체할까요? (지금 데이터는 먼저 서버에 한 번 더 저장해 둡니다)`)) return;
+  try { await backupToServer(true); } catch (e) { if (!confirm('현재 데이터 저장에 실패했어요: ' + e.message + '\n그래도 복원할까요?')) return; }
+  for (const [k, v] of Object.entries(payload)) localStorage.setItem(k, v);
+  toast('복원했어요 — 새로고침합니다'); setTimeout(() => location.reload(), 800);
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   const p = getPeriod();
@@ -161,4 +195,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateHdr();
   showMenu('home');
   await authInit();
+  backupToServer().then(d => { if (d) console.info('서버 백업 완료', d.day, d.bytes + 'B'); }).catch(e => console.warn('서버 백업 실패', e.message));   // 하루 1회, 실패해도 조용히(콘솔만)
 });

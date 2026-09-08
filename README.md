@@ -21,6 +21,14 @@
 | 광고 업로드 (Meta) | **Ads Uploader 대체 v1** — 모델 광고 1개 선택(세트 설정·페이지·강화옵션 복사) → 파일 N개 → 파일당 새 광고세트(예산만 입력)+광고 1개, 문구 직접 기입(일괄/행별), 일시중지·바로 활성 선택, 연결 진단(validate_only). 영상은 4MB 조각 재개 업로드. **셋업: [SETUP-광고업로드.md](SETUP-광고업로드.md)** |
 | 판매 성과 (카페24) | **카페24 API 실시간** (dnrb-dashboard 판매 성과 이식) — 기간별 상품 판매 표(결제·환불·순판매·판매합계·공급가·마진율), 순반품률(배송완료일 기준) 우수/주의/위험 판정·옵션별, 상품명 클릭 → 반품 사유 TOP5, 오늘 조회 시 어제 대비 순위 등락, 결과 저장 → 기간별 비교, 직전 3개월 월별 추이. **셋업: [SETUP-판매성과.md](SETUP-판매성과.md)** |
 
+## 운영 안전망 (2026-09-08)
+
+- **오류는 반드시 보인다**: 실패 알림은 빨간색 6초, 잡히지 않은 오류도 화면 우하단에 표시. 로그인 상태면 서버(`client_errors`)에도 기록 → 데이터 관리 › **오류 기록 보기**(관리자).
+- **브라우저 데이터 서버 백업**: 로그인해서 들어오면 이 브라우저의 소재·기록·체크보드·임시저장이 **하루 1회** 서버(`client_backups`)에 저장(30일 보관). 데이터 관리 › **서버 백업**에서 즉시 백업·날짜별 복원.
+- **서버 데이터 전체 내려받기**: 데이터 관리 › JSON 한 파일 (토큰·캐시 제외, 관리자).
+- **자동 검사**: `node test/run.mjs` — CSV 업로드·소재 매칭·판매 성과 계산·서버 호출 오류 처리 17개. 기능을 고친 뒤 꼭 돌릴 것.
+- 서버 배포: `./deploy-client-log.sh` (함수 `client-log` + 테이블). 로그인·광고 기능과 분리돼 있어 여기가 잘못돼도 다른 메뉴엔 영향 없음.
+
 ## 출장촬영 보드 (`shoot-board.html`)
 
 MD·포토·모델이 현장에서 폰으로 같이 보는 촬영 계획판. 대시보드 사이드바 **현장 > 출장촬영 보드**, 또는
@@ -53,6 +61,7 @@ test/run.mjs                      자동 검사 — `node test/run.mjs` (CSV 업
 shoot-board.html                 출장촬영 보드 (+ shoot-sw.js 오프라인, shoot-board.webmanifest, shoot-icon-*.png)
 deploy-shoot-board.sh            촬영 보드 서버 배포 스크립트
 deploy-cafe24-perf.sh            판매 성과(카페24) 서버 배포 스크립트
+deploy-client-log.sh             오류 수집·브라우저 백업·내보내기 함수 배포 스크립트
 config.js                        Meta 연동 설정 ← 직접 입력 (공개 레포엔 커밋 금지)
 supabase/
   migrations/0001_init.sql       DB 스키마 (캐시 + 2~4단계용 테이블)
@@ -62,6 +71,8 @@ supabase/
   functions/cafe24-oauth/index.ts 카페24 OAuth 최초 인증·토큰 저장
   functions/cafe24-perf/index.ts  카페24 판매 성과 (performance·netreturns·returnreasons + 저장 기록 archive_*, 10분 캐시)
   migrations/0006_cafe24_perf.sql 카페24 토큰·판매 성과 저장 테이블
+  functions/client-log/index.ts  오류 기록·브라우저 백업·서버 데이터 내보내기 (3단계)
+  migrations/0009_client_log.sql client_errors·client_backups 테이블
   functions/_shared/util.ts      CORS·캐시·DASH_KEY 인증
 ```
 
