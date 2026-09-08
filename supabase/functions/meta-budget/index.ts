@@ -215,7 +215,11 @@ Deno.serve(async (req) => {
       const pending = await pg("budget_writes?status=eq.pending&order=requested_at.desc&limit=100", "GET");
       const recent = await pg("budget_writes?status=neq.pending&order=requested_at.desc&limit=20", "GET");
       const daystart = await pg(`budget_daystart?day=eq.${seoulToday()}&select=adset_id,budget`, "GET");   // 자정세팅 열: 시작 예산·23:55 원복 대상 표시용
-      return json({ pending, recent, daystart });
+      // 최근 23:55 실행분(원복·예약·승인 행) — 화면의 "23:55 반영 결과" 알림창용 (2026-09-08 사용자 요청). 창: 가장 최근 23:55 KST(=14:55Z) 이후
+      const hmNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+      const runDay = hmNow >= "23:55" ? seoulToday() : addDays(seoulToday(), -1);
+      const lastrun = await pg(`budget_writes?mode=in.(reset,midnight,reset_approve)&status=neq.pending&applied_at=gte.${runDay}T14:55:00Z&order=applied_at.asc&limit=500&select=id,mode,status,object_id,object_name,old_budget,new_budget,applied_at,error`, "GET");
+      return json({ pending, recent, daystart, lastrun, run_day: runDay });
     }
 
     // 이하 쓰기 — 매 요청 PIN 검증

@@ -2931,6 +2931,38 @@ async function admgrWriteInit() {
     await admgrWritePending();
   } catch { /* 쓰기 기능 없이 표시 (조회 실패는 치명적이지 않음) */ }
 }
+/* ═══ 23:55 반영 결과 알림창 (2026-09-08 사용자 요청) — 원복 승인분·23:55 예약분이 실행되면 한 번 띄운다.
+   서버 pending 응답의 lastrun(가장 최근 23:55 이후 실행 행)을 보고, 같은 실행(run_day)은 adc_admgr_runseen 으로 한 번만.
+   승인 행이 아직 pending이면(실행 중) 건너뛰고 다음 확인 때 다시 본다. 23:55~00:40 사이엔 1분마다 서버만 확인(Meta 호출 없음) */
+function admgrRunNotify(d) {
+  const rows = d.lastrun || []; if (!rows.length) return;
+  const key = d.run_day || rows[0].applied_at.slice(0, 10);
+  if (lsGet('adc_admgr_runseen', '') === key) return;
+  const appr = rows.find(r => r.mode === 'reset_approve');
+  const resets = rows.filter(r => r.mode === 'reset'), mids = rows.filter(r => r.mode === 'midnight');
+  if (!appr && !mids.length) return;
+  const line = r => `<div style="display:flex;gap:8px;align-items:flex-start;padding:3px 0;border-bottom:1px solid #f3f4f6;">
+      <span style="flex:none;font-weight:800;color:${r.status === 'applied' ? '#15803d' : '#dc2626'};">${r.status === 'applied' ? '✓' : '✗'}</span>
+      <span style="min-width:0;"><b>${esc(r.object_name || r.object_id)}</b> · ${r.old_budget ? comma(Math.round(r.old_budget)) + ' → ' : ''}<b>${comma(Math.round(r.new_budget))}</b>${r.status === 'applied' ? '' : `<div style="color:#dc2626;font-size:.7rem;">${esc(r.error || '실패')}</div>`}</span></div>`;
+  const ok = a => a.filter(r => r.status === 'applied').length;
+  let body = '';
+  if (appr) {
+    body += `<div style="font-weight:800;margin:4px 0 6px;">원복 승인분 ${appr.status === 'applied' ? `<span style="color:#15803d;">완료</span>` : `<span style="color:#dc2626;">실패</span>`} <span style="font-weight:600;color:#6b7280;font-size:.75rem;">${esc(appr.error || '')}</span></div>`;
+    body += resets.length ? `<details ${resets.length <= 12 ? 'open' : ''}><summary style="cursor:pointer;font-size:.78rem;color:#4f46e5;">원복 ${ok(resets)}/${resets.length}건 목록</summary><div style="max-height:32vh;overflow:auto;">${resets.map(line).join('')}</div></details>` : `<div style="font-size:.78rem;color:#6b7280;">되돌릴 세트가 없었어요 (전부 시작 예산 그대로)</div>`;
+  }
+  if (mids.length) body += `<div style="font-weight:800;margin:12px 0 6px;">23:55 예약 반영 ${ok(mids)}/${mids.length}건</div><div style="max-height:32vh;overflow:auto;">${mids.map(line).join('')}</div>`;
+  $('abm-title').textContent = `23:55 반영 결과 — ${key.slice(5).replace('-', '/')}`;
+  $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.8rem;line-height:1.6;color:#374151;">${body}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="lsSet('adc_admgr_runseen','${key}');closeModal('admgr-budget-modal')">확인</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+setInterval(() => {   // 23:55 실행 창 동안 화면이 열려 있으면 결과를 바로 알림 (우리 서버만 조회)
+  if (!admgr.data || admgr.demo || !admgrCfg()) return;
+  const k = admgrKst(new Date().toISOString()); if (!k) return;
+  const hm = k.getUTCHours() * 60 + k.getUTCMinutes();
+  if (hm >= 23 * 60 + 56 || hm < 40) admgrWritePending();
+}, 60 * 1000);
 async function admgrWritePending() {
   try {
     const d = await metaBudgetCall({ action: 'pending' });
@@ -2939,6 +2971,7 @@ async function admgrWritePending() {
     admgr.write.pendingByObj = new Map(pend.filter(p => p.mode !== 'reset_approve').map(p => [p.object_id, p]));
     admgr.write.daystart = new Map((d.daystart || []).map(r => [String(r.adset_id), Number(r.budget)]));   // 오늘 시작 예산(00:10 스냅샷) — 자정세팅 열
     renderAdmgr(true);
+    admgrRunNotify(d);   // 23:55 반영 결과 알림창 (한 번만)
   } catch { /* 무시 */ }
 }
 /* 예산 셀 — 일예산 있는 행은 클릭 편집(연필), 자정 예약이 있으면 배지 */
