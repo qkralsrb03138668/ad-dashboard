@@ -271,8 +271,8 @@ async function fetchHierarchy(c: Creds, preset: string) {
 async function fetchBudgetHistory(c: Creds, s: string, e: string) {
   const rows = await graphGetAll(`${c.account}/activities`, {
     fields: "event_type,event_time,object_id,object_name,object_type,extra_data",
-    since: s,
-    until: addDays(e, 1),
+    since: String(Math.floor(Date.parse(`${s}T00:00:00+09:00`) / 1000)),          // 날짜 문자열은 UTC 자정으로 잡혀 KST 00~09시 변경이 빠짐 → KST 자정 epoch
+    until: String(Math.floor(Date.parse(`${addDays(e, 1)}T00:00:00+09:00`) / 1000)),
     limit: "500",
   }, c.token, 4);
   const events = rows
@@ -296,6 +296,19 @@ async function fetchBudgetHistory(c: Creds, s: string, e: string) {
       };
     })
     .filter((ev) => ev.old_value > 0 || ev.new_value > 0);
+  // 대시보드가 직접 바꾼 건은 Meta 활동 로그에 몇 분~수십 분 늦게 잡힌다(실측 2026-09-08: 9분 넘게 누락) → 우리 기록(budget_writes)을 합쳐 바로 보이게.
+  // 같은 세트·같은 금액이 10분 안에 Meta 로그에도 있으면 그쪽을 쓴다(중복 방지). status 변경(mode=status)은 예산이 아니라 제외.
+  const kst = (ymd: string) => encodeURIComponent(`${ymd}T00:00:00+09:00`);
+  const ours = await dbRest(`budget_writes?status=eq.applied&mode=in.(now,midnight,reset)&applied_at=gte.${kst(s)}&applied_at=lt.${kst(addDays(e, 1))}&select=object_id,object_name,level,old_budget,new_budget,applied_at&limit=1000`)
+    .then((r) => (r.ok ? r.json() : [])).catch(() => []) as Record<string, unknown>[];
+  for (const w of ours) {
+    const t = new Date(String(w.applied_at)).getTime();
+    const id = String(w.object_id), nv = num(w.new_budget);
+    if (w.old_budget != null && num(w.old_budget) === nv) continue;   // 같은 금액 재적용(23:55 원복 등) — Meta도 로그를 안 남기니 변경 아님
+    if (events.some((ev) => ev.object_id === id && ev.new_value === nv && Math.abs(new Date(ev.time).getTime() - t) < 10 * 60_000)) continue;
+    events.push({ time: new Date(t).toISOString().replace(/\.\d{3}Z$/, "+0000"), level: String(w.level), object_id: id, object_name: String(w.object_name ?? ""), old_value: num(w.old_budget), new_value: nv, note: "대시보드" });
+  }
+  events.sort((a, b) => b.time.localeCompare(a.time));
   return { period: { start: s, end: e }, count: events.length, events };
 }
 
