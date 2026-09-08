@@ -317,6 +317,7 @@
       z-index: 999; pointer-events: none; max-width: 80vw;
     }
     #toast.show { opacity: 1; transform: translateY(0); }
+    #toast.err { background: #b91c1c; }
 
     .chart-box { background: #fff; border: 1px solid #e7e8ee; border-radius: 12px; padding: 16px; }
     .mini-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; vertical-align: middle; border: 1px solid #e7e8ee; background: #eef2ff; }
@@ -971,6 +972,7 @@
 /* ═══════════ 유틸 ═══════════ */
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';   // href엔 http(s)만 (javascript: 차단)
 const comma = n => (Math.round(n) || 0).toLocaleString('ko-KR');
 const won = n => comma(n) + '원';
 function todayStr(offset) {
@@ -1553,14 +1555,16 @@ function ptAddType() {
   pt.types.push(name);
   ptSave(); renderPTest();
 }
-function ptDelType(name) {
+function ptDelType(ti) {   // 유형은 인덱스로 (이름을 onclick 문자열에 넣으면 따옴표가 든 이름이 스크립트로 새어 나간다)
+  const name = pt.types[ti]; if (name == null) return;
   const used = pt.products.filter(p => p.cells[name]).length;
   if (!confirm(`'${name}' 유형 열을 삭제할까요?${used ? ` (체크된 상품 ${used}개의 기록도 지워져요)` : ''}`)) return;
   pt.types = pt.types.filter(t => t !== name);
   for (const p of pt.products) delete p.cells[name];
   ptSave(); renderPTest();
 }
-function ptCycle(pid, type) {
+function ptCycle(pid, ti) {
+  const type = pt.types[ti]; if (type == null) return;
   const p = pt.products.find(x => x.id === pid); if (!p) return;
   const cur = p.cells[type] ? p.cells[type].st : null;
   if (cur === null)        p.cells[type] = { st: 'made', date: todayStr(0) };
@@ -1674,7 +1678,7 @@ function renderPTest() {
     <thead><tr>
       <th style="width:28px;"><input type="checkbox" title="이 페이지 전체 선택" onchange="ptSelPage(this.checked)" /></th>
       <th style="text-align:left;">상품명</th>
-      ${pt.types.map(t => `<th>${esc(t)}<button class="pt-th-x" title="'${esc(t)}' 유형 삭제" onclick="ptDelType('${esc(t)}')"><i class="fa-solid fa-xmark"></i></button></th>`).join('')}
+      ${pt.types.map((t, ti) => `<th>${esc(t)}<button class="pt-th-x" title="'${esc(t)}' 유형 삭제" onclick="ptDelType(${ti})"><i class="fa-solid fa-xmark"></i></button></th>`).join('')}
       <th>진행률</th><th></th>
     </tr></thead>
     <tbody>${rows.map(p => {
@@ -1682,7 +1686,7 @@ function renderPTest() {
       return `<tr>
         <td><input type="checkbox" value="${p.id}" ${ptSel.has(p.id)?'checked':''} onchange="ptSelToggle(this.value, this.checked)" /></td>
         <td class="name-cell" style="font-weight:700;">${esc(p.name)}</td>
-        ${pt.types.map(t => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" title="소재 등록 기록으로 자동 표시 — 클릭으로 못 바꿔요">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}','${esc(t)}')">${cellHtml(p, t)}</td>`).join('')}
+        ${pt.types.map((t, ti) => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" title="소재 등록 기록으로 자동 표시 — 클릭으로 못 바꿔요">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}',${ti})">${cellHtml(p, t)}</td>`).join('')}
         <td><span class="pt-prog-wrap"><span class="pt-prog-bar"><span class="pt-prog-fill" style="width:${N ? done / N * 100 : 0}%;"></span></span>
           <b style="font-size:.78rem;">${done}/${N}</b></span></td>
         <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="ptDelProduct('${p.id}')"><i class="fa-solid fa-xmark"></i></button></td>
@@ -1699,15 +1703,7 @@ function renderPTest() {
    로컬 config.js에 DASH_KEY가 있으면 로그인 없이도 관리자로 동작(기존 방식 유지). */
 const AUTH = { sb: null, session: null, me: null, mode: 'login' };
 function authCfg() { const c = window.DASH_CFG || {}; return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null; }
-async function authApi(params, payload) {
-  const cfg = authCfg();
-  const url = cfg.SUPABASE_URL + '/functions/v1/auth-admin?' + new URLSearchParams(params);
-  const res = await fetch(url, payload === undefined ? { headers: metaHeaders(cfg) }
-    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.error) throw new Error(body.error || ('HTTP ' + res.status));
-  return body;
-}
+function authApi(params, payload) { return sbCall('auth-admin', params, payload); }
 async function authInit() {
   const cfg = authCfg();
   if (!cfg || !window.supabase) return;                       // 연동 정보 없음 → 데모 모드 그대로
@@ -1949,7 +1945,7 @@ async function regRefresh(force) {
   if (reg.list && !force) { regRenderList(); return; }
   reg.listLoading = true;
   try { reg.list = (await uplCall({ action: 'creatives_list', status: 'all', limit: 500 })).rows; }
-  catch (e) { reg.list = reg.list || []; if (force) toast('등록 목록 불러오기 실패: ' + e.message); }
+  catch (e) { reg.list = reg.list || []; toast('등록 목록 불러오기 실패: ' + e.message); }
   reg.listLoading = false; regRenderList(); renderPTest();
 }
 function regRenderList() {
@@ -1962,12 +1958,12 @@ function regRenderList() {
     ${rows.slice(0, 200).map(r => `<tr>
       <td style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
       <td style="font-size:.78rem;">${esc(r.file_name)}</td>
-      <td style="font-size:.78rem;">${esc(r.product_name || '-')}${r.url ? ` <a href="${esc(r.url)}" target="_blank" style="font-size:.7rem;">↗</a>` : ''}</td>
+      <td style="font-size:.78rem;">${esc(r.product_name || '-')}${safeUrl(r.url) ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:.7rem;">↗</a>` : ''}</td>
       <td style="text-align:center;font-size:.74rem;">${REG_KIND_TYPE[r.kind] || r.kind}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
       <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
       <td style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
-      <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListDel('${r.id}','${esc(r.file_name)}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
+      <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 function regListText(id) {
@@ -1977,7 +1973,8 @@ function regListText(id) {
     catch (e) { toast('저장 실패: ' + e.message); }
   });
 }
-async function regListDel(id, name) {
+async function regListDel(id) {
+  const name = ((reg.list || []).find(x => x.id === id) || {}).file_name || '';
   if (!confirm(`'${name}' 등록을 삭제할까요? (Meta 보관함의 파일은 남아요)`)) return;
   try { await uplCall({ action: 'creative_del' }, { id }); reg.list = reg.list.filter(x => x.id !== id); regRenderList(); renderPTest(); toast('삭제했어요'); }
   catch (e) { toast('삭제 실패: ' + e.message); }
@@ -2020,17 +2017,7 @@ const UPL_CTA = [['LEARN_MORE','더 알아보기'],['SHOP_NOW','지금 구매하
 let UPL_CHUNK = 8 * 1024 * 1024;     // 8MB 조각 — 서버가 413/네트워크 오류로 거부하면 자동으로 절반씩 줄임 (최소 1MB)
 const UPL_PARALLEL = 3;                // 미디어 동시 전송 수 (파일끼리 병렬, 한 영상 안의 조각은 순서대로)
 
-async function uplCall(params, payload) {
-  const cfg = admgrCfg();
-  const url = cfg.SUPABASE_URL + '/functions/v1/meta-upload?' + new URLSearchParams(params);
-  const init = payload === undefined ? { headers: metaHeaders(cfg) }
-    : payload instanceof FormData ? { method: 'POST', headers: metaHeaders(cfg), body: payload }
-    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
-  const res = await fetch(url, init);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.error) throw new Error(body.error || ('HTTP ' + res.status));
-  return body;
-}
+function uplCall(params, payload) { return sbCall('meta-upload', params, payload); }
 const uplPin = () => ($('upl-pin').value || '').trim();
 
 function renderUpload() {
@@ -2331,36 +2318,32 @@ function metaHeaders(cfg) {
   return { apikey: cfg.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + tok,
     ...(cfg.DASH_KEY ? { 'x-dash-key': cfg.DASH_KEY } : {}) };
 }
-async function metaGet(params) {
+/* 서버 함수 공통 호출 (2026-09-08 1단계) — 모든 API 오류가 사람이 읽는 한 문장으로 나오는 유일한 자리.
+   payload 없음 = GET, FormData = 그대로 POST, 그 외 = JSON POST. 게이트웨이 HTML 응답·네트워크 끊김도 여기서 문장으로 바꾼다. */
+async function sbCall(fn, params, payload) {
   const cfg = admgrCfg();
-  const qs = new URLSearchParams(params);
-  const res = await fetch(cfg.SUPABASE_URL + '/functions/v1/meta-ads?' + qs, { headers: metaHeaders(cfg) });
-  const body = await res.json();
-  if (!res.ok || body.error) throw new Error(body.message || body.error || ('HTTP ' + res.status));
+  if (!cfg) throw new Error('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)');
+  const url = cfg.SUPABASE_URL + '/functions/v1/' + fn + '?' + new URLSearchParams(params);
+  const headers = metaHeaders(cfg);
+  const init = payload === undefined ? { headers }
+    : (typeof FormData !== 'undefined' && payload instanceof FormData) ? { method: 'POST', headers, body: payload }
+    : { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
+  let res;
+  try { res = await fetch(url, init); }
+  catch (e) { throw new Error('서버에 연결할 수 없어요 — 인터넷 연결을 확인하세요'); }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.error) {
+    const msg = body.message || body.error
+      || (res.status === 401 ? '로그인이 필요해요 (세션 만료 — 새로고침 후 다시 로그인)' : res.status === 403 ? '권한이 없어요 (관리자만)'
+        : res.status === 404 ? `서버 함수 '${fn}'가 아직 배포되지 않았어요` : res.status >= 500 ? `서버 오류 (HTTP ${res.status}) — 잠시 후 다시 시도` : 'HTTP ' + res.status);
+    throw new Error(msg);
+  }
   return body;
 }
-async function metaPost(params, payload) {
-  const cfg = admgrCfg();
-  const qs = new URLSearchParams(params);
-  const res = await fetch(cfg.SUPABASE_URL + '/functions/v1/meta-ads?' + qs, {
-    method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-  });
-  const body = await res.json();
-  if (!res.ok || body.error) throw new Error(body.message || body.error || ('HTTP ' + res.status));
-  return body;
-}
-
-/* meta-budget 함수 (예산 쓰기) — 읽기 함수와 분리된 별도 엔드포인트. payload 있으면 POST */
-async function metaBudgetCall(params, payload) {
-  const cfg = admgrCfg();
-  const qs = new URLSearchParams(params);
-  const res = await fetch(cfg.SUPABASE_URL + '/functions/v1/meta-budget?' + qs, payload === undefined
-    ? { headers: metaHeaders(cfg) }
-    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const body = await res.json();
-  if (!res.ok || body.error) throw new Error(body.error || ('HTTP ' + res.status));
-  return body;
-}
+function metaGet(params) { return sbCall('meta-ads', params); }
+function metaPost(params, payload) { return sbCall('meta-ads', params, payload); }
+/* meta-budget 함수 (예산 쓰기) — 읽기 함수와 분리된 별도 엔드포인트 */
+function metaBudgetCall(params, payload) { return sbCall('meta-budget', params, payload); }
 
 async function admgrFetch() {
   if (!admgrCfg()) { toast('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)'); return; }
@@ -4053,7 +4036,7 @@ async function showMetaPreview(adId, fmt) {
     if (apCur.id !== adId || apCur.fmt !== myFmt) return;   // 그 사이 다른 소재·형식으로 바뀜
     $('ap-title').textContent = prev.name || '소재 미리보기';
     $('ap-body').innerHTML = prev.iframe || (prev.thumbnail
-      ? `<img src="${prev.thumbnail}" style="max-width:100%;border-radius:10px;" />`
+      ? `<img src="${esc(prev.thumbnail)}" style="max-width:100%;border-radius:10px;" />`
       : '<p style="padding:30px 0;color:#9ca3af;">미리보기를 가져오지 못했어요.</p>');
     const ifr = $('ap-body').querySelector('iframe');
     if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
@@ -4542,17 +4525,7 @@ function nextDayN(ds, n) { const d = new Date(ds + 'T12:00:00'); d.setDate(d.get
    ② 저장 기록 CRUD → 같은 함수의 archive_* 액션 ③ 역할 없음(전부 관리자) ④ $/esc/toast는 기존 것 재사용.
    나머지 로직·카페24 함정 대응(README §5)은 원본 그대로 — "정리"하며 지우지 말 것.
    ═══════════════════════════════════════════════════════════════ */
-async function perfApi(params, payload) {
-  const cfg = admgrCfg();
-  if (!cfg) throw new Error('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP-판매성과.md)');
-  const url = cfg.SUPABASE_URL + '/functions/v1/cafe24-perf?' + new URLSearchParams(params);
-  const res = await fetch(url, payload === undefined
-    ? { headers: metaHeaders(cfg) }
-    : { method: 'POST', headers: { ...metaHeaders(cfg), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const data = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-  return data;
-}
+function perfApi(params, payload) { return sbCall('cafe24-perf', params, payload); }
 const sbList   = ()          => perfApi({ action: 'archive_list' }).then(d => d.rows || []);
 const sbInsert = (_t, body)  => perfApi({ action: 'archive_add' }, body);
 const sbDelete = (_t, id)    => perfApi({ action: 'archive_del', id });
@@ -4679,13 +4652,8 @@ const RR_CAT_COLOR = {
   '기타': '#a78bfa', '사유 미기재': '#d1d5db',
 };
 
-/* 기간이 바뀌면 캐시를 버리고 다시 받는다 */
-async function rrEnsure(ds, de) {
-  const key = ds + '~' + de;
-  if (rrState.key === key && rrState.byProduct) return;
-  const d = await perfApi({ action: 'returnreasons', start_date: ds, end_date: de });
-  const items = d.items || [];
-
+/* 반품 품목마다 share(sole/shared/other)·others를 매긴다 (순수 함수 — test/run.mjs가 검사) */
+function rrAssignShares(items) {
   /* ── 동반 반품 처리 ──
      카페24는 사유를 '클레임(반품 신청) 단위'로 하나만 받는다. 여러 상품을 한 번에 반품하면
      같은 문장이 모든 상품에 복사된다(실측: 클레임 22%가 다중 상품, 그중 87% 동일 사유).
@@ -4729,6 +4697,16 @@ async function rrEnsure(ds, de) {
     if (mentioned.length === 1) x.share = (mentioned[0].no === x.product_no) ? 'sole' : 'other';
     else x.share = 'shared';
   }
+}
+
+/* 기간이 바뀌면 캐시를 버리고 다시 받는다 */
+async function rrEnsure(ds, de) {
+  const key = ds + '~' + de;
+  if (rrState.key === key && rrState.byProduct) return;
+  const d = await perfApi({ action: 'returnreasons', start_date: ds, end_date: de });
+  const items = d.items || [];
+
+  rrAssignShares(items);
 
   const by = new Map();
   for (const x of items) {
@@ -4982,6 +4960,34 @@ function ptRenderTo(prefix, months, stats) {
 
 /* 판매 성과 실시간 API 조회 — CSV(salesData/costMap)와 동일 구조로 매핑해
    renderPerfResult·필터·아카이브 기능을 그대로 재사용 */
+/* 카페24 performance 행 → 표 행 + 원가 맵 (순수 함수 — test/run.mjs가 검사) */
+function perfRowsFrom(rows) {
+  const salesData = [], costMap = {};
+  let mappedCost = 0;
+  (rows || []).forEach((r, i) => {
+    const salesQty = Math.max(0, r.paid_qty - r.cancel_qty);
+    // 순판매금액: 주문금액을 수량 비율로 안분
+    const salesTotal = r.paid_qty > 0 ? Math.round(r.order_amount * salesQty / r.paid_qty) : 0;
+    salesData.push({
+      rank: i + 1,
+      productNo: r.product_no,
+      productName: (r.product_name || '').trim(),
+      option: '',
+      salePrice: r.price,
+      paidQty: r.paid_qty,
+      refundQty: r.cancel_qty,
+      salesQty,
+      salesTotal,
+      cancelQty: r.cancel_qty,
+      returnRate: r.paid_qty > 0 ? r.cancel_qty / r.paid_qty * 100 : 0,
+    });
+    if (r.supply_price > 0 && r.price > 0) {
+      costMap[(r.product_name || '').toLowerCase().trim()] = { supplyCost: r.supply_price, salePrice: r.price };
+      mappedCost++;
+    }
+  });
+  return { salesData, costMap, mappedCost };
+}
 async function fetchPerfApi() {
   const ds = $('perfDateStart').value, de = $('perfDateEnd').value;
   if (!ds || !de) { showToast('분석 기간을 먼저 선택해주세요'); return; }
@@ -4992,34 +4998,12 @@ async function fetchPerfApi() {
       perfApi({ action: 'performance', start_date: ds, end_date: de }),
       perfApi({ action: 'netreturns', start_date: ds, end_date: de }),
     ]);
-    store.costMap = {};
-    store.salesData = [];
     // 순반품률(배송완료일 기준) — product_no로 조인
     store.netReturns = new Map((net.rows || []).map(r => [r.product_no, r]));
     store.netTotals = net.totals || null;
-    let mappedCost = 0;
-    (data.rows || []).forEach((r, i) => {
-      const salesQty = Math.max(0, r.paid_qty - r.cancel_qty);
-      // 순판매금액: 주문금액을 수량 비율로 안분
-      const salesTotal = r.paid_qty > 0 ? Math.round(r.order_amount * salesQty / r.paid_qty) : 0;
-      store.salesData.push({
-        rank: i + 1,
-        productNo: r.product_no,
-        productName: (r.product_name || '').trim(),
-        option: '',
-        salePrice: r.price,
-        paidQty: r.paid_qty,
-        refundQty: r.cancel_qty,
-        salesQty,
-        salesTotal,
-        cancelQty: r.cancel_qty,
-        returnRate: r.paid_qty > 0 ? r.cancel_qty / r.paid_qty * 100 : 0,
-      });
-      if (r.supply_price > 0 && r.price > 0) {
-        store.costMap[(r.product_name || '').toLowerCase().trim()] = { supplyCost: r.supply_price, salePrice: r.price };
-        mappedCost++;
-      }
-    });
+    const built = perfRowsFrom(data.rows);
+    store.salesData = built.salesData; store.costMap = built.costMap;
+    const mappedCost = built.mappedCost;
     store.perfFilter = 'all';
     // '오늘' 하루 조회면 어제 순위도 받아 등락 열 표시 (2026-09-01 사용자 요청).
     // 표를 먼저 그리고 백그라운드로 어제 데이터를 받아 다시 그린다 (첫 조회 수십 초 가능, 서버 10분 캐시).
@@ -5414,7 +5398,7 @@ async function loadPerfArchive() {
     $('perf-archive-list').innerHTML = html;
     store.perfArchiveRows = rows;
   } catch(e) {
-    $('perf-archive-list').innerHTML = '<div style="color:#dc2626;padding:16px;">기록 불러오기 실패</div>';
+    $('perf-archive-list').innerHTML = `<div style="color:#dc2626;padding:16px;">기록 불러오기 실패: ${escHtml(e.message)}</div>`;
   }
 }
 
@@ -5555,12 +5539,16 @@ async function deletePerfArchive(id) {
 
 /* ═══════════ 토스트 · 초기화 ═══════════ */
 var toastTimer = null;   // var 필수 — 스크립트 상단(lsSet 실패 등)에서 toast가 불려도 TDZ 크래시가 없도록
-function toast(msg) {
+function toast(msg, cls) {
   const t = $('toast'); if (!t) return;
-  t.textContent = msg; t.classList.add('show');
+  const err = cls === 'err' || /실패|오류|에러|error/i.test(msg);   // ponytail: 문구로 실패 판별 — 기존 호출 40여 곳을 안 고치고 빨간색·6초로 승격
+  t.textContent = msg; t.classList.toggle('err', err); t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  toastTimer = setTimeout(() => t.classList.remove('show'), err ? 6000 : 2600);
 }
+/* 조용한 실패 방지 (2026-09-08 1단계): 어디서든 잡히지 않은 오류는 반드시 화면에 보인다 */
+window.addEventListener('error', e => toast('오류: ' + (e.message || '알 수 없음'), 'err'));
+window.addEventListener('unhandledrejection', e => { const r = e.reason; toast('오류: ' + ((r && r.message) || r || '알 수 없음'), 'err'); });
 
 document.addEventListener('DOMContentLoaded', async () => {
   const p = getPeriod();
