@@ -397,6 +397,53 @@
       tbody td { padding: 8px 5px; font-size: .8rem; }
       .cre-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
     }
+    /* ── 폰(≤768px) 반응형: 광고관리자 표 → 카드, 하단 탭바 (2026-09-08 사용자 요청. 맥북 화면은 이 블록이 안 켜져 그대로) ── */
+    .mnav { display: none; }
+    #sec-admgr .mcards { display: none; }
+    @media (max-width: 768px) {
+      .side-menu { display: none; }
+      body.menu-open .side-menu { display: flex; }
+      .mnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; display: flex; background: rgba(255,255,255,.96); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+        border-top: 1px solid #e7e8ee; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+      .mnav .menu-item { flex: 1; flex-direction: column; gap: 2px; border: none; background: transparent; border-radius: 8px; padding: 6px 2px; font-size: .66rem; font-weight: 700; color: #6b7280; justify-content: center; }
+      .mnav .menu-item i { font-size: 1.05rem; }
+      .mnav .menu-item.active { color: #4f46e5; background: #eef2ff; }
+      .layout .container { padding-bottom: 96px; }
+      #sec-admgr .table-wrap { display: none; }
+      #sec-admgr .mcards { display: block; }
+      #sec-admgr .mtabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      #sec-admgr .mtab { flex: none; padding: 9px 12px; font-size: .78rem; }
+      #sec-admgr .filter-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+      #sec-admgr .filter-tabs > * { flex: none; }
+      #sec-admgr .control-bar { gap: 6px; }
+      #sec-admgr .control-bar #admgr-q { max-width: none !important; flex: 1 1 140px; }
+      #sec-admgr .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+      #sec-admgr .kpi-tile .kt-value { font-size: .95rem !important; }
+      .mcard { background: #fff; border: 1px solid #dadde1; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+      .mcard.sel { border-color: #4f46e5; box-shadow: 0 0 0 1px #4f46e5 inset; }
+      .mc-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+      .mc-name { min-width: 0; }
+      .mc-name b { color: #1877f2; font-size: .86rem; line-height: 1.35; display: block; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+      .mc-sub { font-size: .7rem; color: #65676b; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .mc-tg { flex: none; text-align: right; }
+      .mc-tg .mtg { width: 40px; height: 22px; } .mc-tg .mtg::after { width: 18px; height: 18px; }
+      .mc-tg .mtg.off::after { left: 2px; }
+      .mc-judge { margin: 8px 0 2px; }
+      .mc-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; font-size: .84rem; font-weight: 700; color: #1c1e21; }
+      .mc-nums i { display: block; font-style: normal; font-size: .64rem; color: #9ca3af; font-weight: 600; }
+      .mc-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f2f5; font-size: .78rem; }
+      .mc-foot .mc-budget { min-width: 0; }
+      .mc-btns { display: flex; gap: 6px; flex: none; }
+      .mc-btns button { border: 1px solid #ccd0d5; background: #fff; border-radius: 8px; width: 38px; height: 34px; font-size: .85rem; color: #1c1e21; }
+      .mc-btns button.on { background: #eef2ff; border-color: #a5b4fc; color: #4f46e5; }
+      .mc-more { display: none; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e4e6eb; font-size: .78rem; }
+      .mcard.open .mc-more { display: block; }
+      .mc-more .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f5f6f7; }
+      .mc-more .row > span:first-child { color: #65676b; flex: none; }
+      .mc-more .row > span:last-child { text-align: right; min-width: 0; }
+      .mc-more .drill { color: #1877f2; font-weight: 700; }
+      #admgr-bpop { max-width: calc(100vw - 16px); }
+    }
     /* 판매 성과 (카페24) */
     .divider { width: 1px; height: 28px; background: #e5e7eb; }
     .option-tag { display: inline-block; font-size: .7rem; color: #6366f1; background: #ede9fe; border-radius: 4px; padding: 1px 6px; margin-top: 2px; }
@@ -911,6 +958,13 @@
 
 <div id="toast"></div>
 
+<!-- 폰 하단 탭바 (≤768px에서만 보임 — showMenu가 data-menu로 active 처리) -->
+<nav class="mnav">
+  <button class="menu-item" data-menu="admgr" onclick="document.body.classList.remove('menu-open');showMenu('admgr')"><i class="fa-brands fa-meta"></i>광고관리자</button>
+  <button class="menu-item" data-menu="upload" onclick="document.body.classList.remove('menu-open');showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i>업로드</button>
+  <button class="menu-item" data-menu="perf" onclick="document.body.classList.remove('menu-open');showMenu('perf')"><i class="fa-solid fa-chart-column"></i>판매 성과</button>
+  <button class="menu-item" onclick="document.body.classList.toggle('menu-open');window.scrollTo(0,0)"><i class="fa-solid fa-bars"></i>더보기</button>
+</nav>
 <script>
 'use strict';
 
@@ -2733,8 +2787,45 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     </table></div>
     <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">행 클릭 → 소재 미리보기 · 열 제목 클릭 = 정렬(오름→내림→해제, 먼저 누른 열이 1순위)</p>`;
   }
-  return chgChips + judgeChips + tiles + table;
+  /* 폰(≤768px): 표 대신 카드 (같은 vis 행·같은 셀 렌더러 재사용 — 표는 CSS로 숨김) */
+  let cards = '';
+  if (admgrMobile() && vis.length && (isCamp || isSet || admgr.view === 'ad')) {
+    const level = isCamp ? 'campaign' : isSet ? 'adset' : 'ad';
+    const roas = r => r.spend ? (r.value / r.spend).toFixed(2) : '—';
+    const roasColor = r => !r.spend ? '#9ca3af' : r.value / r.spend >= 2 ? '#15803d' : r.value / r.spend >= 1 ? '#92400e' : '#dc2626';
+    const sel = isCamp ? admgr.selCamps : admgr.selSets;
+    cards = `<div class="mcards">${vis.map(r => {
+      const sub = isCamp ? '' : isSet ? (r._campName || '') : (r._setName || '');
+      const more = `
+        ${admgr.view === 'ad' ? `<div class="row"><span>클릭</span><span>${comma(r.clicks || 0)}</span></div>` : ''}
+        <div class="row"><span>구매당 비용</span><span>${admgrCpa(r)}</span></div>
+        <div class="row"><span>전환값</span><span>${admgrMoney(r.value)}</span></div>
+        <div class="row"><span>CPC</span><span>${cpcTd(r)}</span></div>
+        ${showChg ? `<div class="row"><span>최근 변경</span><span>${admgrChgCell(r)}</span></div>` : ''}
+        ${showMid ? `<div class="row"><span>23:55 세팅</span><span>${admgrMidCell(r, level)}</span></div>` : ''}
+        ${admgr.view !== 'ad' ? `<div class="row"><span>선택</span><span><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" ${sel.has(r.id) ? 'checked' : ''} onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /> ${isCamp ? '이 캠페인의 세트만 보기' : '베스트소재 담기용 선택'}</label></span></div>
+        <div class="row"><span></span><span><a class="drill" onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</a></span></div>` : ''}`;
+      return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''}" ${admgr.view === 'ad' ? `onclick="showMetaPreview('${r.id}')"` : ''}>
+        <div class="mc-top"><div class="mc-name"><b>${esc(r.name || '(이름 없음)')}</b><div class="mc-sub">${admgrStBadge(r.status)}${sub ? ' · ' + esc(sub) : ''}</div></div>
+          <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
+        ${showJudge ? `<div class="mc-judge">${admgrJudgeCell(r)}</div>` : ''}
+        <div class="mc-nums"><div><i>지출</i>${admgrMoney(r.spend)}</div><div><i>구매</i>${comma(r.purchases || 0)}</div><div><i>ROAS</i><span style="color:${roasColor(r)};">${roas(r)}</span></div></div>
+        <div class="mc-foot">
+          <div class="mc-budget" onclick="event.stopPropagation()">${admgr.view === 'ad' ? '<span style="color:#9ca3af;">탭하면 소재 미리보기</span>' : admgrBudgetCell(r, level)}</div>
+          <div class="mc-btns"><button onclick="event.stopPropagation();const c=this.closest('.mcard');c.classList.toggle('open');this.classList.toggle('on',c.classList.contains('open'))" title="더 보기"><i class="fa-solid fa-chevron-down"></i></button></div>
+        </div>
+        <div class="mc-more" onclick="event.stopPropagation()">${more}</div>
+      </div>`; }).join('')}</div>`;
+  }
+  return chgChips + judgeChips + tiles + table + cards;
 }
+const admgrMobile = () => window.innerWidth <= 768;
+let admgrMobileWas = null;
+window.addEventListener('resize', () => {   // 폰↔데스크톱 경계를 넘을 때만 다시 그림 (데스크톱 표는 이 이벤트로 안 건드림)
+  const now = admgrMobile();
+  if (admgrMobileWas === null) { admgrMobileWas = now; return; }
+  if (now !== admgrMobileWas) { admgrMobileWas = now; if (admgr.data && ['camp', 'set', 'ad'].includes(admgr.view)) renderAdmgr(true); }
+});
 
 /* ═══ 오늘의 판정 (2026-09-05 사용자 운영 규칙) ═══
    마진 = 판매가 − 공급가×1.1 (카페24 상품, 세트명에 상품명이 들어간 것으로 매칭 — 가장 긴 이름 우선) · 세트별 수동 입력이 있으면 그것 우선
