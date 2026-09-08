@@ -41,6 +41,25 @@ test('aggRows/derive: CTR·CPC·CPA·ROAS', () => {
   assert.equal(a.spend, 2000); assert.equal(a.ctr, 5); assert.equal(a.cpc, 200); assert.equal(a.cpa, 1000); assert.equal(a.roas, 2.5);
 });
 
+console.log('서버 호출 (sbCall) — 오류가 항상 사람이 읽는 문장으로');
+{
+  const sbCall = g('sbCall');
+  window.DASH_CFG = { SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'anon' };
+  const respond = (status, text) => { ctx.fetch = async () => ({ ok: status < 300, status, text: async () => text }); };
+  const rejects = async (fn, re) => { let m = ''; try { await fn(); } catch (e) { m = e.message; } assert.match(m, re); };
+  await (async () => {
+    respond(200, '{"rows":[1]}'); assert.equal(JSON.stringify(await sbCall('f', { a: 1 })), '{"rows":[1]}');
+    respond(200, '<html>maintenance</html>'); await rejects(() => sbCall('f', {}), /읽을 수 없어요/);          // 2xx인데 JSON 아님 = 오류
+    respond(200, '{"error":"PIN이 틀렸어요"}'); await rejects(() => sbCall('f', {}), /PIN이 틀렸어요/);         // 우리 함수 오류 우선
+    respond(404, '{"code":"NOT_FOUND","message":"Requested function was not found"}'); await rejects(() => sbCall('meta-x', {}), /'meta-x'가 아직 배포되지/);
+    respond(401, '{"message":"Invalid JWT"}'); await rejects(() => sbCall('f', {}), /로그인이 필요해요/);
+    respond(502, ''); await rejects(() => sbCall('f', {}), /서버 오류 \(HTTP 502\)/);
+    ctx.fetch = async () => { throw new TypeError('Failed to fetch'); }; await rejects(() => sbCall('f', {}), /연결할 수 없어요 \(Failed to fetch\)/);
+    n++; console.log('  ✓ sbCall: 정상 JSON·HTML 응답·함수 오류·미배포 404·401·5xx·네트워크 끊김');
+  })();
+  ctx.fetch = async () => { throw new Error('테스트에선 네트워크 없음'); };
+}
+
 console.log('① CSV 업로드');
 test('Meta CSV: 따옴표·쉼표·BOM, 같은 소재·같은 날 합산, 소재 자동 생성', () => {
   vm.runInContext("creatives = []; records = [];", ctx);
@@ -100,7 +119,8 @@ test('perfRowsFrom: 순판매량·안분 금액·반품률·원가 맵', () => {
   const a = r.salesData[0];
   assert.equal(a.productName, '클레르 블라우스'); assert.equal(a.salesQty, 8); assert.equal(a.salesTotal, 80000); assert.equal(a.returnRate, 20); assert.equal(a.rank, 1);
   assert.equal(r.salesData[1].salesTotal, 0); assert.equal(r.salesData[1].returnRate, 0);
-  assert.equal(JSON.stringify(r.costMap['클레르 블라우스']), JSON.stringify({ supplyCost: 4000, salePrice: 10000 }));   // vm 경계 넘으면 deepEqual이 프로토타입 차이로 실패 assert.equal(r.mappedCost, 1);
+  assert.equal(JSON.stringify(r.costMap['클레르 블라우스']), JSON.stringify({ supplyCost: 4000, salePrice: 10000 }));   // vm 경계 넘으면 deepEqual이 프로토타입 차이로 실패
+  assert.equal(r.mappedCost, 1);
 });
 test('rrCat: 반품 사유 분류 (불량 > 사이즈 > 변심 순 우선)', () => {
   const rrCat = g('rrCat'), rrNorm = g('rrNorm');

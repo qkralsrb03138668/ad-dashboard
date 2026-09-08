@@ -481,12 +481,12 @@ async function fetchPerfApi() {
       perfApi({ action: 'performance', start_date: ds, end_date: de }),
       perfApi({ action: 'netreturns', start_date: ds, end_date: de }),
     ]);
+    const built = perfRowsFrom(data.rows);   // 먼저 계산 — 여기서 실패하면 store는 이전 상태 그대로 (기간이 다른 데이터가 섞이지 않게)
+    store.salesData = built.salesData; store.costMap = built.costMap;
+    const mappedCost = built.mappedCost;
     // 순반품률(배송완료일 기준) — product_no로 조인
     store.netReturns = new Map((net.rows || []).map(r => [r.product_no, r]));
     store.netTotals = net.totals || null;
-    const built = perfRowsFrom(data.rows);
-    store.salesData = built.salesData; store.costMap = built.costMap;
-    const mappedCost = built.mappedCost;
     store.perfFilter = 'all';
     // '오늘' 하루 조회면 어제 순위도 받아 등락 열 표시 (2026-09-01 사용자 요청).
     // 표를 먼저 그리고 백그라운드로 어제 데이터를 받아 다시 그린다 (첫 조회 수십 초 가능, 서버 10분 캐시).

@@ -140,16 +140,20 @@ function mkChart(key, canvasId, cfg) {
 
 /* ═══════════ 토스트 · 초기화 ═══════════ */
 var toastTimer = null;   // var 필수 — 스크립트 상단(lsSet 실패 등)에서 toast가 불려도 TDZ 크래시가 없도록
+var toastLast = { msg: '', at: 0 };
 function toast(msg, cls) {
   const t = $('toast'); if (!t) return;
   const err = cls === 'err' || /실패|오류|에러|error/i.test(msg);   // ponytail: 문구로 실패 판별 — 기존 호출 40여 곳을 안 고치고 빨간색·6초로 승격
+  if (err && msg === toastLast.msg && Date.now() - toastLast.at < 6000) return;   // 같은 오류가 반복(타이머·렌더 루프)돼도 알림은 한 번
+  toastLast = { msg, at: Date.now() };
   t.textContent = msg; t.classList.toggle('err', err); t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), err ? 6000 : 2600);
 }
 /* 조용한 실패 방지 (2026-09-08 1단계): 어디서든 잡히지 않은 오류는 반드시 화면에 보인다 */
-window.addEventListener('error', e => toast('오류: ' + (e.message || '알 수 없음'), 'err'));
-window.addEventListener('unhandledrejection', e => { const r = e.reason; toast('오류: ' + ((r && r.message) || r || '알 수 없음'), 'err'); });
+const errText = r => !r ? '알 수 없음' : typeof r === 'string' ? r : r.message || (() => { try { return JSON.stringify(r); } catch { return String(r); } })();
+window.addEventListener('error', e => { if (e.message === 'Script error.') return; toast('오류: ' + (e.message || '알 수 없음'), 'err'); });   // 'Script error.' = 외부 스크립트의 내용 없는 오류
+window.addEventListener('unhandledrejection', e => toast('오류: ' + errText(e.reason), 'err'));
 
 document.addEventListener('DOMContentLoaded', async () => {
   const p = getPeriod();

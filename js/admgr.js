@@ -48,20 +48,22 @@ async function sbCall(fn, params, payload) {
   const url = cfg.SUPABASE_URL + '/functions/v1/' + fn + '?' + new URLSearchParams(params);
   const headers = metaHeaders(cfg);
   const init = payload === undefined ? { headers }
-    : (typeof FormData !== 'undefined' && payload instanceof FormData) ? { method: 'POST', headers, body: payload }
+    : payload instanceof FormData ? { method: 'POST', headers, body: payload }
     : { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
   let res;
   try { res = await fetch(url, init); }
-  catch (e) { throw new Error('서버에 연결할 수 없어요 — 인터넷 연결을 확인하세요'); }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body.error) {
-    const msg = body.message || body.error
-      || (res.status === 401 ? '로그인이 필요해요 (세션 만료 — 새로고침 후 다시 로그인)' : res.status === 403 ? '권한이 없어요 (관리자만)'
-        : res.status === 404 ? `서버 함수 '${fn}'가 아직 배포되지 않았어요` : res.status >= 500 ? `서버 오류 (HTTP ${res.status}) — 잠시 후 다시 시도` : 'HTTP ' + res.status);
-    throw new Error(msg);
-  }
-  return body;
+  catch (e) { throw new Error(`서버에 연결할 수 없어요 (${e.message}) — 인터넷 연결 또는 서버 상태를 확인하세요`); }
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : {}; } catch { /* JSON 아님 — 아래에서 처리 */ }
+  if (body && !body.error && res.ok) return body;
+  if (!body) body = {};   // HTML·빈 응답: 상태 코드로 문장을 만든다 (성공(2xx)인데 JSON이 아니면 그것도 오류)
+  const msg = body.error ? (body.message || body.error)              // 우리 서버 함수가 준 오류 (한국어)
+    : SB_HTTP_MSG[res.status] || (res.status === 404 ? `서버 함수 '${fn}'가 아직 배포되지 않았어요` : res.status >= 500 ? `서버 오류 (HTTP ${res.status}) — 잠시 후 다시 시도`
+    : res.ok ? `서버 응답을 읽을 수 없어요 (HTTP ${res.status}, JSON 아님)` : body.message || ('HTTP ' + res.status));   // 게이트웨이 오류
+  throw new Error(msg);
 }
+const SB_HTTP_MSG = { 401: '로그인이 필요해요 (세션 만료 — 새로고침 후 다시 로그인)', 403: '권한이 없어요 (관리자만)', 413: '보내는 데이터가 너무 커요 (서버 한도 초과)', 429: '요청이 너무 잦아요 — 잠시 후 다시 시도' };
 function metaGet(params) { return sbCall('meta-ads', params); }
 function metaPost(params, payload) { return sbCall('meta-ads', params, payload); }
 /* meta-budget 함수 (예산 쓰기) — 읽기 함수와 분리된 별도 엔드포인트 */

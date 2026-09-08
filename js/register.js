@@ -134,7 +134,7 @@ async function regRun() {
   await Promise.all(Array.from({ length: Math.min(UPL_PARALLEL, queue.length) }, worker));
   reg.running = false; regRender();
   regLog(`끝 — 성공 ${ok} / ${todo.length} · ${Math.round((Date.now() - t0) / 1000)}초`, ok === todo.length ? 'ok' : 'err');
-  toast(`소재 등록 ${ok}/${todo.length} 완료`);
+  toast(`소재 등록 ${ok}/${todo.length} 완료${ok < todo.length ? ` · 실패 ${todo.length - ok}개 (아래 로그 확인)` : ''}`);
   reg.aliases = null; regRefresh(true);
 }
 /* 등록된 소재 목록 + 체크보드 반영 */
@@ -144,7 +144,7 @@ async function regRefresh(force) {
   reg.listLoading = true;
   try { reg.list = (await uplCall({ action: 'creatives_list', status: 'all', limit: 500 })).rows; }
   catch (e) { reg.list = reg.list || []; toast('등록 목록 불러오기 실패: ' + e.message); }
-  reg.listLoading = false; regRenderList(); renderPTest();
+  reg.listLoading = false; renderPTest();   // renderPTest가 등록 목록도 그린다
 }
 function regRenderList() {
   const box = $('reg-list'); if (!box || !reg.list) return;
@@ -174,7 +174,7 @@ function regListText(id) {
 async function regListDel(id) {
   const name = ((reg.list || []).find(x => x.id === id) || {}).file_name || '';
   if (!confirm(`'${name}' 등록을 삭제할까요? (Meta 보관함의 파일은 남아요)`)) return;
-  try { await uplCall({ action: 'creative_del' }, { id }); reg.list = reg.list.filter(x => x.id !== id); regRenderList(); renderPTest(); toast('삭제했어요'); }
+  try { await uplCall({ action: 'creative_del' }, { id }); reg.list = reg.list.filter(x => x.id !== id); renderPTest(); toast('삭제했어요'); }
   catch (e) { toast('삭제 실패: ' + e.message); }
 }
 /* 체크보드용: 상품번호 → 유형별 {n, run, latest}. 이름만 있는 행은 핵심 이름으로 연결 */

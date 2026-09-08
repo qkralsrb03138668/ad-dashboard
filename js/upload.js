@@ -270,5 +270,5 @@ async function uplRun() {
   upl.running = false; $('upl-run').disabled = false; uplRenderFiles();
   uplLog(`끝 — 성공 ${ok} / ${pending.length} · 총 ${Math.round((Date.now() - t0) / 1000)}초`, ok === pending.length ? 'ok' : 'err');
   if (ok) reg.list = null;   // 체크보드·등록 목록은 다음 렌더에서 다시 읽음
-  toast(`광고 생성 ${ok}/${pending.length} 완료`);
+  toast(`광고 생성 ${ok}/${pending.length} 완료${ok < pending.length ? ` · 실패 ${pending.length - ok}개 (아래 로그 확인)` : ''}`);
 }

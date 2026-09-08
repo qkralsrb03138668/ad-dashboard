@@ -6,10 +6,9 @@
    세션이 없으면 #login-gate로 앱을 가린다. 서버 함수는 사용자 토큰(Authorization)으로 역할을 확인.
    로컬 config.js에 DASH_KEY가 있으면 로그인 없이도 관리자로 동작(기존 방식 유지). */
 const AUTH = { sb: null, session: null, me: null, mode: 'login' };
-function authCfg() { const c = window.DASH_CFG || {}; return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null; }
 function authApi(params, payload) { return sbCall('auth-admin', params, payload); }
 async function authInit() {
-  const cfg = authCfg();
+  const cfg = admgrCfg();
   if (!cfg || !window.supabase) return;                       // 연동 정보 없음 → 데모 모드 그대로
   AUTH.sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   const { data } = await AUTH.sb.auth.getSession(); AUTH.session = data.session;
@@ -35,7 +34,7 @@ async function authLoadMe() {
 async function authGate(msg) {
   let boot = false;
   try { boot = (await authApi({ action: 'status' })).needs_bootstrap; } catch (e) { /* 서버 미배포 등 — 로그인 화면으로 */ }
-  AUTH.mode = (boot && authCfg().DASH_KEY) ? 'bootstrap' : 'login';
+  AUTH.mode = (boot && admgrCfg().DASH_KEY) ? 'bootstrap' : 'login';
   $('lg-name-wrap').style.display = AUTH.mode === 'bootstrap' ? 'block' : 'none';
   $('lg-sub').textContent = AUTH.mode === 'bootstrap' ? '아직 계정이 없어요 — 최초 관리자 계정을 만드세요' : '계정으로 로그인하세요';
   $('lg-btn').textContent = AUTH.mode === 'bootstrap' ? '관리자 계정 만들기' : '로그인';
@@ -82,14 +81,15 @@ function authApplyRole() {
 /* 사용자 관리 (데이터 관리 탭, 관리자) */
 async function umLoad() {
   const box = $('um-list'); if (!box) return;
-  if (!authCfg()) { box.textContent = '연동 정보가 없어 계정 관리를 쓸 수 없어요'; return; }
+  if (!admgrCfg()) { box.textContent = '연동 정보가 없어 계정 관리를 쓸 수 없어요'; return; }
   try {
     const { users } = await authApi({ action: 'users' });
+    AUTH.users = users;
     box.innerHTML = users.length ? `<div class="table-wrap"><table><thead><tr><th style="text-align:left;">이메일</th><th style="text-align:left;">이름</th><th>역할</th><th>만든 날</th><th></th></tr></thead><tbody>
       ${users.map(u => `<tr><td>${esc(u.email)}</td><td>${esc(u.name || '')}</td>
         <td style="text-align:center;"><select class="inp" style="padding:3px 6px;font-size:.78rem;background:#fff;" onchange="umRole('${u.user_id}', this.value)"><option value="marketer" ${u.role==='marketer'?'selected':''}>마케터</option><option value="admin" ${u.role==='admin'?'selected':''}>관리자</option></select></td>
         <td style="text-align:center;font-size:.76rem;color:#6b7280;">${(u.created_at||'').slice(0,10)}</td>
-        <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="umDel('${u.user_id}','${esc(u.email)}')"><i class="fa-solid fa-xmark"></i></button></td></tr>`).join('')}
+        <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="umDel('${u.user_id}')"><i class="fa-solid fa-xmark"></i></button></td></tr>`).join('')}
       </tbody></table></div>` : '<div style="padding:8px;">계정이 없어요</div>';
   } catch (e) { box.textContent = '불러오기 실패: ' + e.message; }
 }
@@ -103,7 +103,8 @@ async function umCreate() {
   } catch (e) { toast('실패: ' + e.message); }
 }
 async function umRole(user_id, role) { try { await authApi({ action: 'user_role' }, { user_id, role }); toast('역할을 바꿨어요'); } catch (e) { toast('실패: ' + e.message); umLoad(); } }
-async function umDel(user_id, email) {
+async function umDel(user_id) {
+  const email = ((AUTH.users || []).find(u => u.user_id === user_id) || {}).email || '';
   if (!confirm(`${email} 계정을 삭제할까요? 더 이상 로그인할 수 없어요.`)) return;
   try { await authApi({ action: 'user_del' }, { user_id }); toast('삭제했어요'); umLoad(); } catch (e) { toast('실패: ' + e.message); }
 }
