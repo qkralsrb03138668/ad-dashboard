@@ -304,7 +304,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
 .mini-ph { display: inline-flex; width: 34px; height: 34px; border-radius: 8px; align-items: center; justify-content: center; color: #a5b4fc; background: linear-gradient(140deg,#eef2ff,#ede9fe); vertical-align: middle; font-size: .8rem; border: 1px solid #e7e8ee; }
 
 /* ── 광고관리자 메뉴 = Meta 광고관리자 스타일 (2026-09-07 사용자 요청 A — 이 메뉴만) ── */
-#sec-admgr { font-family: -apple-system, "Apple SD Gothic Neo", "Helvetica Neue", Arial, sans-serif; color: #1c1e21; border-color: #dadde1; }
+#sec-admgr { color: #1c1e21; border-color: #dadde1; }   /* 폰트는 body(Pretendard)와 통일 (2026-09-09 가독성) */
 #sec-admgr .section-header { background: #fff; border-bottom: 1px solid #dadde1; }
 #sec-admgr .section-body { padding: 12px 16px; background: #f0f2f5; }
 #sec-admgr .control-bar { background: #fff; border: 1px solid #dadde1; border-radius: 8px; padding: 8px 12px; gap: 8px; margin-bottom: 10px; }
@@ -326,10 +326,17 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr .kpi-tile .kt-label { color: #65676b; font-size: 12px; }
 #sec-admgr .kpi-tile .kt-value { font-size: 1.05rem !important; color: #1c1e21; }
 #sec-admgr .table-wrap { border-color: #dadde1; border-radius: 8px; }
-#sec-admgr table { font-size: 13px; }
+#sec-admgr table { font-size: 13px; font-variant-numeric: tabular-nums; }
+/* 가독성 (2026-09-09, 메타 광고관리자 기준): 행 40px 한 줄 · 머리행 고정(표 안 스크롤) · 이름 말줄임 · 행 버튼은 올렸을 때만 */
+#sec-admgr .table-wrap { max-height: calc(100vh - 300px); overflow: auto; }
+#sec-admgr thead th { position: sticky; top: 0; background: #fff; z-index: 2; }
+#sec-admgr td.name-cell { white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+#sec-admgr td.name-cell .sub { margin-left: 6px; font-size: 12px; color: #8a8d91; }
+#sec-admgr td.name-cell .row-act { opacity: 0; margin-left: 6px; padding: 1px 6px; font-size: 12px; }
+#sec-admgr tbody tr:hover .row-act, #sec-admgr tbody tr:focus-within .row-act { opacity: 1; }
 #sec-admgr thead tr { background: #fff; }
 #sec-admgr thead th { color: #65676b; font-weight: 600; border-bottom: 1px solid #dadde1; text-align: right; padding: 10px 12px; }
-#sec-admgr tbody td { text-align: right; border-bottom: 1px solid #e4e6eb; color: #1c1e21; padding: 9px 12px; }
+#sec-admgr tbody td { text-align: right; border-bottom: 1px solid #e4e6eb; color: #1c1e21; padding: 7px 12px; }
 #sec-admgr tbody tr:hover { background: #f5f6f7; }
 #sec-admgr th.l, #sec-admgr td.l, #sec-admgr td.name-cell { text-align: left; }
 /* 왼쪽 여백 축소 (2026-09-07 사용자 요청): 체크박스·토글 열을 좁게, 이름이 바로 붙게 */

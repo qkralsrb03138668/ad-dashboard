@@ -272,7 +272,7 @@ function admgrAgo(iso) {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   return s < 60 ? s + '초 전' : Math.round(s / 60) + '분 전';
 }
-const admgrRoasTd = r => r.spend ? `<b style="color:${r.value / r.spend >= 2 ? '#15803d' : r.value / r.spend >= 1 ? '#92400e' : '#dc2626'};">${(r.value / r.spend).toFixed(2)}</b>` : '—';
+const admgrRoasTd = r => r.spend ? (r.value / r.spend < 1 ? `<b style="color:#dc2626;">${(r.value / r.spend).toFixed(2)}</b>` : (r.value / r.spend).toFixed(2)) : '—';   // 1 미만만 강조 (전부 색칠하면 소음)
 const admgrMoney = v => v ? won(v) : '—';
 const admgrCpa = r => r.purchases ? won(r.spend / r.purchases) : '—';
 /* 정렬 표시 머리글 */
@@ -426,7 +426,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   /* 요약 타일 (표시분 기준) */
   const tot = { spend: 0, purchases: 0, value: 0, clicks: 0 };
   for (const r of vis) { tot.spend += r.spend || 0; tot.purchases += r.purchases || 0; tot.value += r.value || 0; tot.clicks += r.clicks || 0; }
-  const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
+  const tiles = !admgrMobile() ? '' : `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
     ${admgrTile('지출 (표시분)', won(tot.spend))}${admgrTile('구매', comma(tot.purchases))}
     ${admgrTile('구매당 비용', admgrCpa(tot))}${admgrTile('구매 전환값', won(tot.value))}
     ${admgrTile('ROAS', tot.spend ? (tot.value / tot.spend).toFixed(2) : '—')}${admgrTile('표시 중 ' + VIEW_LABEL, vis.length + '개')}
@@ -451,17 +451,15 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="cb"><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
           <td class="l tg">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
-          <td class="name-cell" style="text-align:left;">
-            <b>${esc(r.name || '(이름 없음)')}</b>
-            ${!isCamp ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._campName || '')}</div>` : ''}
-            <div><button class="btn-ghost" style="padding:2px 8px;font-size:.68rem;margin-top:3px;"
-              onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button></div></td>
+          <td class="name-cell" title="${esc(r.name || '')}${!isCamp ? ' · ' + esc(r._campName || '') : ''}">
+            <b>${esc(r.name || '(이름 없음)')}</b>${!isCamp ? `<span class="sub">· ${esc(r._campName || '')}</span>` : ''}<button class="btn-ghost row-act"
+              onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button></td>
           <td class="l" style="white-space:nowrap;">${admgrStBadge(r.status)}</td>
           ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td>` : ''}
           ${showMid ? `<td class="l m-hide">${admgrMidCell(r, isCamp ? 'campaign' : 'adset')}</td>` : ''}
           <td class="m-hide">${admgrBudgetCell(r, isCamp ? 'campaign' : 'adset')}</td>
           ${showChg ? `<td class="l m-hide">${admgrChgCell(r)}</td>` : ''}
-          <td><b>${admgrMoney(r.spend)}</b></td>
+          <td>${admgrMoney(r.spend)}</td>
           <td>${comma(r.purchases || 0)}</td>
           <td class="m-hide">${admgrCpa(r)}</td>
           <td class="m-hide">${admgrMoney(r.value)}</td>
@@ -469,8 +467,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${cpcTd(r)}</td>
         </tr>`).join('')}</tbody>
       ${totalRow(4 + (showJudge ? 1 : 0), `${showMid ? '<td class="m-hide">—</td>' : ''}<td class="m-hide">—</td>${showChg ? '<td class="m-hide">—</td>' : ''}`)}
-    </table></div>
-    <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">${isSet ? '세트를 체크하고 위의 <b>베스트소재로</b> 버튼을 누르면 그 세트의 소재가 베스트소재 탭에 모여요. ' : ''}${showChg ? "'최근 변경'은 오늘 바뀐 예산(변경 후 설정값·시각) — 클릭하면 히스토리." : ''}</p>`;
+    </table></div>`;
   } else {
     table = `<div class="table-wrap"><table>
       <thead><tr><th class="l tg">켜기/끄기</th>${admgrTh('name', '광고', 'l')}<th class="l">게재</th>${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
@@ -478,11 +475,10 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       <tbody>${vis.map(r => `
         <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기">
           <td class="l tg" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
-          <td class="name-cell" style="text-align:left;">
-            <b>${esc(r.name || '(이름 없음)')}</b>
-            <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${esc(r._setName || '')}</div></td>
+          <td class="name-cell" title="${esc(r.name || '')} · ${esc(r._setName || '')}">
+            <b>${esc(r.name || '(이름 없음)')}</b><span class="sub">· ${esc(r._setName || '')}</span></td>
           <td class="l" style="white-space:nowrap;">${admgrStBadge(r.status)}</td>
-          <td><b>${admgrMoney(r.spend)}</b></td>
+          <td>${admgrMoney(r.spend)}</td>
           <td class="m-hide">${comma(r.clicks || 0)}</td>
           <td>${comma(r.purchases || 0)}</td>
           <td class="m-hide">${admgrCpa(r)}</td>
@@ -491,15 +487,14 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${cpcTd(r)}</td>
         </tr>`).join('')}</tbody>
       ${totalRow(3, '')}
-    </table></div>
-    <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">행 클릭 → 소재 미리보기 · 열 제목 클릭 = 정렬(오름→내림→해제, 먼저 누른 열이 1순위)</p>`;
+    </table></div>`;
   }
   /* 폰(≤768px): 표 대신 카드 (같은 vis 행·같은 셀 렌더러 재사용 — 표는 CSS로 숨김) */
   let cards = '';
   if (admgrMobile() && vis.length && (isCamp || isSet || admgr.view === 'ad')) {
     const level = isCamp ? 'campaign' : isSet ? 'adset' : 'ad';
     const roas = r => r.spend ? (r.value / r.spend).toFixed(2) : '—';
-    const roasColor = r => !r.spend ? '#9ca3af' : r.value / r.spend >= 2 ? '#15803d' : r.value / r.spend >= 1 ? '#92400e' : '#dc2626';
+    const roasColor = r => !r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : '#1c1e21';
     const sel = isCamp ? admgr.selCamps : admgr.selSets;
     cards = `<div class="mcards">${vis.map(r => {
       const sub = isCamp ? '' : isSet ? (r._campName || '') : (r._setName || '');

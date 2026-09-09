@@ -528,7 +528,6 @@ function admgrColResize() {
     const key = admgrColLabel(th);
     if (!key || th.classList.contains('tg')) return;   // 체크박스·토글 열은 폭 고정 (드래그 제외)
     if (saved[key]) admgrColApply(table, idx, saved[key]);
-    th.style.position = 'relative';
     const h = document.createElement('span');
     h.className = 'colh';   // 구분선이 보이게 (CSS)
     h.title = '드래그 = 열 너비 조절 · 더블클릭 = 원래대로';
