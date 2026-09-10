@@ -64,7 +64,7 @@ async function generateCopy(no: number, token: string): Promise<{ message: strin
     messages: [{ role: "user", content: `아래 상품의 광고 문구를 기본값(긴글)으로 써줘. 상품 페이지(${url})를 열어 컬러·옵션·리뷰를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력.\n\n[카페24 상품 정보]\n${facts}` }],
   } as any);
   if (res.stop_reason === "refusal") throw new Error("문구 생성이 거부되었습니다 (안전 분류)");
-  const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim();
+  const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").replace(/\n{3,}/g, "\n\n").trim();   // 빈 줄은 하나만
   if (!message) throw new Error("문구가 비어 있습니다");
   return { message, usage: res.usage };
 }
