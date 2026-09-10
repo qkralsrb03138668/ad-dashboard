@@ -9,8 +9,9 @@
 const reg = { products: null, aliases: null, rows: [], list: null, listLoading: false, filter: 'registered', running: false };
 const SHOP_URL = (window.DASH_CFG && window.DASH_CFG.SHOP_URL) || 'https://danarobe.com';
 const REG_KIND_TYPE = { image: '스토리', video: '릴스' };
-function coreName(n) { let s = String(n || ''); for (let i = 0; i < 6; i++) s = s.replace(/\([^()]*\)|\[[^\[\]]*\]/g, ' '); return s.replace(/\s+/g, ' ').trim(); }
-function fileCore(fileName) { let n = fileName.replace(/\.[^.]+$/, ''); n = n.split('_')[0]; n = n.replace(/\s+\d{6}\b.*$/, ''); return coreName(n); }
+// 맥 파일명은 한글이 자모 분리(NFD)로 들어와 카페24 상품명(NFC)과 문자열이 달라진다 → 항상 NFC로 맞춘 뒤 비교 (실사고 2026-09-10)
+function coreName(n) { let s = String(n || '').normalize('NFC').replace(/[（）]/g, m => m === '（' ? '(' : ')'); for (let i = 0; i < 6; i++) s = s.replace(/\([^()]*\)|\[[^\[\]]*\]/g, ' '); return s.replace(/\s+/g, ' ').trim(); }
+function fileCore(fileName) { let n = String(fileName).normalize('NFC').replace(/\.[^.]+$/, ''); n = n.split('_')[0]; n = n.replace(/\s+\d{6}\b.*$/, ''); return coreName(n); }
 const normKey = s => coreName(s).toLowerCase().replace(/\s+/g, '');
 const productUrl = no => `${SHOP_URL}/product/detail.html?product_no=${no}`;
 

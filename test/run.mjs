@@ -106,6 +106,7 @@ console.log('② 소재 등록 — 파일명 → 상품 매칭');
   test('fileCore: 괄호·언더바 뒤·날짜 제거', () => assert.equal(g('fileCore')('클레르 블라우스_스토리 260901 v2.mp4'), '클레르 블라우스'));
   test('정확히 1개 → 자동 선택', () => { const m = regMatch('클레르 블라우스_릴스.mp4'); assert.equal(m.pick.product_no, 1); assert.equal(m.why, 'auto'); assert.equal(m.multi, false); });
   test('같은 이름 2개 → 선택 필요, 지난번 선택(alias)을 기본으로', () => { const m = regMatch('내티 원피스_스토리.jpg'); assert.equal(m.multi, true); assert.equal(m.why, 'alias'); assert.equal(m.pick.product_no, 3); assert.equal(m.cands.length, 2); });
+  test('맥 파일명(NFD 자모 분리)도 자동 매칭', () => { const m = regMatch('클레르 블라우스_릴스.mp4'.normalize('NFD')); assert.equal(m.pick && m.pick.product_no, 1); assert.equal(m.why, 'auto'); });
   test('매칭 실패 → 후보 없음·pick null', () => { const m = regMatch('없는상품.jpg'); assert.equal(m.pick, null); assert.equal(m.why, 'none'); });
   test('부분 일치 → 후보 제시', () => { const m = regMatch('모튼 가디건 착용컷.jpg'); assert.equal(m.pick, null); assert.ok(m.cands.some(p => p.product_no === 4)); });
 }
