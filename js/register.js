@@ -51,11 +51,62 @@ async function regAddFiles(list) {
   regRender();
   const ask = reg.rows.filter(r => !r.done && (r.multi || !r.product)).length;
   if (ask) toast(`상품을 골라야 하는 파일 ${ask}개 — 노란 행을 확인하세요`);
+  regLoadCopies();
+}
+/* ── 상품별 고정 문구 (product_copy) ── */
+const regCopies = new Map();   // product_no → { text, source, updated_at }
+function regCopyText(copy, url) { return { message: copy.text.message || '', title: copy.text.title || '', description: copy.text.description || '', link: url || '', cta: copy.text.cta || 'LEARN_MORE' }; }
+/* 순수 함수(검사용): 상품이 정해졌고 문구가 비어 있는 행에 저장본을 채운다. 채운 행 수를 돌려준다 */
+function regApplySavedCopies(rows, copies) {
+  let n = 0;
+  for (const r of rows) {
+    if (r.done || r.text || !r.product) continue;
+    const c = copies.get(r.product.product_no); if (!c) continue;
+    r.text = regCopyText(c, r.url); r.textFrom = 'saved'; n++;
+  }
+  return n;
+}
+async function regLoadCopies() {
+  const nos = [...new Set(reg.rows.filter(r => !r.done && r.product).map(r => r.product.product_no))].filter(no => !regCopies.has(no));
+  if (nos.length) {
+    try { for (const row of (await perfApi({ action: 'copy_get', product_nos: nos.join(',') })).rows) regCopies.set(row.product_no, row); }
+    catch (e) { toast('저장 문구 조회 실패: ' + e.message); return; }
+  }
+  const n = regApplySavedCopies(reg.rows, regCopies);
+  if (n) { regRender(); toast(`저장된 상품 문구 ${n}개를 자동으로 넣었어요`); }
+}
+async function regGen(i) {   // 행 하나 AI 생성 → 그 상품에 고정
+  const r = reg.rows[i]; if (!r || !r.product) { toast('상품을 먼저 정하세요'); return; }
+  await regGenRows([r]);
+}
+async function regGenSel() { const rows = reg.rows.filter(r => r.sel && !r.done && r.product); if (!rows.length) { toast('상품이 정해진 파일을 체크하세요'); return; } await regGenRows(rows); }
+async function regGenRows(rows) {
+  const byNo = new Map(); for (const r of rows) if (!byNo.has(r.product.product_no)) byNo.set(r.product.product_no, r);   // 같은 상품은 한 번만 생성
+  let ok = 0;
+  for (const [no, first] of byNo) {
+    for (const r of rows) if (r.product.product_no === no) { r.status = 'AI 문구 생성 중…'; }
+    regRender();
+    try {
+      const { row } = await perfApi({ action: 'copy_generate' }, { product_no: no, product_name: first.product.name });
+      regCopies.set(no, row);
+      for (const r of rows) if (r.product.product_no === no) { r.text = regCopyText(row, r.url); r.textFrom = 'ai'; r.status = '대기'; r.sel = false; ok++; }
+    } catch (e) {
+      for (const r of rows) if (r.product.product_no === no) r.status = '문구 생성 실패: ' + e.message;
+    }
+    regRender();
+  }
+  if (ok) toast(`AI 문구 ${ok}개 생성 — 상품에 고정했어요. 열어서 다듬어도 돼요`);
+}
+async function regCopySave(product, text) {   // 직접 기입·수정한 문구를 그 상품에 고정
+  try { const { row } = await perfApi({ action: 'copy_save' }, { product_no: product.product_no, product_name: product.name, text: { message: text.message, title: text.title, description: text.description, cta: text.cta } }); regCopies.set(product.product_no, row); }
+  catch (e) { toast('상품 문구 저장 실패: ' + e.message); }
 }
 function regDel(id) { reg.rows = reg.rows.filter(r => r.id !== id); regRender(); }
 function regPick(i, no) {
   const r = reg.rows[i], p = reg.products.find(p => String(p.product_no) === String(no));
-  r.product = p || null; r.url = p ? productUrl(p.product_no) : ''; r.why = p ? 'manual' : 'none'; regRender();
+  r.product = p || null; r.url = p ? productUrl(p.product_no) : ''; r.why = p ? 'manual' : 'none';
+  if (p && r.textFrom === 'saved') { r.text = null; r.textFrom = null; }   // 다른 상품으로 바꾸면 이전 상품 저장본은 뺀다
+  regRender(); if (p) regLoadCopies();
 }
 function regSearch(i, name) { const p = reg.products.find(p => p.name === name); if (p) { if (!reg.rows[i].cands.find(c => c.product_no === p.product_no)) reg.rows[i].cands.unshift(p); regPick(i, p.product_no); } }
 function regSelBtn() { const n = reg.rows.filter(r => r.sel && !r.done).length, b = $('reg-text-sel'); if (!b) return; b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입${n ? ` (${n})` : ''}`; }
@@ -79,7 +130,7 @@ function regRender() {
             : !r.product ? `<div style="font-size:.7rem;color:#b45309;margin-top:3px;"><i class="fa-solid fa-triangle-exclamation"></i> 자동 매칭 실패 — ${r.cands.length ? '비슷한 상품을 골라주세요' : '아래에서 검색하세요'}</div>` : ''}
           <input class="inp" list="reg-dl" placeholder="🔍 상품명 검색" style="width:100%;font-size:.74rem;background:#fff;padding:4px 8px;margin-top:4px;" onchange="regSearch(${i}, this.value)" />`}</td>
         <td><input class="inp" value="${esc(r.url)}" style="min-width:220px;font-size:.74rem;background:#fff;padding:5px 8px;" oninput="reg.rows[${i}].url=this.value" ${r.done ? 'disabled' : ''} /></td>
-        <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="regTextOpen(${i})" ${r.done ? 'disabled' : ''}>${r.text ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 기입됨' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
+        <td style="text-align:center;white-space:nowrap;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="regTextOpen(${i})" ${r.done ? 'disabled' : ''} title="${r.textFrom === 'saved' ? '이 상품에 저장된 문구' : r.textFrom === 'ai' ? 'AI가 방금 생성한 문구' : ''}">${r.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${r.textFrom === 'saved' ? '저장 문구' : r.textFrom === 'ai' ? 'AI 문구' : '기입됨'}` : '<i class="fa-solid fa-pen"></i> 기입'}</button>${!r.done && r.product && !r.text ? `<button class="btn-ghost" style="padding:3px 8px;font-size:.72rem;margin-left:4px;" onclick="regGen(${i})" title="이 상품 문구를 AI로 생성해 상품에 고정"><i class="fa-solid fa-wand-magic-sparkles" style="color:#7c3aed;"></i> AI</button>` : ''}</td>
         <td style="font-size:.78rem;${/실패/.test(r.status) ? 'color:#dc2626;' : r.done ? 'color:#15803d;font-weight:700;' : ''}">${esc(r.status)}</td>
         <td>${r.done || reg.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="regDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td></tr>`; }).join('')}</tbody></table></div>`;
   const todo = reg.rows.filter(r => !r.done).length;
@@ -93,8 +144,10 @@ function regTextOpen(idx) {
   const first = targets[0];
   const base = first.text || { message: '', title: '', description: '', link: first.url || '', cta: 'LEARN_MORE' };
   textModalOpen(idx >= 0 ? `광고 문구 — ${first.name}` : `광고 문구 — ${idx === -2 ? '선택한' : '전체'} ${targets.length}개 파일에 적용 (URL은 파일별 상품 URL 유지)`, base, t => {
-    for (const r of targets) { r.text = { ...t, link: targets.length > 1 && r.url ? r.url : t.link }; r.sel = false; }
+    for (const r of targets) { r.text = { ...t, link: targets.length > 1 && r.url ? r.url : t.link }; r.textFrom = 'manual'; r.sel = false; }
     regRender(); toast(`${targets.length}개 파일에 문구를 넣었어요`);
+    const prods = new Map(); for (const r of targets) if (r.product) prods.set(r.product.product_no, r.product);
+    if (targets.length === 1 && prods.size) regCopySave([...prods.values()][0], t);   // 행별 기입은 그 상품에 고정 (여러 파일 일괄은 상품이 섞이므로 고정 안 함)
   }, { linkOptional: targets.length > 1 });
 }
 function regLog(msg, cls) {
@@ -168,7 +221,7 @@ function regRenderList() {
 function regListText(id) {
   const r = reg.list.find(x => x.id === id); if (!r) return;
   textModalOpen(`광고 문구 — ${r.file_name}`, r.text || { message: '', title: '', description: '', link: r.url || '', cta: 'LEARN_MORE' }, async t => {
-    try { const res = await uplCall({ action: 'creative_save' }, { id, text: t, url: t.link }); Object.assign(r, res.row); regRenderList(); toast('문구를 저장했어요'); }
+    try { const res = await uplCall({ action: 'creative_save' }, { id, text: t, url: t.link }); Object.assign(r, res.row); regRenderList(); toast('문구를 저장했어요'); if (r.product_no) regCopySave({ product_no: r.product_no, name: r.product_name }, t); }
     catch (e) { toast('저장 실패: ' + e.message); }
   });
 }

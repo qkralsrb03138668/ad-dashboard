@@ -20,6 +20,54 @@
 // 카페24 판매 데이터(매출 금액 포함)가 나가므로 DASH_KEY 없이 운영하지 말 것.
 // ═══════════════════════════════════════════════════════════════
 import { cacheGet, cacheSet, requireRole, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
+import Anthropic from "npm:@anthropic-ai/sdk";
+import { COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL } from "./ad-copy-prompt.ts";
+
+// ── 상품별 광고 문구 (product_copy) — 소재 등록에서 상품이 정해지면 저장본 재사용, 없으면 [AI 문구 생성] 버튼으로 생성·고정 ──
+const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://danarobe.com";
+const COPY_MODEL = "claude-opus-5";
+const stripHtml = (h: unknown) => String(h ?? "").replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;/g, (m) => ({ "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"' }[m] ?? " ")).replace(/\s+/g, " ").trim();
+
+async function productFacts(no: number, token: string): Promise<string> {
+  const p = ((await apiGet(`${API_BASE}/admin/products/${no}?fields=product_no,product_name,price,summary_description,simple_description,description,product_material,product_tag`, token)).product ?? {}) as Record<string, unknown>;
+  let options = "";
+  try {
+    const o = (await apiGet(`${API_BASE}/admin/products/${no}/options`, token)).options as Record<string, unknown> | undefined;
+    const list = (o?.options ?? []) as Record<string, unknown>[];
+    options = list.map((x) => `${x.option_name}: ${((x.option_value ?? []) as Record<string, unknown>[]).map((v) => v.option_text).join(", ")}`).join(" / ");
+  } catch { /* 옵션 없음 */ }
+  const desc = stripHtml(p.description).slice(0, 3000);
+  return [
+    `상품명: ${p.product_name ?? ""}`, `판매가: ${p.price ?? ""}원`,
+    options ? `옵션: ${options}` : "", p.product_material ? `소재: ${p.product_material}` : "",
+    p.summary_description ? `요약: ${stripHtml(p.summary_description)}` : "", p.simple_description ? `간략설명: ${stripHtml(p.simple_description)}` : "",
+    p.product_tag ? `태그: ${p.product_tag}` : "", desc ? `상세설명 텍스트(이미지는 제외): ${desc}` : "상세설명은 이미지뿐이라 텍스트 없음",
+  ].filter(Boolean).join("\n");
+}
+
+async function generateCopy(no: number, token: string): Promise<{ message: string; usage: unknown }> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  if (!key) throw new Error("ANTHROPIC_API_KEY 미설정 — AI키-등록.command 로 등록하세요");
+  const facts = await productFacts(no, token);
+  const url = `${SHOP_URL}/product/detail.html?product_no=${no}`;
+  const client = new Anthropic({ apiKey: key });
+  const system = [
+    { type: "text" as const, text: `${COPY_PROMPT_ORIGINAL}\n\n${COPY_LONG_RULES}\n\n## 대표가 직접 쓴 실제 글 예시 (말투·리듬 참고용. 여기 나온 키·사이즈·가족 이야기 같은 개인 사실은 새 문구에 옮기지 말 것)\n${COPY_EXAMPLES_HUMAN}\n\n## 긴글 출력 예시\n${COPY_EXAMPLE_LONG}`, cache_control: { type: "ephemeral" as const } },
+  ];
+  // deno-lint-ignore no-explicit-any
+  const res: any = await client.beta.messages.create({
+    model: COPY_MODEL, max_tokens: 4000,
+    betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+    output_config: { effort: "medium" },
+    system,
+    tools: [{ type: "web_fetch_20260209", name: "web_fetch", allowed_domains: [SHOP_URL.replace(/^https?:\/\//, "")], max_uses: 2 }],
+    messages: [{ role: "user", content: `아래 상품의 광고 문구를 기본값(긴글)으로 써줘. 상품 페이지(${url})를 열어 컬러·옵션·리뷰를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력.\n\n[카페24 상품 정보]\n${facts}` }],
+  } as any);
+  if (res.stop_reason === "refusal") throw new Error("문구 생성이 거부되었습니다 (안전 분류)");
+  const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").trim();
+  if (!message) throw new Error("문구가 비어 있습니다");
+  return { message, usage: res.usage };
+}
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -231,7 +279,7 @@ Deno.serve(async (req) => {
   try {
     // ── 인증: meta-ads와 동일한 DASH_KEY(x-dash-key) — 이식 패키지의 x-api-key 어댑터를 이걸로 교체 ──
     // 상품 목록은 마케터도(소재 등록 매칭용), 매출 데이터는 관리자만
-    const me = await requireRole(req, action === "products" ? ["admin", "marketer"] : ["admin"]); if (me instanceof Response) return me;
+    const me = await requireRole(req, ["products", "copy_get", "copy_generate", "copy_save"].includes(action) ? ["admin", "marketer"] : ["admin"]); if (me instanceof Response) return me;
 
     // ── 저장 기록(perf_archive) CRUD — 카페24 토큰이 없어도 되므로 토큰 확보보다 먼저 처리 ──
     if (action === "archive_list") {
@@ -293,6 +341,32 @@ Deno.serve(async (req) => {
         if (page.length < 100) break;
       }
       return respond({ product_count: rows.length, rows });
+    }
+
+    // ── 상품별 광고 문구: 저장본 조회 / AI 생성·고정 / 직접 기입 고정 ──
+    if (action === "copy_get") {
+      const nos = (url.searchParams.get("product_nos") ?? "").split(",").map((x) => Number(x)).filter((n) => n > 0).slice(0, 200);
+      if (!nos.length) return json({ rows: [] });
+      const r = await dbRest(`product_copy?product_no=in.(${nos.join(",")})&select=product_no,product_name,text,source,updated_at,updated_by`);
+      return json({ rows: r.ok ? await r.json() : [] });
+    }
+    if (action === "copy_generate" || action === "copy_save") {
+      if (req.method !== "POST") return json({ error: "POST 필요" }, 405);
+      const b = await req.json();
+      const no = Number(b.product_no ?? 0); if (!no) return json({ error: "product_no 필요" }, 400);
+      let text: Record<string, unknown>, source: string, usage: unknown = null;
+      if (action === "copy_generate") {
+        const g = await generateCopy(no, token); usage = g.usage;
+        text = { message: g.message, title: "", description: "", cta: "LEARN_MORE" }; source = "ai";
+      } else {
+        text = (b.text ?? {}) as Record<string, unknown>;
+        if (!String(text.message ?? "").trim()) return json({ error: "본문 필요" }, 400);
+        source = "manual";
+      }
+      const row = { product_no: no, product_name: b.product_name ? String(b.product_name).slice(0, 300) : null, text, source, updated_at: new Date().toISOString(), updated_by: me.email };
+      const r = await dbRest("product_copy?on_conflict=product_no", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(row) });
+      if (!r.ok) return json({ error: `저장 실패: ${await r.text()}` }, 500);
+      return json({ row: (await r.json())[0], usage });
     }
 
     if (action === "performance") {

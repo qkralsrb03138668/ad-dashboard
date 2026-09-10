@@ -26,9 +26,17 @@ async function uplLoadRegistered() {
     let added = 0;
     for (const r of rows) {
       if (upl.files.some(f => f.creative_id === r.id)) continue;
-      upl.files.push({ id: newId(), creative_id: r.id, file: null, kind: r.kind, name: r.file_name.replace(/\.[^.]+$/, ''), product_name: r.product_name || '', url: r.url || '',
+      upl.files.push({ id: newId(), creative_id: r.id, file: null, kind: r.kind, name: r.file_name.replace(/\.[^.]+$/, ''), product_name: r.product_name || '', product_no: r.product_no || null, url: r.url || '',
         text: r.text && r.text.message ? { ...r.text, link: r.text.link || r.url } : null, status: '등록됨 (전송 불필요)', media: r.media, result: null, sel: false, registered_at: r.created_at });
       added++;
+    }
+    // 문구 없는 등록 소재 → 상품 고정 문구가 있으면 채움
+    const need = upl.files.filter(f => f.creative_id && !f.text && f.product_no);
+    if (need.length) {
+      try {
+        const { rows: copies } = await perfApi({ action: 'copy_get', product_nos: [...new Set(need.map(f => f.product_no))].join(',') });
+        for (const f of need) { const c = copies.find(c => c.product_no === f.product_no); if (c) f.text = { message: c.text.message || '', title: c.text.title || '', description: c.text.description || '', link: f.url, cta: c.text.cta || 'LEARN_MORE' }; }
+      } catch (e) { /* 없으면 그대로 */ }
     }
     if (added) { uplRenderFiles(); toast(`등록된 소재 ${added}개를 불러왔어요`); }
   } catch (e) { /* 미배포·권한 없음 등은 조용히 */ }
