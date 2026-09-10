@@ -208,14 +208,15 @@
         <!-- ③ 설정 · 실행 -->
         <div style="font-weight:800;color:#1e1b4b;margin:22px 0 8px;">③ 설정 · 생성</div>
         <div class="control-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
-          <div class="input-group" style="margin:0;"><label>세트당 일예산 (원)</label>
-            <input class="inp" id="upl-budget" type="number" min="1000" step="1000" placeholder="모델 세트 예산" style="width:150px;background:#fff;" /></div>
+          <div class="input-group" style="margin:0;"><label>기본 일예산 (원) <span style="font-weight:400;color:#9ca3af;">— 표에서 비운 파일에 적용</span></label>
+            <input class="inp" id="upl-budget" type="number" min="1000" step="1000" placeholder="모델 세트 예산" style="width:150px;background:#fff;" onchange="uplRenderFiles()" /></div>
           <div class="input-group" style="margin:0;"><label>생성 상태</label>
             <div style="display:flex;gap:14px;padding:8px 0;font-size:.85rem;">
               <label style="cursor:pointer;" title="광고세트만 일시중지, 광고는 활성 — 세트만 켜면 바로 게재"><input type="radio" name="upl-mode" value="PAUSED" checked /> 세트 일시중지로 생성 (광고는 활성)</label>
               <label style="cursor:pointer;"><input type="radio" name="upl-mode" value="ACTIVE" /> 바로 활성</label></div></div>
           <button class="btn-ghost" onclick="uplTextOpen(-1)"><i class="fa-solid fa-pen"></i> 광고 문구 일괄 기입</button>
           <button class="btn-ghost" id="upl-text-sel" onclick="uplTextOpen(-2)" disabled><i class="fa-solid fa-pen-to-square"></i> 선택 파일 문구 기입</button>
+          <button class="btn-ghost" id="upl-budget-sel" onclick="uplBudgetSel()" disabled><i class="fa-solid fa-coins"></i> 선택 파일 예산 입력</button>
           <button class="btn-ghost" onclick="uplDiagnose()" title="실제 생성 없이 Meta에 세트·크리에이티브·광고 생성 요청을 검증"><i class="fa-solid fa-stethoscope"></i> 연결 진단</button>
           <div class="input-group" style="margin:0;margin-left:auto;"><label>PIN</label>
             <input class="inp" id="upl-pin" type="password" inputmode="numeric" placeholder="예산 변경 PIN" style="width:130px;background:#fff;" /></div>

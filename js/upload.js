@@ -103,11 +103,12 @@ function uplRenderFiles() {
   const box = $('upl-files');
   if (!upl.files.length) { box.innerHTML = ''; $('upl-run').textContent = ' 광고 생성'; uplSelBtn(); return; }
   box.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th style="width:28px;"><input type="checkbox" title="전체 선택" ${upl.files.length && upl.files.every(f => f.sel) ? 'checked' : ''} onchange="uplSelAll(this.checked)" /></th><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
+    <thead><tr><th style="width:28px;"><input type="checkbox" title="전체 선택" ${upl.files.length && upl.files.every(f => f.sel) ? 'checked' : ''} onchange="uplSelAll(this.checked)" /></th><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th title="비우면 아래 기본 일예산 적용">세트 예산</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
     <tbody>${upl.files.map((f, i) => `<tr>
       <td><input type="checkbox" ${f.sel ? 'checked' : ''} onchange="upl.files[${i}].sel=this.checked;uplSelBtn()" /></td>
       <td style="font-size:.78rem;"><i class="fa-solid ${f.kind==='video'?'fa-video':'fa-image'}" style="color:#4f46e5;"></i> ${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></td>
       <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
+      <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null" ${upl.running||f.result?'disabled':''} title="비우면 기본 일예산" />`}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})">${f.text ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 기입됨' : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
@@ -117,8 +118,18 @@ function uplRenderFiles() {
 }
 function uplSelAll(on) { for (const f of upl.files) f.sel = on; uplRenderFiles(); }
 function uplSelBtn() {
-  const n = upl.files.filter(f => f.sel).length, b = $('upl-text-sel');
+  const n = upl.files.filter(f => f.sel).length, b = $('upl-text-sel'), bb = $('upl-budget-sel');
   b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 파일 문구 기입${n ? ` (${n})` : ''}`;
+  if (bb) { bb.disabled = !n; bb.innerHTML = `<i class="fa-solid fa-coins"></i> 선택 파일 예산 입력${n ? ` (${n})` : ''}`; }
+}
+function uplBudgetSel() {   // 체크한 파일들의 세트 예산을 한 번에 지정
+  const rows = upl.files.filter(f => f.sel && !f.result); if (!rows.length) { toast('파일을 먼저 체크하세요'); return; }
+  const v = prompt(`선택한 ${rows.length}개 파일의 세트당 일예산 (원)\n비우면 기본 일예산으로 되돌려요`, $('upl-budget').value || '');
+  if (v === null) return;
+  const n = Number(String(v).replace(/[^\d]/g, '')) || null;
+  if (n && (n < 1000 || n > 300000)) { toast('1,000~300,000원 사이로 입력하세요'); return; }
+  for (const f of rows) { f.budget = n; f.sel = false; }
+  uplRenderFiles(); toast(n ? `${rows.length}개 파일 예산을 ${n.toLocaleString()}원으로 지정했어요` : `${rows.length}개 파일을 기본 예산으로 되돌렸어요`);
 }
 
 /* ── 문구 모달: idx=-1 → 전체 일괄, 아니면 해당 행 ── */
@@ -227,7 +238,11 @@ async function uplRun() {
   if (!upl.files.length) { toast('② 파일을 추가하세요'); return; }
   const pin = uplPin(); if (!pin) { toast('PIN을 입력하세요'); $('upl-pin').focus(); return; }
   const budget = Number($('upl-budget').value || 0);
-  if (!upl.model.cbo && (budget < 1000 || budget > 300000)) { toast('세트당 일예산은 1,000~300,000원'); $('upl-budget').focus(); return; }
+  const budgetOf = f => f.budget || budget;   // 개별 지정이 있으면 그것, 없으면 기본
+  if (!upl.model.cbo) {
+    const bad = upl.files.filter(f => !f.result && (budgetOf(f) < 1000 || budgetOf(f) > 300000));
+    if (bad.length) { toast(`세트당 일예산은 1,000~300,000원 — ${bad[0].name}${bad.length > 1 ? ` 외 ${bad.length - 1}개` : ''}`); if (!budget) $('upl-budget').focus(); return; }
+  }
   const mode = document.querySelector('input[name=upl-mode]:checked').value;
   const effText = f => f.text || (upl.commonText ? { ...upl.commonText, link: f.url || upl.commonText.link } : null);
   const missing = upl.files.filter(f => !effText(f));
@@ -235,7 +250,8 @@ async function uplRun() {
   const dup = upl.files.filter(f => !f.name.trim()); if (dup.length) { toast('이름이 빈 파일이 있어요'); return; }
   const pending = upl.files.filter(f => !f.result);
   if (!pending.length) { toast('모두 생성 완료됐어요'); return; }
-  if (!confirm(`광고 ${pending.length}개를 ${mode === 'ACTIVE' ? '⚠ 바로 활성 상태로' : '세트 일시중지(광고는 활성) 상태로'} 생성할까요?\n캠페인: ${upl.model.campaign.name}\n${upl.model.cbo ? '캠페인 예산(CBO)' : `세트당 일예산 ${budget.toLocaleString()}원`}\n\n${mode === 'ACTIVE' ? '활성 생성은 즉시 지출이 시작돼요.' : '광고관리자에서 세트를 켜기 전까지 지출 없음.'}`)) return;
+  const custom = pending.filter(f => f.budget && f.budget !== budget).length;
+  if (!confirm(`광고 ${pending.length}개를 ${mode === 'ACTIVE' ? '⚠ 바로 활성 상태로' : '세트 일시중지(광고는 활성) 상태로'} 생성할까요?\n캠페인: ${upl.model.campaign.name}\n${upl.model.cbo ? '캠페인 예산(CBO)' : `세트당 일예산 기본 ${budget.toLocaleString()}원${custom ? ` (개별 지정 ${custom}개)` : ''}`}\n\n${mode === 'ACTIVE' ? '활성 생성은 즉시 지출이 시작돼요.' : '광고관리자에서 세트를 켜기 전까지 지출 없음.'}`)) return;
 
   upl.running = true; $('upl-run').disabled = true; uplRenderFiles();
   lsSet('adc_admgr_pin', pin);
@@ -265,9 +281,9 @@ async function uplRun() {
     if (!f.media || pinFail) continue;
     try {
       uplSetStatus(f, '세트·광고 생성 중');
-      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget, status: mode, media: f.media, text: effText(f), creative_id: f.creative_id || null });
+      const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget: budgetOf(f), status: mode, media: f.media, text: effText(f), creative_id: f.creative_id || null });
       f.result = r; ok++;
-      uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id})`);
+      uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id}${upl.model.cbo ? '' : ` · ${budgetOf(f).toLocaleString()}원`})`);
       uplLog(`${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
     } catch (e) {
       uplSetStatus(f, '실패: ' + e.message);
