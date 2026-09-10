@@ -202,7 +202,8 @@ function regSyncBoard() {
     if (pt.products.some(p => p.product_no === r.product_no)) continue;
     const byName = pt.products.find(p => !p.product_no && normKey(p.name) === normKey(r.product_name || r.core_name || ''));
     if (byName) { byName.product_no = r.product_no; changed = true; continue; }
-    pt.products.unshift({ id: newId(), name: r.product_name || r.core_name, product_no: r.product_no, cells: {} }); changed = true;
+    const cp = (reg.products || []).find(p => p.product_no === r.product_no);
+    pt.products.unshift({ id: newId(), name: r.product_name || r.core_name, product_no: r.product_no, created: cp && cp.created || '', cells: {} }); changed = true;
   }
   if (changed) ptSave();
 }

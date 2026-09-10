@@ -3,24 +3,28 @@
 'use strict';
 
 /* ═══════════ ④-2 광고소재 대시보드 (상품별 소재 테스트 체크보드) ═══════════
-   pt = { types: ['스토리','썸네일릴스','릴스', ...],
-          products: [{ id, name, cells: { 유형명: {st:'made'|'run', date:'YYYY-MM-DD'} } }] }
+   pt = { types: ['스토리','릴스', ...],
+          products: [{ id, name, product_no?, created?(카페24 등록일), cells: { 유형명: {st:'made'|'run', date:'YYYY-MM-DD'} } }] }
    칸 클릭 순환: 없음 → made(제작완료) → run(진행중) → 없음                              */
 let pt = lsGet(LS.pt, null);
 if (!pt) { pt = ptSampleData(); lsSet(LS.pt, pt); }   // 최초 1회 예시 데이터
+if (!lsGet('adc_pt_mig_thumb', false)) {   // 2026-09-10: '썸네일릴스' 열 제거 (1회) — 다시 추가하면 유지됨
+  pt.types = pt.types.filter(t => t !== '썸네일릴스'); for (const p of pt.products) delete p.cells['썸네일릴스'];
+  lsSet(LS.pt, pt); lsSet('adc_pt_mig_thumb', true);
+}
 let ptSel = new Set(), ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
 
 function ptSave() { lsSet(LS.pt, pt); }
 function ptSampleData() {
   const d = n => todayStr(-n);
   return {
-    types: ['스토리', '썸네일릴스', '릴스'],
+    types: ['스토리', '릴스'],
     products: [
-      { id: newId(), name: '클레르 블라우스',   cells: { '스토리': { st:'run',  date:d(12) }, '썸네일릴스': { st:'run',  date:d(9) },  '릴스': { st:'made', date:d(3) } } },
-      { id: newId(), name: '내티 원피스',       cells: { '스토리': { st:'run',  date:d(15) }, '썸네일릴스': { st:'made', date:d(5) },  '릴스': { st:'run',  date:d(7) } } },
-      { id: newId(), name: '프레시 훌 티셔츠',  cells: { '스토리': { st:'made', date:d(4) },  '썸네일릴스': { st:'run', date:d(2) } } },
-      { id: newId(), name: '모튼 가디건',       cells: { '릴스': { st:'made', date:d(1) } } },
-      { id: newId(), name: '센느 후드 원피스',  cells: {} },
+      { id: newId(), name: '클레르 블라우스',   created: d(40), cells: { '스토리': { st:'run',  date:d(12) }, '릴스': { st:'made', date:d(3) } } },
+      { id: newId(), name: '내티 원피스',       created: d(33), cells: { '스토리': { st:'run',  date:d(15) }, '릴스': { st:'run',  date:d(7) } } },
+      { id: newId(), name: '프레시 훌 티셔츠',  created: d(20), cells: { '스토리': { st:'made', date:d(4) } } },
+      { id: newId(), name: '모튼 가디건',       created: d(9),  cells: { '릴스': { st:'made', date:d(1) } } },
+      { id: newId(), name: '센느 후드 원피스',  created: d(2),  cells: {} },
     ],
   };
 }
@@ -39,6 +43,7 @@ async function ptImportCafe24() {
   const btn = $('pt-import-btn'); btn.disabled = true;
   try {
     ptCafe24Rows = (await perfApi({ action: 'products' })).rows.filter(r => r.name);
+    ptFillCreated(ptCafe24Rows);
     ptPickSel = new Set(); $('pt-pick-q').value = '';
     renderPtPick(); $('pt-pick-modal').classList.add('show'); $('pt-pick-q').focus();
   } catch (e) { toast('불러오기 실패: ' + e.message); }
@@ -67,11 +72,29 @@ function ptPickToggle(no, on) {   // 목록은 다시 그리지 않음 (스크�
 }
 function ptPickAdd() {
   const added = ptCafe24Rows.filter(r => ptPickSel.has(r.product_no) && !ptHas(r))
-    .map(r => ({ id: newId(), name: r.name, product_no: r.product_no, cells: {} }));
+    .map(r => ({ id: newId(), name: r.name, product_no: r.product_no, created: r.created || '', cells: {} }));
   pt.products = [...added, ...pt.products];
   ptSave(); renderPTest(); closeModal('pt-pick-modal');
   toast(`상품 ${added.length}개를 추가했어요`);
 }
+/* 카페24 등록일 채우기 — 이미 보드에 있던 상품(번호·이름 일치)에 created가 없으면 넣는다 */
+function ptFillCreated(rows) {
+  let n = 0;
+  for (const p of pt.products) {
+    if (p.created) continue;
+    const r = rows.find(r => (p.product_no && r.product_no === p.product_no) || r.name === p.name);
+    if (r && r.created) { p.created = r.created; if (!p.product_no) p.product_no = r.product_no; n++; }
+  }
+  if (n) ptSave();
+  return n;
+}
+let ptCreatedTried = false;
+async function ptBackfillCreated() {   // 세션당 1회: 등록일 없는 상품이 있으면 조용히 채움 (서버 10분 캐시)
+  if (ptCreatedTried || !pt.products.some(p => !p.created) || typeof admgrCfg !== 'function' || !admgrCfg()) return;
+  ptCreatedTried = true;
+  try { const rows = (await perfApi({ action: 'products', nocache: '1' })).rows; if (ptFillCreated(rows)) renderPTest(); } catch (e) { /* 미연동·오프라인은 무시 */ }   // nocache: 등록일 없는 옛 캐시를 피함
+}
+const fmtYMD = d => d ? String(d).slice(2, 10).replace(/-/g, '.') : '-';
 function ptDelProduct(id) {
   const p = pt.products.find(x => x.id === id); if (!p) return;
   if (!confirm(`'${p.name}' 행을 삭제할까요?`)) return;
@@ -135,6 +158,7 @@ function ptDelAll() {
 }
 
 function renderPTest() {
+  ptBackfillCreated();
   if (!reg.list && !reg.listLoading && admgrCfg()) regRefresh();   // 등록 기록은 서버에서 (처음 한 번, 이후 새로고침 버튼)
   regSyncBoard(); ptRegIdx = regBoardIndex();
   if (reg.list) regRenderList();
@@ -207,7 +231,7 @@ function renderPTest() {
   body.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>
       <th style="width:28px;"><input type="checkbox" title="이 페이지 전체 선택" onchange="ptSelPage(this.checked)" /></th>
-      <th style="text-align:left;">상품명</th>
+      <th style="text-align:left;">상품명</th><th title="카페24 상품 등록일">등록일</th>
       ${pt.types.map((t, ti) => `<th>${esc(t)}<button class="pt-th-x" title="'${esc(t)}' 유형 삭제" onclick="ptDelType(${ti})"><i class="fa-solid fa-xmark"></i></button></th>`).join('')}
       <th>진행률</th><th></th>
     </tr></thead>
@@ -216,6 +240,7 @@ function renderPTest() {
       return `<tr>
         <td><input type="checkbox" value="${p.id}" ${ptSel.has(p.id)?'checked':''} onchange="ptSelToggle(this.value, this.checked)" /></td>
         <td class="name-cell" style="font-weight:700;">${esc(p.name)}</td>
+        <td style="text-align:center;font-size:.76rem;color:#6b7280;white-space:nowrap;">${fmtYMD(p.created)}</td>
         ${pt.types.map((t, ti) => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" title="소재 등록 기록으로 자동 표시 — 클릭으로 못 바꿔요">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}',${ti})">${cellHtml(p, t)}</td>`).join('')}
         <td><span class="pt-prog-wrap"><span class="pt-prog-bar"><span class="pt-prog-fill" style="width:${N ? done / N * 100 : 0}%;"></span></span>
           <b style="font-size:.78rem;">${done}/${N}</b></span></td>
