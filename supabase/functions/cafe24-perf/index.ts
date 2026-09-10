@@ -279,7 +279,7 @@ Deno.serve(async (req) => {
   try {
     // ── 인증: meta-ads와 동일한 DASH_KEY(x-dash-key) — 이식 패키지의 x-api-key 어댑터를 이걸로 교체 ──
     // 상품 목록은 마케터도(소재 등록 매칭용), 매출 데이터는 관리자만
-    const me = await requireRole(req, ["products", "copy_get", "copy_generate", "copy_save"].includes(action) ? ["admin", "marketer"] : ["admin"]); if (me instanceof Response) return me;
+    const me = await requireRole(req, ["products", "copy_get", "copy_generate", "copy_save", "copy_facts"].includes(action) ? ["admin", "marketer"] : ["admin"]); if (me instanceof Response) return me;
 
     // ── 저장 기록(perf_archive) CRUD — 카페24 토큰이 없어도 되므로 토큰 확보보다 먼저 처리 ──
     if (action === "archive_list") {
@@ -344,6 +344,10 @@ Deno.serve(async (req) => {
     }
 
     // ── 상품별 광고 문구: 저장본 조회 / AI 생성·고정 / 직접 기입 고정 ──
+    if (action === "copy_facts") {   // 로컬 문구생성.command 용: 상품 정보 텍스트 + URL (생성은 사용자 맥의 Claude Code가)
+      const no = Number(url.searchParams.get("product_no") ?? 0); if (!no) return json({ error: "product_no 필요" }, 400);
+      return json({ product_no: no, url: `${SHOP_URL}/product/detail.html?product_no=${no}`, facts: await productFacts(no, token) });
+    }
     if (action === "copy_get") {
       const nos = (url.searchParams.get("product_nos") ?? "").split(",").map((x) => Number(x)).filter((n) => n > 0).slice(0, 200);
       if (!nos.length) return json({ rows: [] });
