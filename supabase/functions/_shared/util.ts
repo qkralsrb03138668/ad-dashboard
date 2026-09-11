@@ -32,7 +32,15 @@ export function checkDashKey(req: Request): boolean {
 
 // ── 로그인 인증 (2026-09-07): DASH_KEY(로컬 파일용, admin 취급) 또는 Supabase Auth 사용자 JWT + profiles 역할 ──
 //   프로필이 없는 계정은 거부 — 계정은 관리자가 '데이터 관리 › 사용자 관리'에서 만든다 (auth-admin 함수).
-export interface AuthUser { id: string; email: string; name: string; role: "admin" | "marketer" }
+export interface AuthUser { id: string; email: string; name: string; role: "admin" | "marketer"; perms?: { menus: string[]; actions: string[] } }
+// 세부 권한(2026-09-11 2탄): SSO 사용자는 워크스페이스 관리자가 정한 perms(menus·actions)로, 자체 로그인 사용자는 기존 role 규칙으로
+export type Act = "toggle" | "budget" | "upload" | "creative" | "delete";
+export function canAct(me: AuthUser, action: Act): boolean {
+  if (me.perms) return (me.perms.actions ?? []).includes(action);
+  return me.role === "admin" || action === "creative";   // 기존 규칙: 마케터는 소재 등록만
+}
+export function canMenu(me: AuthUser, menu: string): boolean { return me.perms ? (me.perms.menus ?? []).includes(menu) : me.role === "admin"; }
+export function denyAct(action: string): Response { return json({ error: `이 동작(${action}) 권한이 없습니다 — 워크스페이스 관리자에게 요청하세요` }, 403); }
 // DNRB 워크스페이스 SSO 토큰(2026-09-11): x-dnrb-token을 워크스페이스 auth 함수 verify로 확인 (시크릿 공유 없음).
 //   401 위조·만료 / 403 워크스페이스 허용 목록에서 빠짐 → 둘 다 거부. 워크스페이스 admin만 admin, 나머지는 marketer. 60초 캐시.
 const DNRB_AUTH_URL = "https://eeffmbusaqaadeojjlnc.supabase.co/functions/v1/auth";
@@ -45,7 +53,7 @@ async function dnrbVerify(token: string): Promise<AuthUser | null> {
     const r = await fetch(DNRB_AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json", apikey: DNRB_ANON, Authorization: `Bearer ${DNRB_ANON}` }, body: JSON.stringify({ action: "verify", token }) });
     if (!r.ok) return null;
     const d = await r.json();
-    const u: AuthUser = { id: "dnrb:" + d.id, email: String(d.id), name: String(d.name ?? d.id), role: d.role === "admin" ? "admin" : "marketer" };
+    const u: AuthUser = { id: "dnrb:" + d.id, email: String(d.id), name: String(d.name ?? d.id), role: d.role === "admin" ? "admin" : "marketer", perms: d.perms };
     dnrbCache.set(token, { at: Date.now(), u });
     return u;
   } catch { return null; }

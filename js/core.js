@@ -117,6 +117,7 @@ function menuGroupToggle(id, force) {
 }
 const ADMGR_SOLO = { atest: 'test', abest: 'best' };   // 소재 메뉴의 단독 화면 → 광고관리자 섹션을 그 탭만으로 (2026-09-11)
 function showMenu(key) {
+  if (typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
   const sec = ADMGR_SOLO[key] ? 'admgr' : key;

@@ -34,6 +34,11 @@ let n = 0;
 const test = (name, fn) => { try { fn(); n++; console.log('  ✓', name); } catch (e) { console.error('  ✗', name); throw e; } };
 
 console.log('유틸');
+test('dnrbCan: SSO 아니면 전부 허용, perms 있으면 actions만', () => {
+  const f = g('dnrbCan'); localStorage.removeItem('dnrb_sso'); assert.equal(f('budget'), true);
+  localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', exp: Date.now() + 60000, perms: { menus: ['home'], actions: ['creative'] } }));
+  assert.equal(f('creative'), true); assert.equal(f('budget'), false); localStorage.removeItem('dnrb_sso');
+});
 test('dnrbSession: 만료 토큰 거부, 유효 토큰 통과', () => {
   const f = g('dnrbSession'); localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', exp: Date.now() - 1 })); assert.equal(f(), null);
   localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', id: 'u', role: 'staff', exp: Date.now() + 60000 })); assert.equal(f().id, 'u'); localStorage.removeItem('dnrb_sso');

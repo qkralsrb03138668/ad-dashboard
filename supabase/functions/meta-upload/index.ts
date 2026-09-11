@@ -26,7 +26,7 @@
 // 보안: DASH_KEY + 매 쓰기 요청 PIN(WRITE_PIN, meta-budget과 동일 규칙: 15분 5회 잠금) + 일예산 상한 300,000원.
 // 필요 secrets: META_WRITE_TOKEN, WRITE_PIN, DASH_KEY, META_AD_ACCOUNT_ID
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, dbRest, requireRole, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheSet, dbRest, getAuth, canAct, denyAct, handleOptions, json } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const MAX_BUDGET = 300_000, MIN_BUDGET = 1_000;
@@ -169,7 +169,13 @@ Deno.serve(async (req) => {
   try {
     if (!env("DASH_KEY")) return json({ error: "DASH_KEY 미설정" }, 403);
     // 미디어 업로드·조회는 마케터도, 광고 생성(create)·검증은 관리자만
-    const me = await requireRole(req, ["create", "validate", "diagnose", "verify"].includes(action) ? ["admin"] : ["admin", "marketer"]); if (me instanceof Response) return me;
+    const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+    if (me.perms) {   // SSO 사용자: 워크스페이스 세부 권한. 미디어 업로드(image/video_*)는 소재 등록에도 필요하므로 creative 권한으로도 허용
+      const media = ["image", "video_start", "video_chunk", "video_finish"].includes(action);
+      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
+      if (media && !canAct(me, "upload") && !canAct(me, "creative")) return denyAct("upload");
+      if (need && !canAct(me, need)) return denyAct(need);
+    } else if (["create", "validate", "diagnose", "verify"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
 
     if (action === "status") return json({ token_set: !!env("META_WRITE_TOKEN"), pin_set: !!env("WRITE_PIN"), account: ACCOUNT });
     if (action === "model") return json(await readModel(url.searchParams.get("ad_id") ?? ""));

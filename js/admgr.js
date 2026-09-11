@@ -260,7 +260,7 @@ function admgrOnOff(r, level) {
   if (!r.status) return '<span style="color:#ccd0d5;">—</span>';
   const d = admgrSDraft[r.id];
   const on = d ? d.status === 'ACTIVE' : r.status === 'ACTIVE';
-  const can = admgr.write.st && admgr.write.st.allowed && !admgr.demo;
+  const can = admgr.write.st && admgr.write.st.allowed && !admgr.demo && dnrbCan('toggle');
   const tip = d ? `임시 저장됨 (${on ? '켜기' : '끄기'} 예정) — 클릭하면 취소, 게시는 위의 '임시 저장 전체 게시'` : `${on ? '켜짐' : '꺼짐'}${can ? ' — 클릭하면 ' + (on ? '끄기' : '켜기') + ' 임시 저장' : ''}`;
   return `<span class="mtg ${on ? '' : 'off'} ${d ? 'pend' : ''} ${can ? '' : 'ro'}" title="${tip}" ${can ? `onclick="event.stopPropagation();admgrToggleStatus('${r.id}','${level}')"` : ''}></span>${d ? '<div style="font-size:.6rem;color:#b45309;">임시</div>' : ''}`;
 }
@@ -338,7 +338,7 @@ function renderAdmgr(keepScroll) {
         <input type="checkbox" ${admgr.activeOnly ? 'checked' : ''} onchange="admgrToggleActive()" /> 활성만</label>`}
       <input class="inp" id="admgr-q" style="max-width:200px;background:#fff;" placeholder="${own ? '세트명·소재명 검색' : '이름 검색'}" value="${esc(admgr.q)}" oninput="admgrSearch(this.value)" />
       ${!own ? `<button class="filter-tab" onclick="admgrColsMenu(event)" title="표시할 열 선택 · 드래그로 순서 변경"><i class="fa-solid fa-table-columns"></i> 열</button>` : ''}
-      ${!own && !admgr.demo && admgr.write.st ? `<span style="display:inline-flex;gap:6px;flex-wrap:wrap;">${admgrWriteCtrlHtml()}</span>` : ''}
+      ${!own && !admgr.demo && admgr.write.st && dnrbCan('budget') ? `<span style="display:inline-flex;gap:6px;flex-wrap:wrap;">${admgrWriteCtrlHtml()}</span>` : ''}
       <span style="flex:1;"></span>
       ${cfg && !admgr.demo ? `<button class="btn-analyze" onclick="admgrRefresh()" ${busy ? 'disabled' : ''}>
           <i class="fa-solid ${own ? 'fa-rotate' : 'fa-cloud-arrow-down'}"></i> ${busy ? '불러오는 중…' : own ? '새로고침' : 'Meta 불러오기'}</button>` : ''}
@@ -399,7 +399,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
   const bb = admgr.budget;
   const showChg = admgr.preset === 'today' && (isCamp || isSet) && !admgr.demo;
-  const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo;   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
+  const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo && dnrbCan('budget');   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
   /* '판정' 열 — 광고세트 탭 + 오늘 칩: 지출 vs 마진(판매가−공급가×1.1)·구매로 1차/2차 후보 배지 (2026-09-05 사용자 운영 규칙) */
   const showJudge = isSet && admgr.preset === 'today' && !admgr.demo;
   let judgeChips = '';
@@ -415,7 +415,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${chip('cut', '🔴 감액 ÷10', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '🟡 곧 도달', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '🟢 증액 검토', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}
       ${chip('nomargin', '마진 없음', cnt('nomargin'), admgr.judgeFilter === 'nomargin', "admgrJudgeSet('nomargin')")}
       <span style="flex:1;"></span>
-      ${cnt('cut') && admgr.write.st ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="감액 후보 전체를 현재 예산 ÷10으로 즉시 적용 (PIN·확인창)">감액 후보 전체 ÷10 (${cnt('cut')})</button>` : ''}
+      ${cnt('cut') && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="감액 후보 전체를 현재 예산 ÷10으로 즉시 적용 (PIN·확인창)">감액 후보 전체 ÷10 (${cnt('cut')})</button>` : ''}
       ${admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
     </div>`;
     if (admgr.judgeFilter !== 'all') vis = all.filter(x => x.j.key === admgr.judgeFilter).map(x => x.r);
@@ -600,7 +600,7 @@ function admgrJudgeCell(r) {
   const b = ADMGR_JUDGE[j.key];
   const pen = `<i class="fa-solid fa-pen" title="마진 직접 입력${j.src ? ' — 현재: ' + esc(j.src) : ''}" style="font-size:.55rem;color:#a5b4fc;cursor:pointer;margin-left:4px;" onclick="event.stopPropagation();admgrMarginEdit('${r.id}')"></i>`;
   const sub = j.m > 0 ? `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;">마진 ${comma(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%${pen}</div>` : `<div style="font-size:.62rem;color:#9ca3af;">${j.src ? esc(j.src.slice(0, 18)) : '상품 매칭 안 됨'}${pen}</div>`;
-  const act = j.key === 'cut' && admgr.write.st && r.budget > 0
+  const act = j.key === 'cut' && admgr.write.st && dnrbCan('budget') && r.budget > 0
     ? ` <button class="filter-tab" style="padding:2px 8px;font-size:.66rem;color:#dc2626;border-color:#fca5a5;" title="${comma(r.budget)} → ${comma(Math.max(1000, Math.round(r.budget / 10)))}원 즉시 적용" onclick="event.stopPropagation();admgrCut10('${r.id}')">÷10</button>` : '';
   return `${b ? `<span class="status-badge ${b.cls}" style="white-space:nowrap;">${b.t}</span>${act}` : '<span style="color:#d1d5db;">—</span>'}${sub}`;
 }

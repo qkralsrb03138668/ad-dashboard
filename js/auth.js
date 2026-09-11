@@ -15,7 +15,7 @@ const DNRB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIs
 async function dnrbApi(body) {
   const r = await fetch(DNRB_AUTH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: DNRB_ANON, Authorization: 'Bearer ' + DNRB_ANON }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+  if (!r.ok || d.error) { const e = new Error(d.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
   return d;
 }
 function dnrbSession() {
@@ -28,8 +28,10 @@ async function dnrbInit() {
     try { const d = await dnrbApi({ action: 'sso_redeem', code: m[1] }); localStorage.setItem(DNRB_KEY, JSON.stringify(d)); }
     catch (e) { toast('워크스페이스 자동 로그인 실패: ' + e.message); }
   }
-  const s = dnrbSession();
+  let s = dnrbSession();
   if (!s) return false;
+  try { const v = await dnrbApi({ action: 'verify', token: s.token }); s = { ...s, ...v, token: s.token }; localStorage.setItem(DNRB_KEY, JSON.stringify(s)); }   // 권한(perms)은 관리자가 바꾸는 즉시 → 진입마다 새로 받음
+  catch (e) { if (e.status === 401 || e.status === 403) { localStorage.removeItem(DNRB_KEY); toast('워크스페이스 권한이 없어요: ' + e.message); return false; } }   // 네트워크 오류면 저장본으로 진행
   AUTH.me = { email: s.id, name: s.name, role: s.role === 'admin' ? 'admin' : 'marketer', dnrb: true };   // 워크스페이스 관리자만 관리자
   $('login-gate').style.display = 'none'; authApplyRole();
   return true;
@@ -106,6 +108,19 @@ function authApplyRole() {
     + (AUTH.session ? ` · <a href="#" onclick="authChangePw();return false;">비밀번호 변경</a>` : '')
     + (AUTH.session || AUTH.me.dnrb ? ` · <a href="#" onclick="authLogout();return false;">로그아웃</a>` : '');
   if (!admin && ['admgr', 'upload', 'perf', 'data'].includes(curMenu)) showMenu('ptest');
+  dnrbApplyPerms();
+}
+/* 세부 권한(2탄, 2026-09-11): SSO 세션의 perms.menus(= data-menu 값)·perms.actions(toggle/budget/upload/creative/delete).
+   화면 숨김은 편의, 진짜 잠금은 서버(util canAct). SSO가 아니면 null = 기존 role 규칙 */
+function dnrbPerms() { const s = dnrbSession(); return s && s.perms ? s.perms : null; }
+function dnrbCan(action) { const p = dnrbPerms(); return !p || (p.actions || []).includes(action); }
+function dnrbApplyPerms() {
+  const p = dnrbPerms(); if (!p) return;
+  const menus = new Set(p.menus || []);
+  document.querySelectorAll('.menu-item[data-menu]').forEach(el => { el.style.display = menus.has(el.dataset.menu) ? '' : 'none'; });
+  document.querySelectorAll('a.menu-item[href="shoot-board.html"]').forEach(el => { el.style.display = menus.has('shoot') ? '' : 'none'; });
+  document.querySelectorAll('[data-act]').forEach(el => { el.style.display = dnrbCan(el.dataset.act) ? '' : 'none'; });
+  if (!menus.has(curMenu)) showMenu([...menus].find(k => k !== 'shoot') || 'home');
 }
 
 /* 사용자 관리 (데이터 관리 탭, 관리자) */

@@ -19,7 +19,7 @@
 // 인증은 meta-ads와 같은 DASH_KEY(x-dash-key). 저장 기록(perf_archive)도 이 함수의 archive_* 액션으로만 접근한다.
 // 카페24 판매 데이터(매출 금액 포함)가 나가므로 DASH_KEY 없이 운영하지 말 것.
 // ═══════════════════════════════════════════════════════════════
-import { cacheGet, cacheSet, requireRole, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, getAuth, canMenu, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL, tidyCopy } from "./ad-copy-prompt.ts";
 
@@ -280,7 +280,8 @@ Deno.serve(async (req) => {
   try {
     // ── 인증: meta-ads와 동일한 DASH_KEY(x-dash-key) — 이식 패키지의 x-api-key 어댑터를 이걸로 교체 ──
     // 상품 목록은 마케터도(소재 등록 매칭용), 매출 데이터는 관리자만
-    const me = await requireRole(req, ["products", "copy_get", "copy_generate", "copy_save", "copy_facts"].includes(action) ? ["admin", "marketer"] : ["admin"]); if (me instanceof Response) return me;
+    const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+    if (!["products", "copy_get", "copy_generate", "copy_save", "copy_facts"].includes(action) && me.role !== "admin" && !canMenu(me, "perf")) return json({ error: "권한이 없습니다 (판매 성과 메뉴 허용 필요)" }, 403);
 
     // ── 저장 기록(perf_archive) CRUD — 카페24 토큰이 없어도 되므로 토큰 확보보다 먼저 처리 ──
     if (action === "archive_list") {

@@ -267,7 +267,7 @@ function regRenderList() {
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
       <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
       <td style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
-      <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
+      <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" data-act="delete" style="padding:2px 8px;font-size:.7rem;${dnrbCan('delete') ? '' : 'display:none;'}" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 function regListText(id) {

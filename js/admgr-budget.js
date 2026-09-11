@@ -59,7 +59,7 @@ async function admgrWritePending() {
 function admgrBudgetCell(r, level) {
   const w = admgr.write;
   let base = admgrBudget(r);
-  if (w.st && w.st.allowed && r.budget > 0 && !admgr.demo) {
+  if (w.st && w.st.allowed && r.budget > 0 && !admgr.demo && dnrbCan('budget')) {
     /* Meta 광고관리자식: 연필 + 금액, 클릭하면 작은 편집창(취소 · 임시 저장 · 게시) — 2026-09-05 사용자 요청 */
     const d = admgrDraft[r.id];
     const dirty = d && d !== r.budget;
