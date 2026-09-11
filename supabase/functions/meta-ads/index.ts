@@ -131,6 +131,7 @@ function sanitizeState(r: Record<string, unknown>): Record<string, unknown> | nu
     recommend: false,
     memo: r.memo == null || r.memo === "" ? null : String(r.memo).slice(0, 500),
     verdict,
+    verdict_at: verdict ? iso(r.verdict_at) : null,   // 판정 시각(클라가 판정 바꿀 때만 갱신) — 리포트 기간 필터
     asset_req_at: iso(r.asset_req_at),
     asset_done_at: iso(r.asset_done_at),
     updated_by: String(r.updated_by ?? "dashboard").slice(0, 60),

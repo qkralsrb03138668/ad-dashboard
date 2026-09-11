@@ -59,7 +59,8 @@ function admgrVerdictBtns(a) {
 }
 async function admgrTestVerdict(adId, v) {
   const cur = admgr.test.state.get(adId) || {};
-  try { await admgrTestSave(adId, { verdict: cur.verdict === v ? null : v }); renderAdmgr(true); }
+  const nv = cur.verdict === v ? null : v;
+  try { await admgrTestSave(adId, { verdict: nv, verdict_at: nv ? new Date().toISOString() : null }); renderAdmgr(true); }
   catch (e) { toast('저장 실패: ' + e.message); }
 }
 /* 추가소재 열 — 우수 소재에서 요청/제작완료 체크(날짜 자동 기록). 우수가 아니어도 기존 체크는 계속 표시 */
@@ -93,11 +94,12 @@ async function admgrTestSave(adId, patch) {
   const row = {
     ad_id: adId, ad_name: a ? a.name : (cur.ad_name || ''),
     hidden: cur.hidden || false, memo: cur.memo ?? null,
-    verdict: cur.verdict ?? null, asset_req_at: cur.asset_req_at ?? null, asset_done_at: cur.asset_done_at ?? null,
+    verdict: cur.verdict ?? null, verdict_at: cur.verdict_at ?? null, asset_req_at: cur.asset_req_at ?? null, asset_done_at: cur.asset_done_at ?? null,
     ...patch, updated_by: ADMGR_USER, updated_at: new Date().toISOString(),
   };
   if (!admgr.demo) await metaPost({ action: 'state_save' }, row);
   t.state.set(adId, row);
+  if (!admgr.demo) lsSet('adc_admgr_test', { data: t.data, state: [...t.state.entries()] });   // 새로고침 전 리포트도 방금 판정을 보게
 }
 async function admgrTestBulkHide(hidden) {
   const t = admgr.test;
@@ -108,7 +110,7 @@ async function admgrTestBulkHide(hidden) {
   const rows = ids.map(id => {
     const cur = t.state.get(id) || {};
     return { ad_id: id, ad_name: (byId.get(id) || {}).name || cur.ad_name || '', hidden,
-      memo: cur.memo ?? null, verdict: cur.verdict ?? null,
+      memo: cur.memo ?? null, verdict: cur.verdict ?? null, verdict_at: cur.verdict_at ?? null,
       asset_req_at: cur.asset_req_at ?? null, asset_done_at: cur.asset_done_at ?? null,
       updated_by: ADMGR_USER, updated_at: new Date().toISOString() };
   });
@@ -189,6 +191,140 @@ async function admgrTestXlsx() {
     URL.revokeObjectURL(a.href);
   } catch (e) { toast('엑셀 추출 실패: ' + e.message); }
 }
+/* ═══ 주간 리포트 — 상품팀 전달용 (2026-09-11) ═══
+   기간 안에 판정한 우수·애매(verdict_at), 추가소재 진행 현황, 기간 안에 등록된 새 테스트·종료를 상품(세트명 첫 _ 앞)별로 묶는다.
+   출력: 화면 모달 + 플로우 붙여넣기용 텍스트 + 인쇄(PDF) 창. 썸네일은 creatives 액션(10분 캐시)에서 세트 단위로 가져온다. */
+const ADMGR_RP_SECS = [   // [키, 제목, 짧은 이름(요약 칩), 색, 설명]
+  ['good',    '우수 → 추가소재 제작 요청', '우수',        '#16a34a', '기간 안에 우수로 판정한 소재. 같은 상품·같은 소구점으로 추가소재를 만들어 주세요.'],
+  ['pending', '추가소재 진행 중',         '진행 중',      '#4f46e5', '요청은 됐고 아직 제작완료 체크가 안 된 소재 (기간 무관).'],
+  ['done',    '추가소재 제작완료',         '제작완료',     '#0891b2', '기간 안에 제작완료로 체크된 소재.'],
+  ['meh',     '애매 (지켜보는 중)',        '애매',        '#ea580c', '기간 안에 애매로 판정. 반응은 있는데 확신이 없어 조금 더 돌려봅니다.'],
+  ['fresh',   '새로 시작한 테스트',         '새 테스트',    '#2563eb', '기간 안에 등록돼 아직 평가 중인 소재.'],
+  ['ended',   '종료·OFF',                 '종료',        '#6b7280', '기간 안에 등록됐다가 판정 없이 꺼진 소재.'],
+];
+function admgrReportBuild(rows, days, today) {
+  const from = (() => { const d = new Date(today); d.setDate(d.getDate() - (days - 1)); return d.toISOString().slice(0, 10); })();
+  const inWin = iso => { const d = String(iso || '').slice(0, 10); return !!d && d >= from && d <= today; };
+  const vAt = a => a.meta.verdict_at || a.meta.updated_at;        // verdict_at 없는 옛 판정은 updated_at으로
+  const pick = {
+    good:    a => a.st === 'good' && inWin(vAt(a)),
+    pending: a => !!a.meta.asset_req_at && !a.meta.asset_done_at,
+    done:    a => inWin(a.meta.asset_done_at),
+    meh:     a => a.st === 'meh' && inWin(vAt(a)),
+    fresh:   a => inWin(a.reg_date) && (a.st === 'eval' || a.st === 'review'),
+    ended:   a => inWin(a.reg_date) && ['off', 'ended', 'rejected'].includes(a.st),
+  };
+  // 세트명 첫 _ 앞 = 상품 (fileCore는 확장자 제거 규칙이 '(가을VER.)' 같은 점을 잘라 못 씀) — 괄호·날짜 꼬리·가격 숫자 제거
+  const product = a => coreName(String(a.adset_name || a.name || '').split('_')[0].replace(/\s+\d{6}\b.*$/, '')).replace(/\s+\d{2,}\s*$/, '') || '(상품 미상)';   // 꼬리 가격·마진 숫자(2자리↑)만 제거, '스커트 2' 같은 한 자리는 유지
+  const group = list => {
+    const m = new Map();
+    list.slice().sort((x, y) => y.spend - x.spend).forEach(a => { const k = product(a); (m.get(k) || m.set(k, []).get(k)).push(a); });
+    return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0], 'ko')).map(([name, ads]) => ({ name, ads }));
+  };
+  const secs = ADMGR_RP_SECS.map(([key, title, short, color, note]) => { const list = rows.filter(pick[key]); return { key, title, short, color, note, n: list.length, groups: group(list) }; });
+  const seen = new Set(); const all = [];
+  secs.forEach(s => s.groups.forEach(g => g.ads.forEach(a => { if (!seen.has(a.id)) { seen.add(a.id); all.push(a); } })));
+  return { from, to: today, days, secs, all };
+}
+function admgrReportLine(a) {
+  const dp = admgrDPlus(a);
+  const parts = [dp == null ? '' : 'D+' + dp, '지출 ' + won(a.spend), '구매 ' + comma(a.purchases),
+    a.purchases > 0 ? 'CPA ' + won(a.spend / a.purchases) : '', a.spend > 0 ? 'ROAS ' + (a.value / a.spend).toFixed(1) : '',
+    a.meta.asset_req_at ? '요청 ' + fmtMD(String(a.meta.asset_req_at).slice(0, 10)) : '',
+    a.meta.asset_done_at ? '제작완료 ' + fmtMD(String(a.meta.asset_done_at).slice(0, 10)) : ''];
+  return parts.filter(Boolean).join(' · ');
+}
+function admgrReportText(rep) {
+  const L = [`📋 테스트 소재 리포트 · ${fmtMD(rep.from)}~${fmtMD(rep.to)} (${rep.days}일)`,
+    rep.secs.map(s => `${s.short} ${s.n}`).join(' · '), ''];
+  rep.secs.forEach(s => {
+    L.push(`■ ${s.title} (${s.n})`);
+    if (!s.n) L.push('  없음');
+    s.groups.forEach(g => {
+      if (s.key === 'fresh' || s.key === 'ended') { L.push(` · ${g.name} ${g.ads.length}개: ${g.ads.map(a => a.adset_name).join(' / ')}`); return; }
+      L.push(`[${g.name}]`);
+      g.ads.forEach(a => { L.push(` · ${a.adset_name} — ${admgrReportLine(a)}`); if (a.meta.memo) L.push(`   메모: ${a.meta.memo}`); });
+    });
+    L.push('');
+  });
+  return L.join('\n').trim();
+}
+function admgrReportHtml(rep, thumbs) {
+  const chip = (t, c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${c}18;color:${c};font-size:.72rem;font-weight:700;margin-right:4px;">${t}</span>`;
+  const head = `<div style="margin-bottom:14px;"><div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">테스트 소재 리포트 <span style="font-weight:600;color:#6b7280;font-size:.85rem;">${fmtMD(rep.from)} ~ ${fmtMD(rep.to)} (${rep.days}일)</span></div>
+    <div style="margin-top:6px;">${rep.secs.map(s => chip(`${s.short} ${s.n}`, s.color)).join('')}</div></div>`;
+  const body = rep.secs.map(s => `<section style="margin-bottom:18px;break-inside:avoid;">
+    <div style="display:flex;align-items:baseline;gap:8px;border-left:4px solid ${s.color};padding-left:8px;margin-bottom:6px;">
+      <b style="font-size:.92rem;color:#111827;">${esc(s.title)}</b><span style="font-size:.78rem;color:${s.color};font-weight:700;">${s.n}</span>
+      <span style="font-size:.7rem;color:#9ca3af;">${esc(s.note)}</span></div>
+    ${s.n ? s.groups.map(g => (s.key === 'fresh' || s.key === 'ended')
+      ? `<div style="margin:3px 0 3px 12px;font-size:.78rem;"><b style="color:#312e81;">${esc(g.name)}</b> <span style="color:#9ca3af;">${g.ads.length}개</span> <span style="color:#6b7280;">${esc(g.ads.map(a => a.adset_name).join(' / '))}</span></div>`
+      : `<div style="margin:6px 0 8px 12px;">
+      <div style="font-weight:800;font-size:.86rem;color:#312e81;margin-bottom:4px;">${esc(g.name)} <span style="font-weight:600;color:#9ca3af;font-size:.72rem;">${g.ads.length}개</span></div>
+      ${g.ads.map(a => { const th = thumbs[a.id]; return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid #f1f2f6;">
+        <div style="width:56px;height:56px;flex:none;border-radius:8px;background:#f3f4f6;overflow:hidden;">${th ? `<img src="${esc(th)}" style="width:100%;height:100%;object-fit:cover;" />` : ''}</div>
+        <div style="min-width:0;flex:1;"><div style="font-size:.8rem;font-weight:700;color:#1f2937;word-break:break-all;">${esc(a.adset_name)}</div>
+          <div style="font-size:.72rem;color:#4b5563;margin-top:2px;">${esc(admgrReportLine(a))}</div>
+          ${a.meta.memo ? `<div style="font-size:.72rem;color:#7c3aed;margin-top:2px;">메모: ${esc(a.meta.memo)}</div>` : ''}</div></div>`; }).join('')}</div>`).join('')
+      : '<div style="margin-left:12px;font-size:.78rem;color:#9ca3af;">없음</div>'}</section>`).join('');
+  return head + body;
+}
+function admgrReportModal() {
+  let m = $('admgr-report');
+  if (m) return m;
+  m = document.createElement('div'); m.className = 'modal'; m.id = 'admgr-report';
+  m.onclick = e => { if (e.target === m) closeModal('admgr-report'); };
+  m.innerHTML = `<div class="modal-box wide" style="max-width:860px;"><div class="modal-head" style="flex-wrap:wrap;"><b>주간 리포트</b>
+    <select id="rp-days" class="inp" style="width:auto;padding:4px 8px;font-size:.76rem;" onchange="admgrTestReport()">
+      <option value="7">최근 7일</option><option value="14">최근 14일</option><option value="30">최근 30일</option></select>
+    <button class="filter-tab" style="color:#4f46e5;" onclick="admgrReportCopy()" title="플로우·카톡에 붙여넣기용 텍스트"><i class="fa-regular fa-copy"></i> 텍스트 복사</button>
+    <button class="filter-tab" onclick="admgrReportPrint()" title="새 창 → 인쇄 대화상자에서 PDF로 저장"><i class="fa-solid fa-print"></i> 인쇄·PDF</button>
+    <button class="modal-x" onclick="closeModal('admgr-report')">✕</button></div><div id="rp-body"></div></div>`;
+  document.body.appendChild(m);
+  return m;
+}
+async function admgrTestReport() {
+  const t = admgr.test;
+  if (!t.loaded) { await admgrTestFetch(); if (!t.loaded) return; }
+  admgrReportModal().classList.add('show');
+  const sel = $('rp-days');
+  if (!sel.dataset.init) { sel.value = String(lsGet('adc_admgr_rpdays', 7)); sel.dataset.init = '1'; }
+  const days = +sel.value || 7; lsSet('adc_admgr_rpdays', days);
+  t.thumbs = t.thumbs || {};
+  const rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0));
+  t.report = rep;
+  $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
+  const need = admgr.demo ? [] : [...new Set(rep.all.filter(a => !(a.id in t.thumbs)).map(a => a.adset_id))];
+  if (!need.length) return;
+  try {
+    for (let i = 0; i < need.length; i += 100) {
+      const r = await metaGet({ action: 'creatives', set_ids: need.slice(i, i + 100).join(',') });
+      (r.ads || []).forEach(a => { t.thumbs[a.id] = a.image || a.thumb || ''; });
+    }
+    rep.all.forEach(a => { if (!(a.id in t.thumbs)) t.thumbs[a.id] = ''; });   // 못 찾은 소재는 재조회 안 함
+    if (t.report === rep) $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
+  } catch (e) { toast('썸네일 조회 실패 (텍스트는 정상): ' + e.message); }
+}
+async function admgrReportCopy() {
+  const rep = admgr.test.report; if (!rep) return;
+  const txt = admgrReportText(rep);
+  try { await navigator.clipboard.writeText(txt); }
+  catch (e) { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast('리포트 텍스트를 복사했어요 — 플로우에 붙여넣기');
+}
+function admgrReportPrint() {
+  /* 팝업 창 대신 숨은 iframe에 그려서 인쇄 — 팝업 차단·앱 내 브라우저에서도 동작. 인쇄 대화상자에서 'PDF로 저장' */
+  const t = admgr.test; if (!t.report) return;
+  const old = $('rp-print'); if (old) old.remove();
+  const f = document.createElement('iframe'); f.id = 'rp-print';
+  f.style.cssText = 'position:fixed;left:-9999px;width:800px;height:600px;border:0;';
+  f.srcdoc = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>테스트 소재 리포트 ${esc(t.report.from)}~${esc(t.report.to)}</title>
+    <style>body{font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;margin:24px;color:#111827;max-width:800px;}img{max-width:100%;}</style></head>
+    <body>${admgrReportHtml(t.report, t.thumbs || {})}
+    <script>Promise.all([...document.images].map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))).then(()=>setTimeout(()=>{focus();print();},300));</script></body></html>`;
+  document.body.appendChild(f);
+  toast('인쇄 창이 열려요 — 대상에서 "PDF로 저장"을 고르세요');
+}
 function renderAdmgrTest() {
   const t = admgr.test;
   if (!admgrCfg() && !admgr.demo) {
@@ -217,6 +353,7 @@ function renderAdmgrTest() {
     <button class="filter-tab" style="color:${t.showHidden ? '#4f46e5' : '#dc2626'};border-color:${t.showHidden ? '#a5b4fc' : '#fecaca'};" onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})">${t.showHidden ? '선택 복원' : '목록에서 제거'}${t.sel.size ? ` (${t.sel.size})` : ''}</button>
     <button class="filter-tab" onclick="admgrTestToggleHidden()">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>
     <button class="filter-tab" style="color:#15803d;" onclick="admgrTestXlsx()" title="지금 보이는 표 그대로 (필터·검색·정렬 반영)"><i class="fa-solid fa-file-arrow-down"></i> 엑셀</button>
+    <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrTestReport()" title="상품팀 전달용 — 기간 내 판정·추가소재 현황을 상품별로 정리 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트</button>
   </div>
   <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (60초 캐시)${d.truncated ? ' · 일부 생략(200세트 한도)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 이름에 'test'가 든 광고세트 자동 수집</div>`;
 

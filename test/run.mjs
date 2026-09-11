@@ -216,6 +216,33 @@ console.log('④ 체크보드 계정 공유');
   ctx.fetch = async () => { throw new Error('테스트에선 네트워크 없음'); };
 }
 
+console.log('주간 리포트');
+test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
+  const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
+    effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', gone: !!m.gone, spend: m.spend ?? 1000, purchases: m.pur ?? 1, value: m.val ?? 5000, meta: m.meta || {} });
+  const rows = [
+    st('1', { meta: { verdict: 'good', verdict_at: '2026-09-10T01:00:00Z', asset_req_at: '2026-09-10T02:00:00Z' }, spend: 5000 }),
+    st('2', { meta: { verdict: 'good', verdict_at: '2026-08-01T00:00:00Z' } }),                       // 기간 밖 우수 → 제외
+    st('3', { meta: { verdict: 'good', updated_at: '2026-09-11T00:00:00Z' } }),                       // verdict_at 없는 옛 판정 → updated_at
+    st('4', { p: '블라우스', meta: { verdict: 'meh', verdict_at: '2026-09-08T00:00:00Z' } }),
+    st('5', { p: '블라우스', reg: '2026-09-10' }),                                                    // 새 테스트
+    st('6', { reg: '2026-09-10', es: 'PAUSED' }),                                                     // 종료
+    st('7', { reg: '2026-08-20', es: 'PAUSED' }),                                                     // 기간 밖 등록 → 제외
+    st('8', { reg: '2026-08-01', meta: { asset_req_at: '2026-07-01T00:00:00Z', asset_done_at: '2026-09-11T00:00:00Z' } }), // 제작완료
+  ].map(a => ({ ...a, st: g('admgrTestStatusOf')(a, a.meta) }));
+  const rep = g('admgrReportBuild')(rows, 7, '2026-09-11');
+  assert.equal(rep.from, '2026-09-05');
+  const by = Object.fromEntries(rep.secs.map(s => [s.key, s]));
+  assert.equal([by.good.n, by.pending.n, by.done.n, by.meh.n, by.fresh.n, by.ended.n].join(), '2,1,1,1,1,1');
+  assert.equal(JSON.stringify(by.good.groups.map(x => [x.name, x.ads.map(a => a.id)])), JSON.stringify([['니트', ['1', '3']]]));   // 지출 큰 순 (vm 렐름 차이로 JSON 비교)
+  assert.equal(by.meh.groups[0].name, '블라우스');
+  assert.equal(rep.all.length, 6);   // 1·3·8·4·5·6 (1은 우수+진행 중 중복 제거)
+  const txt = g('admgrReportText')(rep);
+  assert.ok(txt.includes('■ 우수 → 추가소재 제작 요청 (2)') && txt.includes('[니트]') && txt.includes('ROAS 1.0') && txt.includes('요청 09/10'));
+  const html = g('admgrReportHtml')(rep, { '1': 'https://x/y.jpg' });
+  assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
+});
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {
