@@ -211,12 +211,12 @@ async function regRun() {
   if (reg.running) return;
   const todo = reg.rows.filter(r => !r.done);
   if (!todo.length) return;
-  const pin = ($('reg-pin').value || '').trim(); if (!pin) { toast('등록 PIN을 입력하세요'); $('reg-pin').focus(); return; }
+  const pin = '';   // 등록 PIN 폐지 — 로그인 계정으로 충분
   const noProd = todo.filter(r => !r.product);
   if (noProd.length && !confirm(`상품이 안 정해진 파일 ${noProd.length}개가 있어요. 상품 없이(URL만) 등록할까요?\n취소하면 돌아가서 고를 수 있어요.`)) return;
   const ask = todo.filter(r => r.multi && r.why !== 'manual' && r.why !== 'alias');
   if (ask.length && !confirm(`같은 이름 상품이 여러 개인데 아직 고르지 않은 파일 ${ask.length}개가 있어요. 첫 번째 후보로 등록할까요?`)) return;
-  reg.running = true; regRender(); lsSet('adc_reg_pin', pin);
+  reg.running = true; regRender();
   regLog(`등록 시작 — ${todo.length}개, ${UPL_PARALLEL}개씩 동시 전송`);
   const t0 = Date.now(); let ok = 0, pinFail = false;
   const queue = [...todo];

@@ -21,7 +21,7 @@
 //   POST ?action=creative_add  { file_name, kind, core_name, product_no, product_name, url, text, media }
 //   POST ?action=creative_save { id, product_no, product_name, url, text, file_name }
 //   POST ?action=creative_del  { id }      (registered 상태만)
-//   PIN: image/video_* 는 UPLOAD_PIN(등록용) 또는 WRITE_PIN, create/verify 는 WRITE_PIN만
+//   PIN: create/verify 만 WRITE_PIN. image/video_*·creative_* 는 로그인 역할(마케터/관리자)로 충분 (등록 PIN 폐지 2026-09-11)
 //
 // 보안: DASH_KEY + 매 쓰기 요청 PIN(WRITE_PIN, meta-budget과 동일 규칙: 15분 5회 잠금) + 일예산 상한 300,000원.
 // 필요 secrets: META_WRITE_TOKEN, WRITE_PIN, DASH_KEY, META_AD_ACCOUNT_ID
@@ -241,8 +241,9 @@ Deno.serve(async (req) => {
     const body: Rec = form ? Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === "string")) : await req.json();
     const MEDIA_ACTIONS = ["image", "video_start", "video_chunk", "video_finish"];
     const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
-    if (!CREATIVE_ACTIONS.includes(action)) {   // 소재 메타데이터 저장은 로그인 역할만으로 충분 (파일은 이미 PIN으로 올라감)
-      const pinErr = await checkPin(body.pin, MEDIA_ACTIONS.includes(action));
+    // 미디어 업로드·소재 기록은 로그인 역할(마케터/관리자)만으로 허용 — 등록 PIN 폐지(2026-09-11 사용자 요청). PIN은 광고 생성(create/verify)에만.
+    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action)) {
+      const pinErr = await checkPin(body.pin);
       if (pinErr) return json({ error: pinErr }, 403);
     }
 
