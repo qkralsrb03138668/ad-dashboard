@@ -6,11 +6,40 @@
    세션이 없으면 #login-gate로 앱을 가린다. 서버 함수는 사용자 토큰(Authorization)으로 역할을 확인.
    로컬 config.js에 DASH_KEY가 있으면 로그인 없이도 관리자로 동작(기존 방식 유지). */
 const AUTH = { sb: null, session: null, me: null, mode: 'login' };
+/* DNRB 워크스페이스 SSO (2026-09-11, 친구 가이드 docs/… 참고): 워크스페이스 메뉴에서 #sso=코드로 넘어오면 60초 일회용 코드를
+   ad-dashboard 전용 7일 토큰과 바꿔 저장하고 자체 로그인을 건너뛴다. 권한은 워크스페이스 서버(verify)가 매 요청 강제. */
+const DNRB_AUTH_URL = 'https://eeffmbusaqaadeojjlnc.supabase.co/functions/v1/auth';
+const DNRB_KEY = 'dnrb_sso';
+// 워크스페이스 공개 anon 키(공개 레포 danarobe/dnrb-dashboard config.js) — 게이트웨이 통과용일 뿐, 권한은 토큰이 결정
+const DNRB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlZmZtYnVzYXFhYWRlb2pqbG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDExOTIsImV4cCI6MjEwMDMxNzE5Mn0.P5Zxh1qrxpNU-SM_dpNz58xT6OWVk5Fq8l0c4WuuF2w';
+async function dnrbApi(body) {
+  const r = await fetch(DNRB_AUTH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: DNRB_ANON, Authorization: 'Bearer ' + DNRB_ANON }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+function dnrbSession() {
+  try { const s = JSON.parse(localStorage.getItem(DNRB_KEY)); return s && s.token && s.exp > Date.now() ? s : null; } catch { return null; }
+}
+async function dnrbInit() {
+  const m = location.hash.match(/[#&]sso=([A-Za-z0-9_-]{20,80})/);
+  if (m) {
+    history.replaceState(null, '', location.pathname + location.search);   // 코드는 주소에서 바로 지움 (일회용)
+    try { const d = await dnrbApi({ action: 'sso_redeem', code: m[1] }); localStorage.setItem(DNRB_KEY, JSON.stringify(d)); }
+    catch (e) { toast('워크스페이스 자동 로그인 실패: ' + e.message); }
+  }
+  const s = dnrbSession();
+  if (!s) return false;
+  AUTH.me = { email: s.id, name: s.name, role: s.role === 'admin' ? 'admin' : 'marketer', dnrb: true };   // 워크스페이스 관리자만 관리자
+  $('login-gate').style.display = 'none'; authApplyRole();
+  return true;
+}
 function authApi(params, payload) { return sbCall('auth-admin', params, payload); }
 async function authInit() {
   const cfg = admgrCfg();
   if (!cfg || !window.supabase) return;                       // 연동 정보 없음 → 데모 모드 그대로
   AUTH.sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  if (await dnrbInit()) return;
   const { data } = await AUTH.sb.auth.getSession(); AUTH.session = data.session;
   AUTH.sb.auth.onAuthStateChange((_e, s) => { AUTH.session = s; });
   if (cfg.DASH_KEY && !AUTH.session) {   // 로컬 파일: 접근키가 곧 관리자. 단 계정이 하나도 없으면 최초 관리자 만들기를 먼저 안내
@@ -61,7 +90,7 @@ async function authSubmit() {
   } catch (e) { authErr(e.message); }
   finally { btn.disabled = false; }
 }
-async function authLogout() { if (AUTH.sb) await AUTH.sb.auth.signOut(); location.reload(); }
+async function authLogout() { localStorage.removeItem(DNRB_KEY); if (AUTH.sb) await AUTH.sb.auth.signOut(); location.reload(); }
 async function authChangePw() {
   const pw = prompt('새 비밀번호 (8자 이상)'); if (pw === null) return;
   if (pw.length < 8) { toast('8자 이상이어야 해요'); return; }
@@ -74,7 +103,8 @@ function authApplyRole() {
   document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = admin ? '' : 'none');
   const chip = $('auth-chip');
   if (AUTH.me && chip) chip.innerHTML = `<i class="fa-solid fa-user" style="color:#4f46e5;"></i> ${esc(AUTH.me.name || AUTH.me.email)} <span style="color:#9ca3af;">(${admin ? '관리자' : '마케터'})</span>`
-    + (AUTH.session ? ` · <a href="#" onclick="authChangePw();return false;">비밀번호 변경</a> · <a href="#" onclick="authLogout();return false;">로그아웃</a>` : '');
+    + (AUTH.session ? ` · <a href="#" onclick="authChangePw();return false;">비밀번호 변경</a>` : '')
+    + (AUTH.session || AUTH.me.dnrb ? ` · <a href="#" onclick="authLogout();return false;">로그아웃</a>` : '');
   if (!admin && ['admgr', 'upload', 'perf', 'data'].includes(curMenu)) showMenu('ptest');
 }
 

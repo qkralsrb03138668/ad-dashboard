@@ -34,6 +34,10 @@ let n = 0;
 const test = (name, fn) => { try { fn(); n++; console.log('  ✓', name); } catch (e) { console.error('  ✗', name); throw e; } };
 
 console.log('유틸');
+test('dnrbSession: 만료 토큰 거부, 유효 토큰 통과', () => {
+  const f = g('dnrbSession'); localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', exp: Date.now() - 1 })); assert.equal(f(), null);
+  localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', id: 'u', role: 'staff', exp: Date.now() + 60000 })); assert.equal(f().id, 'u'); localStorage.removeItem('dnrb_sso');
+});
 test('esc: HTML 특수문자 5종', () => assert.equal(g('esc')(`<a href="x">'&`), '&lt;a href=&quot;x&quot;&gt;&#39;&amp;'));
 test('safeUrl: http(s)만 통과', () => { const f = g('safeUrl'); assert.equal(f('https://a.b/c'), 'https://a.b/c'); assert.equal(f('javascript:alert(1)'), ''); assert.equal(f(''), ''); });
 test('aggRows/derive: CTR·CPC·CPA·ROAS', () => {

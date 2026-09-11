@@ -4,7 +4,7 @@
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-dash-key",
+    "authorization, x-client-info, apikey, content-type, x-dash-key, x-dnrb-token",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -33,9 +33,28 @@ export function checkDashKey(req: Request): boolean {
 // ── 로그인 인증 (2026-09-07): DASH_KEY(로컬 파일용, admin 취급) 또는 Supabase Auth 사용자 JWT + profiles 역할 ──
 //   프로필이 없는 계정은 거부 — 계정은 관리자가 '데이터 관리 › 사용자 관리'에서 만든다 (auth-admin 함수).
 export interface AuthUser { id: string; email: string; name: string; role: "admin" | "marketer" }
+// DNRB 워크스페이스 SSO 토큰(2026-09-11): x-dnrb-token을 워크스페이스 auth 함수 verify로 확인 (시크릿 공유 없음).
+//   401 위조·만료 / 403 워크스페이스 허용 목록에서 빠짐 → 둘 다 거부. 워크스페이스 admin만 admin, 나머지는 marketer. 60초 캐시.
+const DNRB_AUTH_URL = "https://eeffmbusaqaadeojjlnc.supabase.co/functions/v1/auth";
+const DNRB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlZmZtYnVzYXFhYWRlb2pqbG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDExOTIsImV4cCI6MjEwMDMxNzE5Mn0.P5Zxh1qrxpNU-SM_dpNz58xT6OWVk5Fq8l0c4WuuF2w";   // 워크스페이스 공개 anon 키 — 게이트웨이 통과용
+const dnrbCache = new Map<string, { at: number; u: AuthUser }>();
+async function dnrbVerify(token: string): Promise<AuthUser | null> {
+  const c = dnrbCache.get(token);
+  if (c && Date.now() - c.at < 60_000) return c.u;
+  try {
+    const r = await fetch(DNRB_AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json", apikey: DNRB_ANON, Authorization: `Bearer ${DNRB_ANON}` }, body: JSON.stringify({ action: "verify", token }) });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const u: AuthUser = { id: "dnrb:" + d.id, email: String(d.id), name: String(d.name ?? d.id), role: d.role === "admin" ? "admin" : "marketer" };
+    dnrbCache.set(token, { at: Date.now(), u });
+    return u;
+  } catch { return null; }
+}
 export async function getAuth(req: Request): Promise<AuthUser | null> {
   const key = Deno.env.get("DASH_KEY") ?? "";
   if (key && req.headers.get("x-dash-key") === key) return { id: "dash-key", email: "dash-key", name: "접근키", role: "admin" };
+  const dt = req.headers.get("x-dnrb-token");
+  if (dt) return await dnrbVerify(dt);
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   if (!token || token === anon) return null;

@@ -47,6 +47,8 @@ async function sbCall(fn, params, payload) {
   if (!cfg) throw new Error('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)');
   const url = cfg.SUPABASE_URL + '/functions/v1/' + fn + '?' + new URLSearchParams(params);
   const headers = metaHeaders(cfg);
+  const ds = typeof dnrbSession === 'function' ? dnrbSession() : null;
+  if (ds) headers['x-dnrb-token'] = ds.token;   // 워크스페이스 SSO 세션 — 서버 getAuth가 워크스페이스 verify로 확인
   const init = payload === undefined ? { headers }
     : payload instanceof FormData ? { method: 'POST', headers, body: payload }
     : { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
@@ -57,6 +59,7 @@ async function sbCall(fn, params, payload) {
   let body = null;
   try { body = text ? JSON.parse(text) : {}; } catch { /* JSON 아님 — 아래에서 처리 */ }
   if (body && !body.error && res.ok) return body;
+  if (ds && (res.status === 401 || res.status === 403)) localStorage.removeItem(DNRB_KEY);   // 워크스페이스에서 권한 해제됨 → 세션 폐기
   if (!body) body = {};   // HTML·빈 응답: 상태 코드로 문장을 만든다 (성공(2xx)인데 JSON이 아니면 그것도 오류)
   const msg = body.error ? (body.message || body.error)              // 우리 서버 함수가 준 오류 (한국어)
     : SB_HTTP_MSG[res.status] || (res.status === 404 ? `서버 함수 '${fn}'가 아직 배포되지 않았어요` : res.status >= 500 ? `서버 오류 (HTTP ${res.status}) — 잠시 후 다시 시도`
