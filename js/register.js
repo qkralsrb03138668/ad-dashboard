@@ -146,22 +146,75 @@ function regPresetSeq(pr, kind) {   // 다음 순번 = 서버에 등록된 같�
     return onServer + inBatch + 1;
 }
 async function regPresetInit() {
-  if (reg.products) return;
+  if (reg.products) { regRecentRender(); return; }
   try { await regLoadRefs(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
-  regPresetFilter();
+  regRecentRender(); regPresetFilter();
 }
-function regPresetFilter(auto) {   // auto: 검색 입력 중일 때만 결과 1개면 자동 선택 (해제 직후 재선택 방지)
-  const q = ($('reg-preset-q').value || '').trim().toLowerCase(), sel = $('reg-preset');
-  const cur = reg.preset ? String(reg.preset.product_no) : '';
-  const rows = (reg.products || []).filter(p => !q || p.name.toLowerCase().includes(q) || String(p.product_no).includes(q)).slice(0, 300);
-  sel.innerHTML = `<option value="">— 파일명으로 자동 인식 —</option>` + rows.map(p => `<option value="${p.product_no}" ${String(p.product_no) === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
-  if (auto && q && rows.length === 1 && !reg.preset) regPresetPick(String(rows[0].product_no));   // 검색 결과가 하나면 바로 선택
+/* 검색 → 썸네일 목록 (최대 8개). 결과가 하나면 입력 중 자동 선택 */
+function regPresetFilter(auto) {
+  const q = ($('reg-preset-q').value || '').trim().toLowerCase(), box = $('reg-preset-results');
+  if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const rows = (reg.products || []).filter(p => p.name.toLowerCase().includes(q) || String(p.product_no).includes(q)).slice(0, 8);
+  box.style.display = 'block';
+  box.innerHTML = rows.map(p => `<div onclick="regPresetPick('${p.product_no}')" style="display:flex;align-items:center;gap:10px;padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;">
+      ${mediaThumbHtml(p.image, 'image', 40)}<div style="flex:1;min-width:0;"><div style="font-size:.84rem;color:#1e1b4b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>
+      <div style="font-size:.7rem;color:#9ca3af;">${regVerTag(p.name) ? esc(regVerTag(p.name)) + ' · ' : ''}${esc(p.core)} · 등록 ${p.created ? p.created.slice(2).replace(/-/g, '.') : '-'} · 마진 ${Math.floor(Math.max(0, p.price - p.supply_price) / 1000)}</div></div></div>`).join('')
+    || '<div style="padding:12px;font-size:.8rem;color:#9ca3af;">검색 결과 없음 — 진열·판매 중 상품만 나와요</div>';
+  if (auto && rows.length === 1 && !reg.preset) regPresetPick(String(rows[0].product_no));
 }
 function regPresetPick(no) {
   reg.preset = (reg.products || []).find(p => String(p.product_no) === String(no)) || null;
-  const note = $('reg-preset-note');
-  note.innerHTML = reg.preset ? `<b style="color:#3730a3;">${esc(reg.preset.name)}</b>로 등록돼요 · <a href="#" onclick="regPresetPick('');return false;">해제</a>` : '상품을 고른 뒤 올리는 파일은 파일명 대신 이 상품으로 등록됩니다 (핸드폰에서 올릴 때 사용)';
-  if ($('reg-preset').value !== String(reg.preset ? reg.preset.product_no : '')) regPresetFilter();
+  const card = $('reg-preset-card'), picker = $('reg-preset-picker');
+  if (reg.preset) {
+    const p = reg.preset;
+    card.style.display = 'flex'; picker.style.display = 'none';
+    card.innerHTML = `${mediaThumbHtml(p.image, 'image', 56)}<div style="flex:1;min-width:0;">
+      <div style="font-size:.72rem;color:#6b7280;">① 이 상품으로 등록돼요 — 파일명은 안 봐요</div>
+      <div style="font-size:.9rem;font-weight:800;color:#1e1b4b;">${esc(p.name)}</div>
+      <div style="font-size:.72rem;color:#6b7280;">파일명: <b>${esc((regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + p.core)}</b>_R1·P1_소구점_<b>${Math.floor(Math.max(0, p.price - p.supply_price) / 1000)}</b>_오늘_test</div></div>
+      <button class="btn-ghost" style="padding:6px 12px;" onclick="regPresetPick('')"><i class="fa-solid fa-xmark"></i> 다른 상품</button>`;
+    $('reg-preset-q').value = ''; $('reg-preset-results').style.display = 'none';
+  } else {
+    card.style.display = 'none'; picker.style.display = 'block'; card.innerHTML = '';
+    setTimeout(() => $('reg-preset-q').focus(), 0);
+  }
+  regStepsRender();
+}
+/* 최근 등록 상품 (브라우저 기억, 5개) */
+function regRecentRender() {
+  const box = $('reg-recent'); if (!box) return;
+  const nos = lsGet('adc_reg_recent', []), items = nos.map(no => (reg.products || []).find(p => p.product_no === no)).filter(Boolean);
+  box.innerHTML = items.length ? `<span style="font-size:.7rem;color:#9ca3af;">최근:</span>` + items.map(p => `<button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="regPresetPick('${p.product_no}')" title="${esc(p.name)}">${esc(p.core)}</button>`).join('') : '';
+}
+function regRecentPush(no) { const list = [no, ...lsGet('adc_reg_recent', []).filter(x => x !== no)].slice(0, 5); lsSet('adc_reg_recent', list); regRecentRender(); }
+/* 소구점 버튼 — 기본 3개 + 직접 추가(브라우저 기억). 누르면 선택, 다시 누르면 해제 */
+const REG_TAGS_DEFAULT = ['착용컷', '인스타', '다나대표'];
+function regTags() { return lsGet('adc_reg_tags', null) || REG_TAGS_DEFAULT; }
+function regTagsRender() {
+  const box = $('reg-tags'); if (!box) return;
+  const cur = $('reg-preset-tag').value;
+  box.innerHTML = regTags().map(t => `<button class="${cur === t ? 'btn-analyze' : 'btn-ghost'}" style="padding:4px 12px;font-size:.76rem;" onclick="regTagPick('${esc(t)}')">${esc(t)}</button>`).join('')
+    + `<button class="btn-ghost" style="padding:4px 10px;font-size:.72rem;color:#6b7280;" onclick="regTagAdd()" title="소구점 버튼 추가"><i class="fa-solid fa-plus"></i> 추가</button>`
+    + (regTags().length > REG_TAGS_DEFAULT.length || regTags().some(t => !REG_TAGS_DEFAULT.includes(t)) ? `<button class="btn-ghost" style="padding:4px 8px;font-size:.68rem;color:#9ca3af;" onclick="regTagRemove()" title="버튼 지우기"><i class="fa-solid fa-minus"></i></button>` : '')
+    + `<span style="font-size:.7rem;color:#9ca3af;margin-left:4px;">${cur ? `선택: <b style="color:#3730a3;">${esc(cur)}</b> (파일명 순번 뒤에 들어가요)` : '선택 안 함 — 순번_마진 형식'}</span>`;
+}
+function regTagPick(t) { $('reg-preset-tag').value = $('reg-preset-tag').value === t ? '' : t; regTagsRender(); regStepsRender(); }
+function regTagAdd() {
+  const t = (prompt('추가할 소구점 (예: 착용컷2, 리뷰, 상세컷)') || '').trim().replace(/[_\/\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return; const list = regTags(); if (list.includes(t)) { regTagPick(t); return; }
+  lsSet('adc_reg_tags', [...list, t]); regTagPick(t);
+}
+function regTagRemove() {
+  const list = regTags(); const t = (prompt(`지울 소구점 이름을 입력하세요\n${list.join(' · ')}`) || '').trim();
+  if (!t || !list.includes(t)) return;
+  lsSet('adc_reg_tags', list.filter(x => x !== t)); if ($('reg-preset-tag').value === t) $('reg-preset-tag').value = ''; regTagsRender();
+}
+/* 단계 표시: ① 상품 → ② 소구점 → ③ 파일 → ④ 등록 */
+function regStepsRender() {
+  const box = $('reg-steps'); if (!box) return;
+  const cur = reg.rows.some(r => !r.done) ? 4 : reg.preset ? ($('reg-preset-tag').value ? 3 : 2) : 1;
+  const steps = [['① 상품 고르기', '핸드폰 업로드는 필수 · PC는 파일명 자동 인식이면 생략'], ['② 소구점', '선택'], ['③ 파일 올리기', ''], ['④ 등록', '']];
+  box.innerHTML = steps.map(([t, hint], i) => `<span title="${esc(hint)}" style="padding:3px 10px;border-radius:999px;${i + 1 === cur ? 'background:#4f46e5;color:#fff;font-weight:800;' : i + 1 < cur ? 'background:#e0e7ff;color:#3730a3;' : 'background:#f1f5f9;color:#9ca3af;'}">${t}</span>${i < 3 ? '<span style="color:#cbd5e1;">→</span>' : ''}`).join('');
 }
 function regDel(id) { reg.rows = reg.rows.filter(r => r.id !== id); regRender(); }
 function regPick(i, no) {
@@ -173,6 +226,7 @@ function regPick(i, no) {
 function regSearch(i, name) { const p = reg.products.find(p => p.name === name); if (p) { if (!reg.rows[i].cands.find(c => c.product_no === p.product_no)) reg.rows[i].cands.unshift(p); regPick(i, p.product_no); } }
 function regSelBtn() { const n = reg.rows.filter(r => r.sel && !r.done).length, b = $('reg-text-sel'); if (!b) return; b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입${n ? ` (${n})` : ''}`; }
 function regRender() {
+  regStepsRender(); regTagsRender();
   const box = $('reg-rows'), bar = $('reg-bar');
   if (!reg.rows.length) { box.innerHTML = ''; bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
@@ -239,7 +293,7 @@ async function regRun() {
         r.status = '기록 저장 중'; regRender();
         const p = r.product || (r.multi ? r.cands[0] : null);
         await uplCall({ action: 'creative_add' }, { file_name: r.fileName || r.file.name, kind: r.kind, core_name: r.core, product_no: p ? p.product_no : null, product_name: p ? p.name : null, url: r.url || null, text: r.text, media: r.media });
-        r.done = true; r.status = '등록됨'; ok++; regLog(`${r.fileName || r.file.name}: 등록 완료`, 'ok');
+        r.done = true; r.status = '등록됨'; ok++; regLog(`${r.fileName || r.file.name}: 등록 완료`, 'ok'); if (p) regRecentPush(p.product_no);
       } catch (e) {
         r.status = '실패: ' + e.message; regLog(`${r.file.name}: ${e.message}`, 'err');
         if (/PIN/.test(e.message)) pinFail = true;

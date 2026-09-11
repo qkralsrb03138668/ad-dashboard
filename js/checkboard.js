@@ -214,6 +214,7 @@ function ptDelAll() {
 }
 
 function renderPTest() {
+  if (typeof regStepsRender === 'function') { regStepsRender(); regTagsRender(); if (reg.products) regRecentRender(); }
   ptPull().then(ch => { if (ch) renderPTest(); });   // 계정 공유본 (1분에 1번) — 바뀌었으면 다시 그림
   ptSyncNote();
   if (!pt.products.length && (pt.hidden || []).length) pt.hidden = [];   // 보드가 비었는데 숨김만 남은 상태(전체 삭제 직후 등) → 자동 복구

@@ -116,18 +116,28 @@
             <b style="color:#1e1b4b;"><i class="fa-solid fa-cloud-arrow-up" style="color:#4f46e5;"></i> 소재 등록</b>
             <span style="font-size:.74rem;color:#6b7280;">파일명 앞부분(첫 _ 앞)으로 카페24 상품을 찾아 URL을 자동 기입 · 파일은 Meta 광고 보관함에 올라가고 광고 업로드 탭에서 바로 쓸 수 있어요</span>
           </div>
-          <!-- 상품 먼저 고르기 (핸드폰처럼 파일명을 못 바꾸는 경우) — 고르면 이후 올리는 파일은 파일명과 무관하게 이 상품으로 -->
-          <div class="control-bar" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;padding:10px 12px;">
-            <span style="font-size:.78rem;font-weight:700;color:#1e1b4b;"><i class="fa-solid fa-hand-pointer" style="color:#4f46e5;"></i> 상품 먼저 고르기</span>
-            <input class="inp" id="reg-preset-q" placeholder="상품명 검색" style="width:180px;background:#fff;font-size:.8rem;padding:6px 10px;" onfocus="regPresetInit()" oninput="regPresetFilter(true)" />
-            <select class="inp" id="reg-preset" style="min-width:240px;max-width:100%;background:#fff;font-size:.8rem;padding:6px 10px;" onfocus="regPresetInit()" onchange="regPresetPick(this.value)"><option value="">— 파일명으로 자동 인식 —</option></select>
-            <input class="inp" id="reg-preset-tag" placeholder="소구점 (착용컷·인스타·다나대표) — 선택" style="width:220px;background:#fff;font-size:.8rem;padding:6px 10px;" title="파일명의 순번 뒤에 들어가요. 행마다 따로 고칠 수도 있어요" />
-            <span id="reg-preset-note" style="font-size:.72rem;color:#6b7280;">상품을 고른 뒤 올리는 파일은 파일명 대신 이 상품으로 등록됩니다 (핸드폰에서 올릴 때 사용)</span>
+          <!-- ① 상품 → ② 소구점 → ③ 파일 → ④ 등록 : 단계 표시 + 상품 검색(썸네일 목록·최근 상품) + 소구점 버튼 -->
+          <div id="reg-steps" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:.74rem;"></div>
+          <div style="background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+            <div id="reg-preset-picker">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <span style="font-size:.78rem;font-weight:700;color:#1e1b4b;white-space:nowrap;"><i class="fa-solid fa-hand-pointer" style="color:#4f46e5;"></i> ① 상품 고르기</span>
+                <input class="inp" id="reg-preset-q" placeholder="상품명 검색 — 안 고르면 파일명으로 자동 인식" style="flex:1;min-width:200px;background:#fff;font-size:.86rem;padding:8px 12px;" onfocus="regPresetInit()" oninput="regPresetFilter(true)" autocomplete="off" />
+              </div>
+              <div id="reg-preset-results" style="display:none;margin-top:6px;border:1px solid #e7e8ee;border-radius:10px;background:#fff;max-height:280px;overflow:auto;"></div>
+              <div id="reg-recent" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"></div>
+            </div>
+            <div id="reg-preset-card" style="display:none;align-items:center;gap:12px;"></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed #e5e7eb;">
+              <span style="font-size:.78rem;font-weight:700;color:#1e1b4b;white-space:nowrap;"><i class="fa-solid fa-tag" style="color:#4f46e5;"></i> ② 소구점</span>
+              <div id="reg-tags" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+              <input type="hidden" id="reg-preset-tag" />
+            </div>
           </div>
           <div id="reg-drop" style="border:2px dashed #c7d2fe;border-radius:12px;padding:16px;text-align:center;color:#6b7280;cursor:pointer;background:#fafaff;"
                onclick="$('reg-file').click()" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background='#fafaff'"
                ondrop="event.preventDefault();this.style.background='#fafaff';regAddFiles(event.dataTransfer.files)">
-            <i class="fa-solid fa-upload" style="color:#4f46e5;"></i> 스토리 이미지(JPG·PNG)·영상(MP4·MOV)을 끌어다 놓거나 클릭 — 예: <code>뉴 내티 원피스_인스타 260907.mp4</code>
+            <i class="fa-solid fa-upload" style="color:#4f46e5;"></i> <b>③</b> 스토리 이미지(JPG·PNG)·영상(MP4·MOV)을 끌어다 놓거나 클릭 — 예: <code>뉴 내티 원피스_인스타 260907.mp4</code>
             <input type="file" id="reg-file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" style="display:none;" onchange="regAddFiles(this.files);this.value=''" />
           </div>
           <datalist id="reg-dl"></datalist>
