@@ -14,6 +14,16 @@ function coreName(n) { let s = String(n || '').normalize('NFC').replace(/[（）
 function fileCore(fileName) { let n = String(fileName).normalize('NFC').replace(/\.[^.]+$/, ''); n = n.split('_')[0]; n = n.replace(/\s+\d{6}\b.*$/, ''); return coreName(n); }
 const normKey = s => coreName(s).toLowerCase().replace(/\s+/g, '');
 const productUrl = no => `${SHOP_URL}/product/detail.html?product_no=${no}`;
+/* 썸네일: 로컬 파일은 브라우저 객체 URL(첫 장면), 등록된 소재는 Meta가 준 주소(영상 thumbnail_url · 이미지 url) */
+function mediaThumbHtml(src, kind, size) {
+  const s = size || 44, box = `width:${s}px;height:${s}px;border-radius:6px;background:#f3f4f6;object-fit:cover;flex:none;`;
+  if (!src) return `<span style="${box}display:inline-flex;align-items:center;justify-content:center;color:#c7d2fe;"><i class="fa-solid ${kind === 'video' ? 'fa-video' : 'fa-image'}"></i></span>`;
+  return kind === 'video' && src.startsWith('blob:')
+    ? `<video src="${esc(src)}#t=0.1" muted playsinline preload="metadata" style="${box}"></video>`
+    : `<img src="${esc(src)}" loading="lazy" style="${box}" onerror="this.style.visibility='hidden'" />`;
+}
+function regFileThumb(r) { if (!r.thumbUrl) { try { r.thumbUrl = URL.createObjectURL(r.file); } catch (e) { r.thumbUrl = ''; } } return mediaThumbHtml(r.thumbUrl, r.kind); }
+const mediaThumbSrc = m => m ? (m.thumbnail_url || m.url || '') : '';
 
 async function regLoadRefs(force) {
   if (force || !reg.products) reg.products = (await perfApi({ action: 'products' })).rows.map(r => ({ ...r, core: coreName(r.name), key: normKey(r.name) }));
@@ -174,7 +184,7 @@ function regRender() {
       const opts = r.cands.map(c => `<option value="${c.product_no}" ${r.product && r.product.product_no === c.product_no ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
       return `<tr style="${warn ? 'background:#fffbeb;' : ''}">
         <td><input type="checkbox" ${r.sel ? 'checked' : ''} ${r.done ? 'disabled' : ''} onchange="reg.rows[${i}].sel=this.checked;regSelBtn()" /></td>
-        <td style="font-size:.78rem;"><i class="fa-solid ${r.kind === 'video' ? 'fa-video' : 'fa-image'}" style="color:#4f46e5;"></i> <span class="reg-fname">${esc(r.fileName || r.file.name)}</span><div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div>${r.why === 'preset' && !r.done ? `<div style="margin-top:4px;"><input class="inp" value="${esc(r.tag || '')}" placeholder="소구점 (착용컷·인스타·다나대표)" style="width:200px;font-size:.72rem;padding:3px 8px;background:#fff;" oninput="regRowRename(${i}, this.value)" /></div>` : ''}</td>
+        <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${regFileThumb(r)}<div><span class="reg-fname">${esc(r.fileName || r.file.name)}</span><div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div>${r.why === 'preset' && !r.done ? `<div style="margin-top:4px;"><input class="inp" value="${esc(r.tag || '')}" placeholder="소구점 (착용컷·인스타·다나대표)" style="width:200px;font-size:.72rem;padding:3px 8px;background:#fff;" oninput="regRowRename(${i}, this.value)" /></div>` : ''}</div></div></td>
         <td style="min-width:240px;">${r.done ? esc(r.product ? r.product.name : '-') : `
           <select class="inp" style="width:100%;font-size:.78rem;background:#fff;padding:5px 8px;" onchange="regPick(${i}, this.value)">
             <option value="">— 상품 선택 —</option>${opts}</select>
@@ -242,7 +252,7 @@ async function regRun() {
   regLog(`끝 — 성공 ${ok} / ${todo.length} · ${Math.round((Date.now() - t0) / 1000)}초`, ok === todo.length ? 'ok' : 'err');
   toast(`소재 등록 ${ok}/${todo.length} 완료${ok < todo.length ? ` · 실패 ${todo.length - ok}개 (아래 로그 확인)` : ''}`);
   reg.aliases = null; regRefresh(true);
-  reg.rows = reg.rows.filter(r => !r.done); regRender();   // 등록된 파일은 위 목록에서 제거 (아래 '등록된 소재'에 남음) — 실패한 것만 남겨 재시도
+  reg.rows = reg.rows.filter(r => !r.done); regRender(); if (typeof uplBadgeRefresh === 'function') uplBadgeRefresh();   // 등록된 파일은 위 목록에서 제거 (아래 '등록된 소재'에 남음) — 실패한 것만 남겨 재시도
   // 끝나면 알림창으로 확실히 알림 (핸드폰에서도 보이게) — 사용자 요청 2026-09-11
   const failed = todo.filter(r => /실패/.test(r.status));
   alert(ok === todo.length
@@ -267,14 +277,36 @@ function regRenderList() {
   box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th>등록자</th><th></th></tr></thead><tbody>
     ${rows.slice(0, 200).map(r => `<tr>
       <td style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
-      <td style="font-size:.78rem;">${esc(r.file_name)}</td>
-      <td style="font-size:.78rem;">${esc(r.product_name || '-')}${safeUrl(r.url) ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:.7rem;">↗</a>` : ''}</td>
+      <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:center;">${mediaThumbHtml(mediaThumbSrc(r.media), r.kind, 40)}<span>${esc(r.file_name)}</span></div></td>
+      <td style="font-size:.78rem;" id="reg-prod-${r.id}">${esc(r.product_name || '-')}${safeUrl(r.url) ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:.7rem;">↗</a>` : ''}${r.status === 'registered' ? ` <button class="btn-ghost" style="padding:1px 7px;font-size:.66rem;margin-left:4px;" title="상품을 잘못 골랐을 때 바꾸기 (URL·파일명도 같이)" onclick="regListProduct('${r.id}')">변경</button>` : ''}</td>
       <td style="text-align:center;font-size:.74rem;">${REG_KIND_TYPE[r.kind] || r.kind}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
       <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
       <td style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
       <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" data-act="delete" style="padding:2px 8px;font-size:.7rem;${dnrbCan('delete') ? '' : 'display:none;'}" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
+}
+/* 등록된 소재의 상품 바꾸기 — 셀을 검색창으로 바꾸고, 고르면 상품·URL·(규칙 파일명이면) 파일명까지 저장 */
+async function regListProduct(id) {
+  const r = reg.list.find(x => x.id === id); if (!r) return;
+  try { await regLoadRefs(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
+  const cell = $('reg-prod-' + id); if (!cell) return;
+  cell.innerHTML = `<input class="inp" list="reg-dl" placeholder="상품명 검색 후 선택" style="width:100%;font-size:.76rem;padding:4px 8px;background:#fff;" onchange="regListProductPick('${id}', this.value)" autofocus />
+    <a href="#" style="font-size:.68rem;color:#6b7280;" onclick="regRenderList();return false;">취소</a>`;
+  cell.querySelector('input').focus();
+}
+async function regListProductPick(id, name) {
+  const r = reg.list.find(x => x.id === id), p = (reg.products || []).find(p => p.name === name);
+  if (!r || !p) { toast('목록에서 상품을 골라주세요'); return; }
+  const patch = { product_no: p.product_no, product_name: p.name, core_name: p.core, url: productUrl(p.product_no) };
+  const m = String(r.file_name || '').match(/^(.+?)_(R|P)(\d+)((?:_[^_]+)?)_(\d+)_(\d{6})_test(\.\w+)$/);   // 규칙대로 지은 파일명이면 상품 부분만 갈아끼움
+  if (m) patch.file_name = regPresetFileName(p, m[2] === 'R' ? 'video' : 'image', Number(m[3]), m[7].slice(1), `20${m[6].slice(0, 2)}-${m[6].slice(2, 4)}-${m[6].slice(4, 6)}`, m[4].slice(1));
+  if (r.text && r.text.link) patch.text = { ...r.text, link: patch.url };
+  try {
+    const res = await uplCall({ action: 'creative_save' }, { id, ...patch });
+    Object.assign(r, res.row); regRenderList(); renderPTest();
+    toast(`상품을 '${p.core}'(으)로 바꿨어요${patch.file_name ? ' · 파일명도 갱신' : ''}`);
+  } catch (e) { toast('변경 실패: ' + e.message); regRenderList(); }
 }
 function regListText(id) {
   const r = reg.list.find(x => x.id === id); if (!r) return;

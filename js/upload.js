@@ -20,6 +20,18 @@ function renderUpload() {
   uplRenderModel(); uplRenderFiles(); uplLoadRegistered();
 }
 /* ② 등록된 소재(대기) 자동 채움 — 파일은 이미 Meta 보관함에 있어 전송 없이 바로 생성 */
+/* 메뉴 배지: 광고 생성 대기 중인 등록 소재 수 (관리자 화면) */
+async function uplBadgeRefresh() {
+  if (typeof admgrCfg !== 'function' || !admgrCfg() || (typeof authIsAdmin === 'function' && !authIsAdmin())) return;
+  let n = 0;
+  try { n = (await uplCall({ action: 'creatives_list', status: 'registered', limit: 500 })).rows.length; } catch (e) { return; }
+  document.querySelectorAll('[data-menu="upload"]').forEach(btn => {
+    let b = btn.querySelector('.upl-badge');
+    if (!n) { if (b) b.remove(); return; }
+    if (!b) { b = document.createElement('span'); b.className = 'upl-badge'; b.style.cssText = 'margin-left:6px;background:#dc2626;color:#fff;border-radius:999px;padding:0 6px;font-size:.66rem;font-weight:800;line-height:1.5;'; btn.appendChild(b); }
+    b.textContent = n; b.title = `광고 생성 대기 소재 ${n}개`;
+  });
+}
 async function uplLoadRegistered() {
   try {
     const { rows } = await uplCall({ action: 'creatives_list', status: 'registered', limit: 300 });
@@ -106,7 +118,7 @@ function uplRenderFiles() {
     <thead><tr><th style="width:28px;"><input type="checkbox" title="전체 선택" ${upl.files.length && upl.files.every(f => f.sel) ? 'checked' : ''} onchange="uplSelAll(this.checked)" /></th><th style="text-align:left;">파일</th><th style="text-align:left;">세트명 · 광고명</th><th title="비우면 아래 기본 일예산 적용">세트 예산</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
     <tbody>${upl.files.map((f, i) => `<tr>
       <td><input type="checkbox" ${f.sel ? 'checked' : ''} onchange="upl.files[${i}].sel=this.checked;uplSelBtn()" /></td>
-      <td style="font-size:.78rem;"><i class="fa-solid ${f.kind==='video'?'fa-video':'fa-image'}" style="color:#4f46e5;"></i> ${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></td>
+      <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${mediaThumbHtml(f.file ? (f.thumbUrl || (f.thumbUrl = (() => { try { return URL.createObjectURL(f.file); } catch (e) { return ''; } })())) : mediaThumbSrc(f.media), f.kind, 40)}<div>${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></div></div></td>
       <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
       <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null" ${upl.running||f.result?'disabled':''} title="비우면 기본 일예산" />`}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? '<i class="fa-solid fa-rotate" style="color:#b45309;"></i> 재생성 대기' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
@@ -226,7 +238,7 @@ async function uplUploadMedia(f, pin) {
   if (f.kind === 'image') {
     const fd = new FormData(); fd.append('pin', pin); fd.append('file', f.file, f.file.name);
     const r = await uplCall({ action: 'image' }, fd);
-    return { type: 'image', image_hash: r.image_hash };
+    return { type: 'image', image_hash: r.image_hash, url: r.url || null };   // url: 썸네일용 (Meta 보관함 주소)
   }
   const size = f.file.size;
   const st = await uplCall({ action: 'video_start' }, { pin, file_size: size });
@@ -319,5 +331,6 @@ async function uplRun() {
   upl.running = false; $('upl-run').disabled = false; uplRenderFiles();
   uplLog(`끝 — 성공 ${ok} / ${pending.length} · 총 ${Math.round((Date.now() - t0) / 1000)}초`, ok === pending.length ? 'ok' : 'err');
   if (ok) reg.list = null;   // 체크보드·등록 목록은 다음 렌더에서 다시 읽음
+  uplBadgeRefresh();
   toast(`광고 생성 ${ok}/${pending.length} 완료${ok < pending.length ? ` · 실패 ${pending.length - ok}개 (아래 로그 확인)` : ''}`);
 }

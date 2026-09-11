@@ -101,6 +101,7 @@ async function authChangePw() {
 }
 function authIsAdmin() { return !AUTH.me || AUTH.me.role === 'admin'; }   // me 없음 = 연동 없는 데모 → 제한 없음
 function authApplyRole() {
+  setTimeout(() => { if (typeof uplBadgeRefresh === 'function') uplBadgeRefresh(); }, 0);
   const admin = authIsAdmin();
   document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = admin ? '' : 'none');
   const chip = $('auth-chip');
