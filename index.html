@@ -15,6 +15,7 @@
     // 배포판(GitHub Pages)엔 config.js가 없다 — 공개용 anon key만 기본값으로 넣고 로그인 계정으로 서버 인증. DASH_KEY는 로컬 파일 전용.
     window.DASH_CFG = Object.assign({
       SUPABASE_URL: "https://pydxcqfztjogmztvayux.supabase.co",
+      META_ACCOUNT_ID: "343611764656087",   // 광고관리자 링크용 (act_ 제외)
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
     }, window.DASH_CFG || {});
   </script>
@@ -420,6 +421,14 @@
       <button class="btn-ghost" onclick="uplTextReset()">모델 광고 문구로</button>
       <button class="btn-analyze" onclick="uplTextApply()">적용</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ 체크보드 칸 팝업: 상품·유형별 소재 목록 ═══ -->
+<div class="modal" id="pt-cell-modal" onclick="if(event.target===this)closeModal('pt-cell-modal')">
+  <div class="modal-box wide">
+    <div class="modal-head"><b id="pt-cell-title">소재 목록</b><button class="modal-x" onclick="closeModal('pt-cell-modal')">✕</button></div>
+    <div id="pt-cell-body"></div>
   </div>
 </div>
 

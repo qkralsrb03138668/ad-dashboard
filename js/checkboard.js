@@ -224,55 +224,73 @@ function renderPTest() {
   regSyncBoard(); ptRegIdx = regBoardIndex();
   if (reg.list) regRenderList();
   const N = pt.types.length;
-  const doneAll = pt.products.filter(p => N && ptDone(p) === N).length;
-  const partial = pt.products.filter(p => ptDone(p) > 0 && ptDone(p) < N).length;
-  const none = pt.products.length - doneAll - partial;
-  const totalCells = pt.products.length * N;
-  const runCells = pt.products.reduce((s, p) => s + ptDone(p), 0);
+  const today = todayStr(0), dayDiff = (a, b) => Math.round((new Date(a) - new Date(b)) / 86400000);
+  const info = p => {   // 행 요약: 등록 소재 수·대기 수·마지막 활동·신상품 여부
+    const rows = ptRegRows(p);
+    const latest = rows.reduce((m, r) => { const d = (r.ad_created_at || r.created_at || '').slice(0, 10); return d > m ? d : m; }, '');
+    return { rows, n: rows.length, waiting: rows.filter(r => r.status === 'registered').length, latest, ago: latest ? dayDiff(today, latest) : null,
+      isNew: !!p.created && dayDiff(today, p.created) <= 30, noStory: !regCellFor(ptRegIdx, p, '스토리'), noReels: !regCellFor(ptRegIdx, p, '릴스') };
+  };
+  const all = pt.products.map(p => ({ p, ...info(p) }));
+  const cnt = {
+    newnone: all.filter(x => x.isNew && !x.n).length,
+    waiting: all.filter(x => x.waiting).length,
+    week: (reg.list || []).filter(r => dayDiff(today, (r.created_at || '').slice(0, 10)) <= 7).length,
+    stale: all.filter(x => (x.n && x.ago > 30) || (!x.n && p_old(x.p))).length,
+    none: all.filter(x => !x.n).length, nostory: all.filter(x => x.noStory).length, noreels: all.filter(x => x.noReels).length, new30: all.filter(x => x.isNew).length,
+  };
+  function p_old(p) { return !!p.created && dayDiff(today, p.created) > 30; }
 
-  /* 요약 타일 */
+  /* 요약 타일 — 누르면 그 조건으로 걸러짐 */
+  const tile = (key, icon, color, label, value, sub) => `<div class="kpi-tile ${ptFilter === key ? 'kt-hero' : ''}" style="cursor:pointer;" onclick="setPtFilter('${key}')" title="누르면 이 조건으로 걸러요">
+      <div class="kt-label"><i class="${icon}" style="color:${ptFilter === key ? '#fff' : color};"></i> ${label}</div><div class="kt-value">${value}</div><div class="kt-sub">${sub}</div></div>`;
   $('pt-summary').innerHTML = pt.products.length ? `
     <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:16px;">
-      <div class="kpi-tile kt-hero"><div class="kt-label"><i class="fa-solid fa-box"></i> 상품</div>
-        <div class="kt-value">${pt.products.length}개</div><div class="kt-sub">소재 유형 ${N}종</div></div>
-      <div class="kpi-tile"><div class="kt-label"><i class="fa-solid fa-circle-check" style="color:#15803d;"></i> 전 유형 진행</div>
-        <div class="kt-value">${doneAll}개</div><div class="kt-sub">모든 소재 진행중</div></div>
-      <div class="kpi-tile"><div class="kt-label"><i class="fa-solid fa-circle-half-stroke" style="color:#d97706;"></i> 일부 진행</div>
-        <div class="kt-value">${partial}개</div><div class="kt-sub">진행 안 한 유형 남음</div></div>
-      <div class="kpi-tile"><div class="kt-label"><i class="fa-regular fa-circle" style="color:#9ca3af;"></i> 미진행</div>
-        <div class="kt-value">${none}개</div><div class="kt-sub">아직 진행 소재 없음</div></div>
-      <div class="kpi-tile"><div class="kt-label"><i class="fa-solid fa-chart-pie"></i> 전체 진행률</div>
-        <div class="kt-value">${totalCells ? Math.round(runCells / totalCells * 100) : 0}%</div>
-        <div class="kt-sub">${runCells}/${totalCells} 칸 진행중</div></div>
+      ${tile('all', 'fa-solid fa-box', '#4f46e5', '상품', `${pt.products.length}개`, `소재 등록 ${(reg.list || []).length}건`)}
+      ${tile('newnone', 'fa-solid fa-bolt', '#dc2626', '소재 없는 신상품', `${cnt.newnone}개`, '최근 30일 등록인데 소재 0')}
+      ${tile('waiting', 'fa-solid fa-hourglass-half', '#d97706', '광고 생성 대기', `${cnt.waiting}개`, `소재 ${all.reduce((s, x) => s + x.waiting, 0)}건 대기 중`)}
+      ${tile('week', 'fa-solid fa-calendar-week', '#15803d', '이번 주 등록 소재', `${cnt.week}건`, '최근 7일')}
+      ${tile('stale', 'fa-solid fa-moon', '#6b7280', '한 달 넘게 소재 없음', `${cnt.stale}개`, '새 소재가 필요한 상품')}
     </div>` : '';
 
   /* 필터 칩 */
-  $('pt-tabs').innerHTML = `
-    <button class="filter-tab ${ptFilter==='all'?'active':''}" onclick="setPtFilter('all')">전체 ${pt.products.length}</button>
-    <button class="filter-tab ${ptFilter==='todo'?'active':''}" onclick="setPtFilter('todo')">미완료 ${partial + none}</button>
-    <button class="filter-tab ${ptFilter==='done'?'active':''}" onclick="setPtFilter('done')">전 유형 진행 ${doneAll}</button>`;
+  const chips = [['all', `전체 ${pt.products.length}`], ['none', `소재 없음 ${cnt.none}`], ['nostory', `스토리 없음 ${cnt.nostory}`], ['noreels', `릴스 없음 ${cnt.noreels}`], ['new30', `최근 30일 신상품 ${cnt.new30}`], ['waiting', `생성 대기 ${cnt.waiting}`], ['stale', `한 달+ 방치 ${cnt.stale}`]];
+  $('pt-tabs').innerHTML = chips.map(([k, l]) => `<button class="filter-tab ${ptFilter === k ? 'active' : ''}" onclick="setPtFilter('${k}')">${l}</button>`).join('');
 
-  let rows = pt.products;
-  if (ptFilter === 'todo') rows = rows.filter(p => !N || ptDone(p) < N);
-  else if (ptFilter === 'done') rows = rows.filter(p => N && ptDone(p) === N);
+  let list = all;
+  if (ptFilter === 'none') list = all.filter(x => !x.n);
+  else if (ptFilter === 'nostory') list = all.filter(x => x.noStory);
+  else if (ptFilter === 'noreels') list = all.filter(x => x.noReels);
+  else if (ptFilter === 'new30') list = all.filter(x => x.isNew);
+  else if (ptFilter === 'newnone') list = all.filter(x => x.isNew && !x.n);
+  else if (ptFilter === 'waiting') list = all.filter(x => x.waiting);
+  else if (ptFilter === 'week') list = all.filter(x => x.rows.some(r => dayDiff(today, (r.created_at || '').slice(0, 10)) <= 7));
+  else if (ptFilter === 'stale') list = all.filter(x => (x.n && x.ago > 30) || (!x.n && p_old(x.p)));
+  /* 정렬: 기본 등록일 최신순 */
+  const dir = ptSort.dir === 'asc' ? 1 : -1;
+  list = [...list].sort((a, b) => {
+    if (ptSort.key === 'name') return dir * coreName(a.p.name).localeCompare(coreName(b.p.name), 'ko');
+    if (ptSort.key === 'last') return dir * ((a.latest || '').localeCompare(b.latest || ''));
+    return dir * ((a.p.created || '').localeCompare(b.p.created || ''));
+  });
 
   const body = $('pt-body');
   ptSelBtn();
   if (!pt.products.length) {
     body.innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-clipboard-check"></i></div>
-      <p>위에서 <b>상품을 추가</b>하면 소재 유형별 체크보드가 만들어져요.</p></div>`;
+      <p>위에서 <b>소재를 등록</b>하거나 상품·유형 관리에서 <b>상품을 추가</b>하면 체크보드가 만들어져요.</p></div>`;
     return;
   }
-  if (!rows.length) {
+  if (!list.length) {
     body.innerHTML = `<div class="empty-state" style="padding:32px;"><p>조건에 맞는 상품이 없어요.</p></div>`;
     return;
   }
-  const total = rows.length, pages = Math.ceil(total / ptPer);
+  const total = list.length, pages = Math.ceil(total / ptPer);
   if (ptPage > pages) ptPage = pages;
   const from = (ptPage - 1) * ptPer;
-  rows = rows.slice(from, from + ptPer);
+  list = list.slice(from, from + ptPer);
   const pager = `<div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:.8rem;color:#6b7280;">
-    <span>${total}개 중 ${from + 1}–${from + rows.length}</span>
+    <span>${total}개 중 ${from + 1}–${from + list.length}</span>
     <select class="inp" style="width:auto;padding:4px 8px;font-size:.8rem;background:#fff;" onchange="setPtPer(this.value)">
       ${[10,20,30,50,100].map(n => `<option value="${n}" ${n===ptPer?'selected':''}>${n}개씩</option>`).join('')}</select>
     <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
@@ -282,34 +300,78 @@ function renderPTest() {
 
   const cellHtml = (p, t) => {
     const rc = regCellFor(ptRegIdx, p, t);
-    if (rc) return `<span class="status-badge ${rc.run ? 'badge-green' : 'badge-blue'}">${rc.run ? '진행중' : '제작완료'}</span><span class="pt-date" title="소재 등록 ${rc.n}개 · 광고 생성 ${rc.run}개">${rc.n}개 · ${fmtMD(rc.latest)}</span>`;
+    if (rc) return `<span class="status-badge ${rc.run ? 'badge-green' : 'badge-blue'}">${rc.run ? '진행중' : '제작완료'}</span><span class="pt-date">${rc.n}개 · ${fmtMD(rc.latest)}</span>`;
     const c = p.cells[t];
     if (!c) return `<span class="pt-empty" title="클릭 → 제작완료"></span>`;
     if (c.st === 'made') return `<span class="status-badge badge-blue">제작완료</span><span class="pt-date">${fmtMD(c.date)}</span>`;
     return `<span class="status-badge badge-green">진행중</span><span class="pt-date">${fmtMD(c.date)}</span>`;
   };
+  const sortTh = (key, label, extra) => `<th ${extra || ''} style="cursor:pointer;${extra ? '' : ''}" onclick="setPtSort('${key}')" title="정렬">${label}${ptSort.key === key ? (ptSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`;
+  const imgOf = p => { const c = (reg.products || []).find(x => x.product_no === p.product_no) || ptCafe24Rows.find(x => x.product_no === p.product_no); return c ? c.image : ''; };
+  const nameHtml = p => {
+    const core = coreName(p.name), ver = regVerTag(p.name), parens = (String(p.name).normalize('NFC').match(/\([^()]*\)|\[[^\[\]]*\]/g) || []).join(' ');
+    return `<div style="display:flex;gap:10px;align-items:center;min-width:0;">${mediaThumbHtml(imgOf(p), 'image', 40)}
+      <div style="min-width:0;"><div style="font-weight:800;color:#1e1b4b;">${ver ? `<span class="status-badge badge-blue" style="font-size:.62rem;margin-right:4px;">${esc(ver)}</span>` : ''}${esc(core)}</div>
+      ${parens ? `<div style="font-size:.68rem;color:#9ca3af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;">${esc(parens)}</div>` : ''}</div></div>`;
+  };
+  const agoHtml = x => !x.latest ? '<span style="color:#dc2626;">소재 없음</span>' : x.ago === 0 ? '오늘' : x.ago === 1 ? '어제' : `<span style="${x.ago > 30 ? 'color:#dc2626;' : ''}">${x.ago}일 전</span>`;
 
   body.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>
       <th style="width:28px;"><input type="checkbox" title="이 페이지 전체 선택" onchange="ptSelPage(this.checked)" /></th>
-      <th style="text-align:left;">상품명</th><th title="카페24 상품 등록일">등록일</th>
+      ${sortTh('name', '상품명', 'style="text-align:left;"').replace('style="cursor:pointer;"', 'style="cursor:pointer;text-align:left;"')}${sortTh('created', '등록일')}
       ${pt.types.map((t, ti) => `<th>${esc(t)}<button class="pt-th-x" title="'${esc(t)}' 유형 삭제" onclick="ptDelType(${ti})"><i class="fa-solid fa-xmark"></i></button></th>`).join('')}
-      <th>진행률</th><th></th>
+      ${sortTh('last', '마지막 소재')}<th></th>
     </tr></thead>
-    <tbody>${rows.map(p => {
-      const done = ptDone(p);
-      return `<tr>
+    <tbody>${list.map(x => { const p = x.p; return `<tr>
         <td><input type="checkbox" value="${p.id}" ${ptSel.has(p.id)?'checked':''} onchange="ptSelToggle(this.value, this.checked)" /></td>
-        <td class="name-cell" style="font-weight:700;">${esc(p.name)}</td>
-        <td style="text-align:center;font-size:.76rem;color:#6b7280;white-space:nowrap;">${fmtYMD(p.created)}</td>
-        ${pt.types.map((t, ti) => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" title="소재 등록 기록으로 자동 표시 — 클릭으로 못 바꿔요">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}',${ti})">${cellHtml(p, t)}</td>`).join('')}
-        <td><span class="pt-prog-wrap"><span class="pt-prog-bar"><span class="pt-prog-fill" style="width:${N ? done / N * 100 : 0}%;"></span></span>
-          <b style="font-size:.78rem;">${done}/${N}</b></span></td>
-        <td><button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="ptDelProduct('${p.id}')"><i class="fa-solid fa-xmark"></i></button></td>
+        <td class="name-cell">${nameHtml(p)}</td>
+        <td style="text-align:center;font-size:.76rem;color:#6b7280;white-space:nowrap;">${fmtYMD(p.created)}${x.isNew ? '<div><span class="status-badge badge-green" style="font-size:.6rem;">NEW</span></div>' : ''}</td>
+        ${pt.types.map((t, ti) => regCellFor(ptRegIdx, p, t) ? `<td class="pt-cell" style="cursor:pointer;" title="클릭 → 이 상품의 ${esc(t)} 소재 목록" onclick="ptCellPopup('${p.id}',${ti})">${cellHtml(p, t)}</td>` : `<td class="pt-cell" onclick="ptCycle('${p.id}',${ti})">${cellHtml(p, t)}</td>`).join('')}
+        <td style="text-align:center;font-size:.76rem;white-space:nowrap;">${agoHtml(x)}${x.waiting ? `<div style="font-size:.66rem;color:#d97706;">대기 ${x.waiting}</div>` : ''}</td>
+        <td style="white-space:nowrap;"><button class="btn-ghost" style="padding:3px 9px;font-size:.7rem;" title="이 상품으로 소재 등록 (위 등록 영역에 상품이 잡혀요)" onclick="ptUploadFor('${p.id}')"><i class="fa-solid fa-cloud-arrow-up"></i> 소재 올리기</button>
+          <button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="ptDelProduct('${p.id}')"><i class="fa-solid fa-xmark"></i></button></td>
       </tr>`; }).join('')}</tbody>
   </table></div>${pager}
   <p style="font-size:.75rem;color:#9ca3af;margin-top:10px;line-height:1.7;">
-    칸을 클릭할 때마다 <b>— → 제작완료 → 진행중 → 해제</b> 순서로 바뀌고, 바꾼 날짜가 함께 기록돼요.
-    소재 유형 열은 위의 <b>소재 유형 추가</b>로 자유롭게 늘릴 수 있어요 (예: 후킹영상, 카드뉴스).</p>`;
+    스토리·릴스 칸은 소재 등록 기록으로 자동 표시되고, 누르면 그 소재 목록이 열려요. 기록이 없는 칸은 클릭할 때마다 <b>— → 제작완료 → 진행중 → 해제</b>로 바뀌어요.
+    소재 유형 열은 <b>상품·유형 관리 → 소재 유형 추가</b>로 늘릴 수 있어요.</p>`;
   ptSelBtn();
+}
+
+/* ── 보드 부가 기능: 정렬 · 상품의 소재 목록 · 칸 팝업 · 행에서 바로 소재 올리기 ── */
+let ptSort = lsGet('adc_pt_sort', null) || { key: 'created', dir: 'desc' };
+function setPtSort(key) {
+  const first = key === 'name' ? 'asc' : 'desc';   // 이름은 가나다순부터, 날짜는 최신순부터
+  ptSort = { key, dir: ptSort.key === key ? (ptSort.dir === first ? (first === 'asc' ? 'desc' : 'asc') : first) : first }; lsSet('adc_pt_sort', ptSort); ptPage = 1; renderPTest();
+}
+function ptRegRows(p) {
+  return (reg.list || []).filter(r => p.product_no ? r.product_no === p.product_no : (r.core_name && normKey(r.core_name) === normKey(p.name)));
+}
+function ptCellPopup(pid, ti) {
+  const p = pt.products.find(x => x.id === pid), t = pt.types[ti]; if (!p || !t) return;
+  const kind = Object.keys(REG_KIND_TYPE).find(k => REG_KIND_TYPE[k] === t);
+  const rows = ptRegRows(p).filter(r => r.kind === kind).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const act = (window.DASH_CFG && window.DASH_CFG.META_ACCOUNT_ID) || '';
+  const tagOf = fn => { const m = String(fn).match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}_test/); return m ? m[1] : ''; };
+  $('pt-cell-title').innerHTML = `${esc(coreName(p.name))} · ${esc(t)} <span style="font-weight:400;color:#6b7280;font-size:.8rem;">${rows.length}개</span>`;
+  $('pt-cell-body').innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th></th><th style="text-align:left;">파일</th><th>소구점</th><th style="text-align:left;">상태</th><th>등록</th><th>문구</th></tr></thead><tbody>
+    ${rows.map(r => `<tr>
+      <td>${mediaThumbHtml(mediaThumbSrc(r.media), r.kind, 48)}</td>
+      <td style="font-size:.78rem;">${esc(r.file_name)}</td>
+      <td style="text-align:center;font-size:.74rem;">${esc(tagOf(r.file_name) || '-')}</td>
+      <td style="font-size:.76rem;white-space:nowrap;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span><div style="font-size:.66rem;color:#9ca3af;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}${r.ad_id && act ? ` · <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${r.ad_id}" target="_blank" rel="noopener">광고관리자 ↗</a>` : ''}</div>` : '<span class="status-badge badge-blue">대기</span>'}</td>
+      <td style="text-align:center;font-size:.7rem;color:#6b7280;white-space:nowrap;">${(r.created_at || '').slice(5, 10)}<div>${esc((r.created_by_email || '').split('@')[0])}</div></td>
+      <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="closeModal('pt-cell-modal');regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 보기' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
+    </tr>`).join('')}</tbody></table></div>` : '<div style="padding:16px;color:#9ca3af;">등록된 소재가 없어요</div>';
+  $('pt-cell-modal').classList.add('show');
+}
+async function ptUploadFor(pid) {
+  const p = pt.products.find(x => x.id === pid); if (!p) return;
+  try { await regPresetInit(); } catch (e) { /* 아래에서 안내 */ }
+  const cp = (reg.products || []).find(x => x.product_no === p.product_no) || (reg.products || []).find(x => normKey(x.name) === normKey(p.name));
+  if (!cp) { toast('카페24 상품 목록에서 이 상품을 찾지 못했어요 (진열 중 상품만 가능)'); return; }
+  regPresetPick(String(cp.product_no));
+  const el = $('reg-preset-card'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  toast(`'${cp.core}'로 잡았어요 — 파일을 올리면 이 상품으로 등록돼요`);
 }
