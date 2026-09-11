@@ -93,7 +93,9 @@
       <div class="section-header"><h2><i class="fa-solid fa-clipboard-check" style="color:#4f46e5;font-size:.9em;"></i> 광고소재 대시보드</h2>
         <span class="hdr-note">칸 클릭: — → <b style="color:#1d4ed8;">제작완료</b> → <b style="color:#15803d;">진행중</b> → 해제</span></div>
       <div class="section-body">
-        <div class="control-bar" style="margin-bottom:18px;">
+        <!-- 상품·유형 관리 도구 — 기본 접힘, 화살표로 펼침 (상태 기억) -->
+        <button class="btn-ghost" id="pt-tools-toggle" onclick="ptToolsToggle()" style="padding:4px 10px;font-size:.76rem;margin-bottom:8px;"><i class="fa-solid fa-chevron-right"></i> 상품·유형 관리</button>
+        <div class="control-bar" id="pt-tools" style="margin-bottom:18px;display:none;">
           <input class="inp" id="pt-new-name" placeholder="상품명 입력" style="max-width:240px;background:#fff;"
                  onkeydown="if(event.key==='Enter')ptAddProduct()" />
           <button class="btn-analyze" onclick="ptAddProduct()"><i class="fa-solid fa-plus"></i> 상품 추가</button>

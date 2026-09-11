@@ -15,6 +15,13 @@ if (!lsGet('adc_pt_mig_thumb', false)) {   // 2026-09-10: '썸네일릴스' 열 
 let ptSel = new Set(), ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
 
 function ptSave() { lsSet(LS.pt, pt); }
+/* 상품·유형 관리 도구 접기/펼치기 (기본 접힘, 브라우저에 기억) */
+function ptToolsToggle(force) {
+  const open = force !== undefined ? force : $('pt-tools').style.display === 'none';
+  $('pt-tools').style.display = open ? 'flex' : 'none';
+  $('pt-tools-toggle').innerHTML = `<i class="fa-solid fa-chevron-${open ? 'down' : 'right'}"></i> 상품·유형 관리`;
+  if (force === undefined) lsSet('adc_pt_tools_open', open);
+}
 function ptSampleData() {
   const d = n => todayStr(-n);
   return {
@@ -158,6 +165,7 @@ function ptDelAll() {
 }
 
 function renderPTest() {
+  if ($('pt-tools') && !$('pt-tools').dataset.init) { $('pt-tools').dataset.init = '1'; ptToolsToggle(!!lsGet('adc_pt_tools_open', false)); }
   ptBackfillCreated();
   if (!reg.list && !reg.listLoading && admgrCfg()) regRefresh();   // 등록 기록은 서버에서 (처음 한 번, 이후 새로고침 버튼)
   regSyncBoard(); ptRegIdx = regBoardIndex();
