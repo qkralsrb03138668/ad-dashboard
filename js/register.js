@@ -258,15 +258,15 @@ function regRenderList() {
   $('reg-tabs').innerHTML = [['registered', `대기 ${wait.length}`], ['ad_created', `광고 생성됨 ${made.length}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="filter-tab ${reg.filter === k ? 'active' : ''}" onclick="reg.filter='${k}';regRenderList()">${l}</button>`).join('');
   const rows = reg.filter === 'all' ? all : all.filter(r => r.status === reg.filter);
   if (!rows.length) { box.innerHTML = '<div style="padding:10px;">없음</div>'; return; }
-  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th class="m-hide">등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th class="m-hide">등록자</th><th></th></tr></thead><tbody>
+  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th>등록자</th><th></th></tr></thead><tbody>
     ${rows.slice(0, 200).map(r => `<tr>
-      <td class="m-hide" style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
+      <td style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
       <td style="font-size:.78rem;">${esc(r.file_name)}</td>
       <td style="font-size:.78rem;">${esc(r.product_name || '-')}${safeUrl(r.url) ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:.7rem;">↗</a>` : ''}</td>
       <td style="text-align:center;font-size:.74rem;">${REG_KIND_TYPE[r.kind] || r.kind}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
       <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
-      <td class="m-hide" style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
+      <td style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
       <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" data-act="delete" style="padding:2px 8px;font-size:.7rem;${dnrbCan('delete') ? '' : 'display:none;'}" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }

@@ -116,15 +116,8 @@ function menuGroupToggle(id, force) {
   if (force === undefined) lsSet('adc_mg_' + id, open);
 }
 const ADMGR_SOLO = { atest: 'test', abest: 'best' };   // 소재 메뉴의 단독 화면 → 광고관리자 섹션을 그 탭만으로 (2026-09-11)
-/* 폰 메뉴 서랍(≤900px, 2026-09-11) — 헤더 ☰·하단 '더보기'로 열고, 덮개 클릭·ESC·메뉴 선택으로 닫힘. 데스크톱은 CSS가 서랍 규칙을 안 켜므로 무영향 */
-function menuDrawer(open) {
-  document.body.classList.toggle('menu-open', !!open);
-  document.body.style.overflow = open ? 'hidden' : '';
-}
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) menuDrawer(false); });
 function showMenu(key) {
   if (typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }
-  menuDrawer(false);
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
   const sec = ADMGR_SOLO[key] ? 'admgr' : key;

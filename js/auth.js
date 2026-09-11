@@ -104,7 +104,7 @@ function authApplyRole() {
   const admin = authIsAdmin();
   document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = admin ? '' : 'none');
   const chip = $('auth-chip');
-  if (AUTH.me && chip) $('auth-chip-m').innerHTML = chip.innerHTML = `<i class="fa-solid fa-user" style="color:#4f46e5;"></i> ${esc(AUTH.me.name || AUTH.me.email)} <span style="color:#9ca3af;">(${admin ? '관리자' : '마케터'})</span>`
+  if (AUTH.me && chip) chip.innerHTML = `<i class="fa-solid fa-user" style="color:#4f46e5;"></i> ${esc(AUTH.me.name || AUTH.me.email)} <span style="color:#9ca3af;">(${admin ? '관리자' : '마케터'})</span>`
     + (AUTH.session ? ` · <a href="#" onclick="authChangePw();return false;">비밀번호 변경</a>` : '')
     + (AUTH.session || AUTH.me.dnrb ? ` · <a href="#" onclick="authLogout();return false;">로그아웃</a>` : '');
   if (!admin && ['admgr', 'upload', 'perf', 'data'].includes(curMenu)) showMenu('ptest');
