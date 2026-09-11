@@ -185,6 +185,37 @@ test('renderPerfResult: 합계 표가 그려진다', () => {
   assert.ok(html.includes('80,000원'), '순매출'); assert.ok(html.includes('20.0%'), '취소반품률'); assert.ok(html.includes('A'));
 });
 
+console.log('④ 체크보드 계정 공유');
+{
+  const window_ = window; window_.DASH_CFG = { SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'anon' };
+  vm.runInContext("AUTH.me = { email: 'm@x', name: '마케터', role: 'marketer' };", ctx);
+  const calls = [];
+  const serve = (res) => { ctx.fetch = async (url, init) => { calls.push({ url: String(url), body: init && init.body ? JSON.parse(init.body) : null }); return { ok: true, status: 200, text: async () => JSON.stringify(res) }; }; };
+  await (async () => {
+    serve({ data: { types: ['릴스'], products: [{ id: 'p1', name: '서버 상품', cells: {} }] }, ver: 'v1', updated_by: '대표' });
+    const changed = await g('ptPull')(true);
+    assert.equal(changed, true); assert.equal(g('pt').products[0].name, '서버 상품'); assert.equal(g('ptSrv').ver, 'v1');
+    assert.match(calls[0].url, /state_get&key=pt/);
+    serve({ ok: true, ver: 'v2' });
+    await g('ptPush')();
+    assert.equal(calls[1].body.base, 'v1'); assert.equal(calls[1].body.key, 'pt'); assert.equal(g('ptSrv').ver, 'v2');
+    serve({ conflict: true, data: { types: ['릴스'], products: [] }, ver: 'v3', updated_by: '대표' });
+    await g('ptPush')();
+    assert.equal(g('pt').products.length, 0); assert.equal(g('ptSrv').ver, 'v3');   // 충돌 → 서버 최신본으로 교체, 덮어쓰지 않음
+    n++; console.log('  ✓ ptPull/ptPush: 서버 우선 · 저장 시 base 전송 · 충돌이면 최신본 교체');
+  })();
+  await (async () => {
+    vm.runInContext("pt = ptSampleData();", ctx); calls.length = 0; serve({ ok: true, ver: 'vx' });
+    await g('ptPush')(); assert.equal(calls.length, 0);   // 예시 보드는 서버로 안 감
+    n++; console.log('  ✓ ptPush: 예시 보드(sample)는 전송하지 않음');
+  })();
+  test('ptSave: 예시 표시(sample) 제거 + 서버 전송 예약', () => {
+    vm.runInContext("pt = ptSampleData();", ctx); assert.equal(g('pt').sample, true);
+    g('ptSave')(); assert.equal(g('pt').sample, undefined); assert.ok(g('ptSrv').timer);
+  });
+  ctx.fetch = async () => { throw new Error('테스트에선 네트워크 없음'); };
+}
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {

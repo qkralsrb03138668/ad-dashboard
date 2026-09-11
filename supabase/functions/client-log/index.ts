@@ -4,6 +4,8 @@
 //   POST ?action=backup  { payload:{adc_*: any} }        (로그인 사용자·접근키) → { ok, day, bytes }  사용자·날짜당 1건(덮어씀), 30일 보관
 //   GET  ?action=backups                                 (로그인 사용자·접근키) → { rows:[{day, bytes, created_at}] }
 //   GET  ?action=backup&day=YYYY-MM-DD                   (로그인 사용자·접근키) → { payload }
+//   GET  ?action=state_get&key=pt                        (로그인 사용자·접근키) → { data, ver, updated_by }   계정 공유 상태 (체크보드 등)
+//   POST ?action=state_set { key, data, base }           (로그인 사용자·접근키) → { ok, ver } / { conflict:true, data, ver, updated_by }  base≠서버 ver면 거부
 //   GET  ?action=errors&limit=200                        (admin)               → { rows }
 //   GET  ?action=export                                  (admin)               → { exported_at, tables:{이름: 행[]} }   토큰·캐시 제외
 // 로그인/auth-admin과 분리된 별도 함수 — 여기가 잘못돼도 로그인·광고 기능엔 영향 없음.
@@ -15,6 +17,7 @@ const MAX_ERR = 5000, KEEP_DAYS = 30, MAX_BACKUP_BYTES = 8 * 1024 * 1024;
 const EXPORT_TABLES = ["profiles", "creatives", "product_alias", "perf_archive", "best_ads", "ad_test_state", "test_ad_snap",
   "budget_writes", "budget_daystart", "shoot_trips", "shoot_items", "client_backups"];
 const clip = (s: unknown, n: number) => String(s ?? "").slice(0, n);
+const STATE_KEY = /^[a-z_]{1,40}$/, MAX_STATE_BYTES = 2 * 1024 * 1024;   // 공유 상태: 키는 짧은 영문, 값은 2MB까지 (체크보드 수천 상품도 수백 KB)
 
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
@@ -63,6 +66,30 @@ Deno.serve(async (req) => {
       const r = await dbRest(`client_backups?user_key=eq.${encodeURIComponent(me.email)}&day=eq.${day}&select=payload`);
       const row = r.ok ? (await r.json())[0] : null;
       return row ? json({ payload: row.payload }) : json({ error: "그 날짜의 백업이 없어요" }, 404);
+    }
+
+    // 계정 공유 상태 (2026-09-11) — 체크보드(pt)를 관리자·마케터가 같은 보드로. 마지막 저장이 이기되, 저장 전에 버전(base)을 비교해 남의 변경을 덮어쓰지 않는다.
+    if (action === "state_get") {
+      const key = url.searchParams.get("key") ?? "";
+      if (!STATE_KEY.test(key)) return json({ error: "key 형식 오류" }, 400);
+      const r = await dbRest(`shared_state?key=eq.${key}&select=data,ver,updated_by`);
+      if (!r.ok) return json({ error: await r.text() }, 500);
+      return json((await r.json())[0] ?? { data: null, ver: null, updated_by: null });
+    }
+    if (action === "state_set" && req.method === "POST") {
+      const key = String(body.key ?? "");
+      if (!STATE_KEY.test(key)) return json({ error: "key 형식 오류" }, 400);
+      if (!body.data || typeof body.data !== "object") return json({ error: "data 필요" }, 400);
+      const text = JSON.stringify(body.data);
+      if (text.length > MAX_STATE_BYTES) return json({ error: `데이터가 너무 커요 (${Math.round(text.length / 1048576)}MB, 최대 2MB)` }, 413);
+      const cur = await dbRest(`shared_state?key=eq.${key}&select=data,ver,updated_by`);
+      const row = cur.ok ? (await cur.json())[0] : null;
+      if (row && row.ver !== (body.base ?? null)) return json({ conflict: true, ...row });   // 내가 읽은 뒤 누가 저장함 → 최신본을 돌려주고 저장 안 함
+      const ver = new Date().toISOString();
+      const r = await dbRest("shared_state?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key, data: body.data, ver, updated_by: me.name || me.email, updated_at: ver }) });
+      if (!r.ok) return json({ error: await r.text() }, 500);
+      return json({ ok: true, ver });
     }
 
     const admin = await requireRole(req, ["admin"]); if (admin instanceof Response) return admin;

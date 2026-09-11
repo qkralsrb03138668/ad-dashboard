@@ -317,5 +317,5 @@ function regSyncBoard() {
     const cp = (reg.products || []).find(p => p.product_no === r.product_no);
     pt.products.unshift({ id: newId(), name: r.product_name || r.core_name, product_no: r.product_no, created: cp && cp.created || '', cells: {} }); changed = true;
   }
-  if (changed) ptSave();
+  if (changed) lsSet(LS.pt, pt);   // 브라우저 사본만 — 등록 기록에서 파생된 행이라 서버 공유본(ptSave→ptPush)을 만들지 않는다 (예시 보드가 공유본이 되던 버그, 2026-09-11)
 }

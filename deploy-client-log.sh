@@ -6,8 +6,9 @@ set -e
 cd "$(dirname "$0")"
 SB=~/.local/bin/supabase
 REF=pydxcqfztjogmztvayux
-echo "▶ DB 테이블 만들기 (client_errors · client_backups)"
+echo "▶ DB 테이블 만들기 (client_errors · client_backups · shared_state)"
 $SB db query --linked --project-ref $REF -f supabase/migrations/0009_client_log.sql
+$SB db query --linked --project-ref $REF -f supabase/migrations/0011_shared_state.sql
 echo "▶ 서버 함수 배포"
 $SB functions deploy client-log --project-ref $REF
 echo "✅ 완료. 대시보드 › 데이터 관리 › 서버 백업 / 오류 기록 에서 확인"

@@ -195,5 +195,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateHdr();
   showMenu('home');
   await authInit();
+  if (!authIsAdmin()) showMenu('ptest');   // 마케터(워크스페이스 SSO 포함)는 광고소재 대시보드에서 시작 — 분석 메뉴는 이 브라우저의 CSV 데이터라 비어 있다
   backupToServer().then(d => { if (d) console.info('서버 백업 완료', d.day, d.bytes + 'B'); }).catch(e => console.warn('서버 백업 실패', e.message));   // 하루 1회, 실패해도 조용히(콘솔만)
 });

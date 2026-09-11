@@ -14,7 +14,48 @@ if (!lsGet('adc_pt_mig_thumb', false)) {   // 2026-09-10: '썸네일릴스' 열 
 }
 let ptSel = new Set(), ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
 
-function ptSave() { lsSet(LS.pt, pt); }
+/* ═══ 계정 공유 (2026-09-11): 보드(pt)는 서버 shared_state 'pt'에 저장 — 관리자·마케터·워크스페이스 SSO 어느 계정으로 들어와도 같은 보드.
+   브라우저 저장은 사본(오프라인·미연동용). 서버에 보드가 있으면 서버가 우선, 비어 있으면 이 브라우저의 보드(예시 데이터 제외)를 첫 공유본으로 올린다.
+   저장은 0.8초 묶음 전송, 저장 전 버전(ver) 비교 — 다른 사람이 먼저 바꿨으면 서버 최신본으로 교체하고 알린다(덮어쓰기 없음). 열람 중엔 1분마다 새로 받는다. */
+const PT_PULL_MS = 60000;
+let ptSrv = { at: 0, ver: null, by: null, timer: null };
+function ptShared() { return typeof sbCall === 'function' && typeof admgrCfg === 'function' && !!admgrCfg() && typeof AUTH === 'object' && !!AUTH.me; }
+function ptApplyServer(d) {   // 서버 본으로 교체 → 바뀐 게 있으면 true
+  const changed = d.ver !== ptSrv.ver;
+  ptSrv.ver = d.ver; ptSrv.by = d.updated_by;
+  if (changed) { pt = d.data; lsSet(LS.pt, pt); ptSel.clear(); }
+  return changed;
+}
+function ptSyncNote() {
+  const el = $('pt-sync'); if (!el) return;
+  const at = ptSrv.ver && !isNaN(Date.parse(ptSrv.ver)) ? new Date(ptSrv.ver).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';   // 서버 ver(UTC ISO) → 보는 사람 시간대
+  el.textContent = !ptShared() ? '이 브라우저에만 저장' : ptSrv.ver ? `계정 공유 · 마지막 저장 ${ptSrv.by || ''} ${at}` : '계정 공유';
+}
+async function ptPull(force) {
+  if (!ptShared() || (!force && Date.now() - ptSrv.at < PT_PULL_MS)) return false;
+  ptSrv.at = Date.now();
+  let d;
+  try { d = await sbCall('client-log', { action: 'state_get', key: 'pt' }); }
+  catch (e) { console.warn('체크보드 서버 조회 실패', e.message); return false; }   // 미배포·오프라인 → 브라우저 사본으로 계속
+  const changed = d.data ? ptApplyServer(d) : false;
+  if (!d.data && !pt.sample) ptPush();   // 서버가 비어 있음 → 이 브라우저의 보드가 첫 공유본
+  ptSyncNote();
+  return changed;
+}
+async function ptPush() {
+  if (!ptShared() || pt.sample) return;   // 예시 보드는 절대 공유본으로 올리지 않음
+  try {
+    const d = await sbCall('client-log', { action: 'state_set' }, { key: 'pt', data: pt, base: ptSrv.ver });
+    if (d.conflict) { ptApplyServer(d); renderPTest(); toast(`${d.updated_by || '다른 사람'}이(가) 먼저 바꿔서 최신 보드를 불러왔어요 — 방금 한 것은 다시 해 주세요`, 'err'); return; }
+    ptSrv.ver = d.ver; ptSrv.by = AUTH.me.name || AUTH.me.email; ptSyncNote();
+  } catch (e) { toast('체크보드 서버 저장 실패: ' + e.message + ' — 이 브라우저에는 저장됐어요'); }
+}
+function ptSave() {
+  delete pt.sample;   // 사용자가 손댄 보드는 더 이상 예시가 아님
+  lsSet(LS.pt, pt);
+  clearTimeout(ptSrv.timer); ptSrv.timer = setTimeout(ptPush, 800);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && curMenu === 'ptest') ptPull().then(ch => { if (ch) renderPTest(); }); });
 /* 삭제한 상품 기억(pt.hidden) — 등록 소재가 있는 상품은 보드에 자동 추가되므로, 지운 건 다시 안 올라오게 */
 function ptHide(products) { pt.hidden = pt.hidden || []; for (const p of products) if (p.product_no && !pt.hidden.includes(p.product_no)) pt.hidden.push(p.product_no); }
 function ptUnhide(no) { if (pt.hidden) pt.hidden = pt.hidden.filter(x => x !== no); }
@@ -32,6 +73,7 @@ function ptToolsToggle(force) {
 function ptSampleData() {
   const d = n => todayStr(-n);
   return {
+    sample: true,   // 예시 데이터 표시 — 서버 공유본으로 올리지 않음 (사용자가 손대면 ptSave가 지움)
     types: ['스토리', '릴스'],
     products: [
       { id: newId(), name: '클레르 블라우스',   created: d(40), cells: { '스토리': { st:'run',  date:d(12) }, '릴스': { st:'made', date:d(3) } } },
@@ -99,7 +141,7 @@ function ptFillCreated(rows) {
     const r = rows.find(r => (p.product_no && r.product_no === p.product_no) || r.name === p.name);
     if (r && r.created) { p.created = r.created; if (!p.product_no) p.product_no = r.product_no; n++; }
   }
-  if (n) ptSave();
+  if (n) lsSet(LS.pt, pt);   // 브라우저 사본만 — 카페24에서 파생된 값이라 공유본(push)을 만들지 않는다 (사용자 조작 아님)
   return n;
 }
 let ptCreatedTried = false;
@@ -172,6 +214,8 @@ function ptDelAll() {
 }
 
 function renderPTest() {
+  ptPull().then(ch => { if (ch) renderPTest(); });   // 계정 공유본 (1분에 1번) — 바뀌었으면 다시 그림
+  ptSyncNote();
   if (!pt.products.length && (pt.hidden || []).length) pt.hidden = [];   // 보드가 비었는데 숨김만 남은 상태(전체 삭제 직후 등) → 자동 복구
   if ($('pt-tools') && !$('pt-tools').dataset.init) { $('pt-tools').dataset.init = '1'; ptToolsToggle(!!lsGet('adc_pt_tools_open', false)); }
   ptBackfillCreated();
