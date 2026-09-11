@@ -25,7 +25,7 @@ const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n${P.COPY_EX
 function generate(facts, url) {
   const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력하고 다른 말은 하지 마.\n\n[카페24 상품 정보]\n${facts}`;
   const out = execFileSync('claude', ['-p', prompt, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--allowedTools', 'WebFetch', '--append-system-prompt', SYSTEM], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });   // 모델: 사용자 지정 Fable 5.1 · 중간
-  return out.replace(/\n{3,}/g, '\n\n').trim();   // 빈 줄은 하나만 (연속 줄바꿈 3회 이상 → 2회)
+  return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
 }
 
 const dry = process.argv.includes('--dry');

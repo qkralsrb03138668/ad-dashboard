@@ -21,7 +21,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { cacheGet, cacheSet, requireRole, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 import Anthropic from "npm:@anthropic-ai/sdk";
-import { COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL } from "./ad-copy-prompt.ts";
+import { COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL, tidyCopy } from "./ad-copy-prompt.ts";
 
 // ── 상품별 광고 문구 (product_copy) — 소재 등록에서 상품이 정해지면 저장본 재사용, 없으면 [AI 문구 생성] 버튼으로 생성·고정 ──
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://danarobe.com";
@@ -64,9 +64,10 @@ async function generateCopy(no: number, token: string): Promise<{ message: strin
     messages: [{ role: "user", content: `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력.\n\n[카페24 상품 정보]\n${facts}` }],
   } as any);
   if (res.stop_reason === "refusal") throw new Error("문구 생성이 거부되었습니다 (안전 분류)");
-  const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").replace(/\n{3,}/g, "\n\n").trim();   // 빈 줄은 하나만
-  if (!message) throw new Error("문구가 비어 있습니다");
-  return { message, usage: res.usage };
+  const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n");
+  const tidy = tidyCopy(message);   // 빈 줄 하나·한 줄 18자 이내
+  if (!tidy) throw new Error("문구가 비어 있습니다");
+  return { message: tidy, usage: res.usage };
 }
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
