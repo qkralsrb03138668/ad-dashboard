@@ -469,3 +469,13 @@ textarea.inp { resize: vertical; min-height: 64px; }
 .divider { width: 1px; height: 28px; background: #e5e7eb; }
 .option-tag { display: inline-block; font-size: .7rem; color: #6366f1; background: #ede9fe; border-radius: 4px; padding: 1px 6px; margin-top: 2px; }
 @media (max-width: 700px) { .pt-grid { grid-template-columns: 1fr !important; } }
+
+/* 테스트 소재 표 — 가로 스크롤 없이 한 화면에: 고정 열 너비·작은 글자·좁은 여백 (2026-09-11) */
+.tt-compact table { table-layout: fixed; width: 100%; font-size: .78rem; }
+.tt-compact th, .tt-compact td { padding: 6px 6px; vertical-align: middle; overflow: hidden; }
+.tt-compact th { font-size: .7rem; white-space: nowrap; }
+.tt-compact .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tt-compact .ctr { text-align: center; }
+.tt-compact .vbtn { padding: 2px 7px; font-size: .64rem; }
+.tt-compact .status-badge { font-size: .62rem; padding: 1px 6px; }
+.tt-compact .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

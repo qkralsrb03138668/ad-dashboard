@@ -469,31 +469,38 @@ function renderAdmgrTest() {
   }
   const allChecked = rows.length && rows.every(r => t.sel.has(r.id));
   const cre = t.creatives || new Map();
+  /* 열: 선택 · 소재(썸네일+세트명+광고명+등록기록) · 등록(MM/DD, D+) · 판정(추천 → 현재 상태 → 버튼) · 지출 · 구매/CPA · ROAS · 추가소재 · 메모 */
   const rowHtml = a => {
     const checked = t.sel.has(a.id), dp = admgrDPlus(a), c = cre.get(String(a.id));
     const th = (t.thumbs || {})[a.id]; const thSrc = th && th !== '-' ? th : '';
+    const rec = admgrRecommend(a);
+    const recCls = rec ? (rec.k === 'off' ? 'badge-red' : rec.k === 'good' ? 'badge-green' : rec.k === 'wait' ? 'badge-yellow' : 'badge-gray') : '';
     return `<tr onclick="admgrTestSel('${a.id}')" style="cursor:pointer;${checked ? 'background:#eef2ff;' : ''}">
         <td class="cb"><input type="checkbox" ${checked ? 'checked' : ''} style="pointer-events:none;" /></td>
-        <td onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="클릭하면 소재 미리보기" style="cursor:zoom-in;">${mediaThumbHtml(thSrc, 'image', 48)}</td>
-        <td class="name-cell" style="text-align:left;">
-          <span onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="클릭하면 소재 미리보기" style="font-weight:700;color:#4338ca;cursor:pointer;">${esc(a.adset_name)}</span>
-          <div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">${esc(a.name)}</div>
-          ${c ? `<div style="font-size:.66rem;color:#6b7280;margin-top:2px;"><i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc((c.created_by_email || '').split('@')[0])} 등록 · <a href="#" onclick="event.stopPropagation();admgrTestCopy('${a.id}');return false;">문구 ${c.text && c.text.message ? '보기' : '기입'}</a></div>` : ''}</td>
-        <td style="white-space:nowrap;">${a.reg_date ? fmtMD(a.reg_date) : '—'}<div style="font-size:.62rem;color:#9ca3af;">${dp == null ? '' : 'D+' + dp}</div></td>
-        <td>${admgrRecBadge(a)}${admgrTestBadge(a)}${admgrVerdictBtns(a)}</td>
-        <td><b>${won(a.spend)}</b></td>
-        <td class="m-hide">${comma(a.purchases)}</td>
-        <td class="m-hide">${admgrCpa(a)}</td>
-        <td>${admgrRoasTd(a)}</td>
-        <td>${admgrAssetCell(a)}${a.meta.asset_req_at && !a.meta.asset_done_at ? `<div style="margin-top:3px;"><a href="#" style="font-size:.66rem;" onclick="event.stopPropagation();admgrTestGoRegister('${esc(admgrProductOf(a))}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 소재 등록하러</a></div>` : ''}</td>
-        <td class="m-hide" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="클릭해서 메모 수정" style="cursor:text;text-align:left;max-width:180px;white-space:normal;font-size:.74rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '메모…'}</td>
+        <td class="name-cell" style="text-align:left;"><div style="display:flex;gap:8px;align-items:center;min-width:0;">
+          <span onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="소재 미리보기" style="cursor:zoom-in;flex:none;">${mediaThumbHtml(thSrc, 'image', 40)}</span>
+          <div style="min-width:0;flex:1;">
+            <div class="ell" onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="${esc(a.adset_name)} — 클릭하면 미리보기" style="font-weight:700;color:#4338ca;cursor:pointer;">${esc(a.adset_name)}</div>
+            <div class="ell" style="font-size:.66rem;color:#9ca3af;" title="${esc(a.name)}">${esc(a.name)}</div>
+            ${c ? `<div class="ell" style="font-size:.64rem;color:#6b7280;"><i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc((c.created_by_email || '').split('@')[0])} · <a href="#" onclick="event.stopPropagation();admgrTestCopy('${a.id}');return false;">문구</a></div>` : ''}
+          </div></div></td>
+        <td class="ctr" style="white-space:nowrap;">${a.reg_date ? fmtMD(a.reg_date) : '—'}<div style="font-size:.62rem;color:#9ca3af;">${dp == null ? '' : 'D+' + dp}</div></td>
+        <td class="ctr" style="white-space:nowrap;">
+          ${rec ? `<div><span class="status-badge ${recCls}" title="${esc(rec.why)}">${rec.k === 'watch' ? '' : '▶ '}${rec.label}</span></div>` : `<div>${admgrTestBadge(a)}</div>`}
+          ${rec ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ['meh', 'good', 'ended'].includes(a.st) ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ''}</td>
+        <td class="num"><b>${won(a.spend)}</b></td>
+        <td class="num m-hide">${comma(a.purchases)}<div style="font-size:.62rem;color:#9ca3af;">${a.purchases ? won(Math.round(a.spend / a.purchases)) : '—'}</div></td>
+        <td class="num">${admgrRoasTd(a)}</td>
+        <td class="ctr" style="white-space:nowrap;">${admgrAssetCell(a)}${a.meta.asset_req_at && !a.meta.asset_done_at ? `<div><a href="#" style="font-size:.62rem;" onclick="event.stopPropagation();admgrTestGoRegister('${esc(admgrProductOf(a))}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 등록하러</a></div>` : ''}</td>
+        <td class="m-hide ell" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="${a.meta.memo ? esc(a.meta.memo) + ' — 클릭해서 수정' : '클릭해서 메모'}" style="cursor:text;text-align:left;font-size:.7rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '메모…'}</td>
       </tr>`;
   };
-  const head = `<thead><tr>
-      <th class="cb"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrTestSelAll()" title="표시된 전체 선택/해제" /></th><th></th>
-      ${admgrTh('aname', '광고세트명')}${admgrTh('reg', '등록일')}<th>판정</th>
-      ${admgrTh('spend', '누적 지출')}${admgrTh('purchases', '구매', 'm-hide')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('roas', 'ROAS')}
-      <th>추가소재</th><th class="m-hide">메모</th>
+  const head = `<colgroup><col style="width:28px;"><col><col style="width:64px;"><col style="width:132px;"><col style="width:88px;"><col class="m-hide" style="width:84px;"><col style="width:64px;"><col style="width:96px;"><col class="m-hide" style="width:130px;"></colgroup>
+    <thead><tr>
+      <th class="cb"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrTestSelAll()" title="표시된 전체 선택/해제" /></th>
+      ${admgrTh('aname', '소재 · 광고세트명').replace('<th class="sortable ', '<th style="text-align:left;" class="sortable ')}${admgrTh('reg', '등록')}<th class="ctr" title="▶ 추천 → 현재 상태 → 버튼으로 확정">판정</th>
+      ${admgrTh('spend', '지출').replace('<th class="sortable ', '<th class="num sortable ')}${admgrTh('purchases', '구매 / CPA', 'm-hide').replace('<th class="sortable ', '<th class="num sortable ')}${admgrTh('roas', 'ROAS').replace('<th class="sortable ', '<th class="num sortable ')}
+      <th class="ctr">추가소재</th><th class="m-hide" style="text-align:left;">메모</th>
     </tr></thead>`;
   let bodyHtml;
   if (t.group) {
@@ -505,16 +512,16 @@ function renderAdmgrTest() {
       const st = { eval: 0, good: 0, meh: 0, off: 0 }; list.forEach(a => { if (a.st in st) st[a.st]++; });
       const open = !collapsed.has(k);
       return `<tr style="background:#f8fafc;cursor:pointer;" onclick="admgrTestGroupCollapse('${esc(k)}')">
-        <td colspan="2" style="text-align:center;color:#6b7280;"><i class="fa-solid fa-chevron-${open ? 'down' : 'right'}"></i></td>
-        <td style="text-align:left;"><b style="color:#1e1b4b;">${esc(k)}</b> <span style="font-size:.7rem;color:#6b7280;">소재 ${list.length}개 · 평가중 ${st.eval} · <span style="color:#22c55e;">우수 ${st.good}</span> · <span style="color:#f97316;">애매 ${st.meh}</span> · <span style="color:#ef4444;">OFF ${st.off}</span></span>
-          <a href="#" style="font-size:.68rem;margin-left:8px;" onclick="event.stopPropagation();admgrTestGoRegister('${esc(k)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 이 상품 소재 등록</a></td>
+        <td class="ctr" style="color:#6b7280;"><i class="fa-solid fa-chevron-${open ? 'down' : 'right'}"></i></td>
+        <td style="text-align:left;" class="ell"><b style="color:#1e1b4b;">${esc(k)}</b> <span style="font-size:.68rem;color:#6b7280;">${list.length}개 · 평가중 ${st.eval} · <span style="color:#22c55e;">우수 ${st.good}</span> · <span style="color:#f97316;">애매 ${st.meh}</span> · <span style="color:#ef4444;">OFF ${st.off}</span></span>
+          <a href="#" style="font-size:.66rem;margin-left:8px;" onclick="event.stopPropagation();admgrTestGoRegister('${esc(k)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 소재 등록</a></td>
         <td></td><td></td>
-        <td><b>${won(spend)}</b></td><td class="m-hide">${comma(purch)}</td><td class="m-hide">${purch ? won(Math.round(spend / purch)) : '—'}</td>
-        <td><b>${spend ? (value / spend).toFixed(2) : '—'}</b></td><td></td><td class="m-hide"></td></tr>` + (open ? list.map(rowHtml).join('') : '');
+        <td class="num"><b>${won(spend)}</b></td><td class="num m-hide">${comma(purch)}<div style="font-size:.62rem;color:#9ca3af;">${purch ? won(Math.round(spend / purch)) : '—'}</div></td>
+        <td class="num"><b>${spend ? (value / spend).toFixed(2) : '—'}</b></td><td></td><td class="m-hide"></td></tr>` + (open ? list.map(rowHtml).join('') : '');
     }).join('');
   } else bodyHtml = rows.map(rowHtml).join('');
-  const table = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>${head}<tbody>${bodyHtml}</tbody></table></div>
-  <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">썸네일·세트명 클릭 = 소재 미리보기 · 행 클릭 = 선택(일괄 제거용) · 판정 열의 <b>▶ 후보</b>는 기준에 따른 추천이고, [애매]/[우수] 버튼으로 확정 · 우수 소재는 추가소재 요청 → "소재 등록하러"로 바로 이동</p>`;
+  const table = `<div class="table-wrap tt-compact" style="max-height:640px;overflow:auto;"><table>${head}<tbody>${bodyHtml}</tbody></table></div>
+  <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">썸네일·세트명 클릭 = 미리보기 · 행 클릭 = 선택(일괄 제거용) · 판정 열: <b>▶ 추천</b> 아래 [애매]/[우수] 버튼으로 확정(재클릭 = 해제) · 우수는 추가소재 요청 → "등록하러"로 이동</p>`;
   return ctrl + tiles + table;
 }
 
