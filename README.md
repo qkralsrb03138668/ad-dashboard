@@ -49,7 +49,7 @@ js/core.js                        공통: 유틸·저장소(localStorage)·기�
 js/auth.js                        로그인·사용자 관리
 js/home.js                        대시보드 탭
 js/creatives.js                   소재 목록·비교·테스트 소재·소재 등록/수정·상세
-js/checkboard.js                  광고소재 대시보드(체크보드)
+js/checkboard.js                  소재 업로드(체크보드)
 js/register.js                    소재 등록 (파일 → 카페24 상품 매칭 → Meta 보관함)
 js/upload.js                      광고 업로드 (Meta)
 js/admgr.js                       광고관리자: 상태·정렬·계층 3탭·오늘의 판정
@@ -104,3 +104,9 @@ git push -u origin main
 - localStorage는 **브라우저·기기별로 따로** 저장된다. 폰↔컴퓨터 공유가 필요하면 JSON 백업을 옮기거나,
   다음 단계로 Supabase 연동(DNRB 대시보드 방식)을 붙이면 된다.
 - 브라우저 데이터를 지우면 함께 사라지니 **JSON 백업을 주기적으로** 내려받아 둘 것.
+
+## 배포 시 캐시
+`index.html`의 `<script src="./js/…?v=YYYYMMDDHHMM">`·CSS의 `?v=`는 브라우저 캐시 무효화용 — js/css를 고쳐 푸시할 때 함께 올릴 것 (안 올리면 옛 스크립트가 남아 `… is not defined` 오류):
+```bash
+V=$(date +%Y%m%d%H%M); sed -i '' -E "s#(\./(js/[a-z-]+\.js|css/style\.css))(\?v=[0-9]+)?\"#\1?v=$V\"#g" index.html
+```
