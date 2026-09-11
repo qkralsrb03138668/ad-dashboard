@@ -115,14 +115,16 @@ function menuGroupToggle(id, force) {
   $('mg-' + id + '-h').querySelector('i').className = `fa-solid fa-chevron-${open ? 'down' : 'right'}`;
   if (force === undefined) lsSet('adc_mg_' + id, open);
 }
+const ADMGR_SOLO = { atest: 'test', abest: 'best' };   // 소재 메뉴의 단독 화면 → 광고관리자 섹션을 그 탭만으로 (2026-09-11)
 function showMenu(key) {
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
+  const sec = ADMGR_SOLO[key] ? 'admgr' : key;
   document.querySelectorAll('.page-sec').forEach(el => el.style.display = 'none');
-  $('sec-' + key).style.display = 'block';
+  $('sec-' + sec).style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   // 광고관리자는 Meta 프리셋 기간을 따로 쓰므로 공통 기간 바를 숨긴다
-  $('period-bar').style.display = (key === 'admgr' || key === 'perf' || key === 'upload') ? 'none' : 'flex';
+  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload') ? 'none' : 'flex';
   rerender();
 }
 function rerender() {
@@ -131,6 +133,7 @@ function rerender() {
   else if (curMenu === 'ptest') renderPTest();
   else if (curMenu === 'compare') renderCompare(p);
   else if (curMenu === 'admgr') admgrOpen();
+  else if (ADMGR_SOLO[curMenu]) admgrSolo(ADMGR_SOLO[curMenu]);
   else if (curMenu === 'upload') renderUpload();
   else if (curMenu === 'perf') perfMenuInit();
   else if (curMenu === 'data') renderData();

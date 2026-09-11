@@ -18,7 +18,7 @@
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
     }, window.DASH_CFG || {});
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=202609111650" />
+  <link rel="stylesheet" href="./css/style.css?v=202609111655" />
 </head>
 <body>
 <!-- ═══ 로그인 게이트 (Supabase Auth) — 세션 없으면 앱을 가린다 ═══ -->
@@ -45,6 +45,9 @@
   <nav class="side-menu">
     <div class="menu-group">소재</div>
     <button class="menu-item" data-menu="ptest" onclick="showMenu('ptest')"><i class="fa-solid fa-upload"></i> 소재 업로드</button>
+    <!-- 광고관리자의 테스트 소재·베스트소재 탭을 단독 화면으로 (2026-09-11) — 같은 코드·같은 데이터, 탭 스트립만 숨김. 마케터도 사용 -->
+    <button class="menu-item" data-menu="atest" onclick="showMenu('atest')"><i class="fa-solid fa-flask"></i> 테스트 소재</button>
+    <button class="menu-item" data-menu="abest" onclick="showMenu('abest')"><i class="fa-solid fa-star"></i> 베스트소재</button>
     <!-- 분석(CSV 기반 옛 메뉴) — 기본 접힘, 화살표로 펼침 (브라우저에 기억) -->
     <div class="menu-group mg-toggle" id="mg-analysis-h" onclick="menuGroupToggle('analysis')"><i class="fa-solid fa-chevron-right"></i> 분석</div>
     <div id="mg-analysis" style="display:none;flex-direction:column;gap:6px;">
@@ -166,7 +169,7 @@
 
     <!-- ═══ 광고관리자 (Meta) — DNRB 이식 1단계: 읽기 전용 계층 뷰 ═══ -->
     <div class="section-card page-sec" id="sec-admgr">
-      <div class="section-header"><h2><i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)</h2>
+      <div class="section-header"><h2 id="admgr-title"><i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)</h2>
         <span class="hdr-note" id="admgr-note">보기 전용 — 켜고 끄기·예산은 Meta에서</span></div>
       <div class="section-body" id="admgr-body"></div>
     </div>
@@ -526,17 +529,17 @@
   <button class="menu-item" data-menu="perf" onclick="document.body.classList.remove('menu-open');showMenu('perf')"><i class="fa-solid fa-chart-column"></i>판매 성과</button>
   <button class="menu-item" onclick="document.body.classList.toggle('menu-open');window.scrollTo(0,0)"><i class="fa-solid fa-bars"></i>더보기</button>
 </nav>
-<script src="./js/core.js?v=202609111650"></script>
-<script src="./js/auth.js?v=202609111650"></script>
-<script src="./js/home.js?v=202609111650"></script>
-<script src="./js/creatives.js?v=202609111650"></script>
-<script src="./js/checkboard.js?v=202609111650"></script>
-<script src="./js/register.js?v=202609111650"></script>
-<script src="./js/upload.js?v=202609111650"></script>
-<script src="./js/admgr.js?v=202609111650"></script>
-<script src="./js/admgr-budget.js?v=202609111650"></script>
-<script src="./js/admgr-tabs.js?v=202609111650"></script>
-<script src="./js/data.js?v=202609111650"></script>
-<script src="./js/perf.js?v=202609111650"></script>
+<script src="./js/core.js?v=202609111655"></script>
+<script src="./js/auth.js?v=202609111655"></script>
+<script src="./js/home.js?v=202609111655"></script>
+<script src="./js/creatives.js?v=202609111655"></script>
+<script src="./js/checkboard.js?v=202609111655"></script>
+<script src="./js/register.js?v=202609111655"></script>
+<script src="./js/upload.js?v=202609111655"></script>
+<script src="./js/admgr.js?v=202609111655"></script>
+<script src="./js/admgr-budget.js?v=202609111655"></script>
+<script src="./js/admgr-tabs.js?v=202609111655"></script>
+<script src="./js/data.js?v=202609111655"></script>
+<script src="./js/perf.js?v=202609111655"></script>
 </body>
 </html>

@@ -88,7 +88,16 @@ async function admgrFetch() {
   admgr.loading = false; renderAdmgr();
 }
 /* 메뉴 진입: 마지막으로 받아둔 데이터만 보여준다. Meta 조회는 사용자가 'Meta 불러오기'를 누를 때만 (2026-09-05 사용자 지정 — 자동 갱신 안 함) */
+/* 단독 화면(소재 메뉴의 테스트 소재·베스트소재): 같은 섹션·같은 코드, 탭 스트립만 숨기고 제목을 바꾼다. 광고관리자로 돌아오면 이전 탭 복원 */
+function admgrSolo(view) {
+  if (!admgr.solo) admgr.prevView = admgr.view;
+  admgr.solo = view;
+  $('admgr-title').innerHTML = view === 'test' ? '<i class="fa-solid fa-flask" style="color:#4f46e5;font-size:.9em;"></i> 테스트 소재' : '<i class="fa-solid fa-star" style="color:#4f46e5;font-size:.9em;"></i> 베스트소재';
+  $('admgr-note').style.display = 'none';
+  admgrSetView(view);
+}
 function admgrOpen() {
+  if (admgr.solo) { admgr.view = admgr.prevView || 'camp'; admgr.solo = null; $('admgr-note').style.display = ''; $('admgr-title').innerHTML = '<i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)'; }
   if (!admgr.data && !admgr.demo && admgrCfg()) {
     const c = lsGet('adc_admgr_last', null);
     if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; admgrWriteInit(); }   // 예산 편집 버튼용 상태만 (우리 서버, Meta 호출 아님)
@@ -367,7 +376,7 @@ function renderAdmgr(keepScroll) {
   else if (admgr.view === 'best') main = renderAdmgrBest();
   else main = renderAdmgrHier(R, setsInSel, adsInSel, cfg);
 
-  body.innerHTML = banner + controls + tabs + main;
+  body.innerHTML = banner + controls + (admgr.solo ? '' : tabs) + main;
   window.scrollTo(0, pageY);
   if (sc) { const w = body.querySelector('.table-wrap'); if (w) { w.scrollTop = sc.t; w.scrollLeft = sc.l; } }
   if (hadFocus) { const i = $('admgr-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }

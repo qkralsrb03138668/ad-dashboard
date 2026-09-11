@@ -243,6 +243,15 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
+console.log('⑤ 소재 메뉴 단독 화면 (테스트 소재·베스트소재)');
+test('showMenu(atest): 광고관리자 섹션을 test 탭만으로, admgr 복귀 시 이전 탭 복원', () => {
+  vm.runInContext("admgr.view = 'camp';", ctx);
+  g('showMenu')('atest'); assert.equal(g('admgr').solo, 'test'); assert.equal(g('admgr').view, 'test'); assert.equal(els['sec-admgr'].style.display, 'block');
+  assert.ok(!els['admgr-body'].innerHTML.includes('class="mtabs"')); assert.ok(els['admgr-title'].innerHTML.includes('테스트 소재'));
+  g('showMenu')('abest'); assert.equal(g('admgr').view, 'best');
+  g('showMenu')('admgr'); assert.equal(g('admgr').solo, null); assert.equal(g('admgr').view, 'camp'); assert.ok(els['admgr-body'].innerHTML.includes('class="mtabs"'));
+});
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {
