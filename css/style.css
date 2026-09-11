@@ -364,42 +364,73 @@ textarea.inp { resize: vertical; min-height: 64px; }
 .colh { background: linear-gradient(#dadde1, #dadde1) center / 1px 60% no-repeat; }
 .colh:hover { background: linear-gradient(#1877f2, #1877f2) center / 2px 100% no-repeat; }
 
-/* ── 모바일 ── */
+/* ── 모바일 (2026-09-11 재작업: 왼쪽 서랍 메뉴 + 가로 넘침 0 + 터치 크기. 데스크톱(>900px)은 아래 블록이 안 켜져 그대로) ── */
+.btn-menu, #menu-backdrop, .drawer-foot { display: none; }
 @media (max-width: 900px) {
   .layout { flex-direction: column; align-items: stretch; }
   .layout .container { margin: 0; width: 100%; max-width: 100%; }
+  .top-header { padding: 10px 14px; gap: 8px; }
+  .top-header h1 { flex: 1; min-width: 0; }
+  .btn-menu { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none;
+    border: 1px solid #e7e8ee; border-radius: 12px; background: #fff; color: #1e1b4b; font-size: 1.1rem; cursor: pointer; }
+  /* 서랍: 왼쪽에서 밀려 나옴. 세로 나열 + 그룹 소제목 유지 */
   .side-menu {
-    position: static; width: 100%; flex-direction: row; flex-wrap: wrap;
-    gap: 6px; padding: 14px 14px 0;
+    position: fixed; top: 0; bottom: 0; left: 0; width: 262px; z-index: 300;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 18px 14px calc(18px + env(safe-area-inset-bottom));
+    background: #fff; box-shadow: 4px 0 24px rgba(17,24,39,.18);
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    transform: translateX(-100%); transition: transform .25s ease;
   }
-  .menu-group { display: none; }
-  .menu-item { width: auto; padding: 8px 13px; font-size: .8rem; }
+  body.menu-open .side-menu { transform: translateX(0); }
+  .side-menu .menu-item { min-height: 44px; }
+  .drawer-foot { display: block; margin-top: auto; padding: 14px 4px 0; border-top: 1px solid #e7e8ee; font-size: .8rem; color: #4b5563; line-height: 1.8; }
+  .drawer-foot:empty { display: none; }
+  #menu-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 290; }
+  body.menu-open #menu-backdrop { display: block; }
 }
-@media (max-width: 700px) {
-  body { overflow-x: hidden; }
-  .top-header { padding: 13px 14px; flex-wrap: wrap; }
-  .top-header h1 { font-size: 1rem; }
-  .container { padding: 14px 10px 56px; }
-  .section-body { padding: 14px; }
-  .control-bar { padding: 12px 14px; gap: 10px; }
-  .control-bar input[type="date"] { flex: 1; min-width: 120px; }
-  .m-hide { display: none !important; }
-  thead th { padding: 8px 5px; font-size: .76rem; }
-  tbody td { padding: 8px 5px; font-size: .8rem; }
-  .cre-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-}
-/* ── 폰(≤768px) 반응형: 광고관리자 표 → 카드, 하단 탭바 (2026-09-08 사용자 요청. 맥북 화면은 이 블록이 안 켜져 그대로) ── */
-.mnav { display: none; }
-#sec-admgr .mcards { display: none; }
 @media (max-width: 768px) {
-  .side-menu { display: none; }
-  body.menu-open .side-menu { display: flex; }
   .mnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; display: flex; background: rgba(255,255,255,.96); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     border-top: 1px solid #e7e8ee; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
-  .mnav .menu-item { flex: 1; flex-direction: column; gap: 2px; border: none; background: transparent; border-radius: 8px; padding: 6px 2px; font-size: .66rem; font-weight: 700; color: #6b7280; justify-content: center; }
+  .mnav .menu-item { flex: 1; flex-direction: column; gap: 2px; border: none; background: transparent; border-radius: 8px; padding: 6px 2px; font-size: .66rem; font-weight: 700; color: #6b7280; justify-content: center; min-height: 44px; }
   .mnav .menu-item i { font-size: 1.05rem; }
   .mnav .menu-item.active { color: #4f46e5; background: #eef2ff; }
   .layout .container { padding-bottom: 96px; }
+  .hdr-note { display: none; }
+  #toast { bottom: 76px; right: 12px; left: 12px; max-width: none; text-align: center; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .kpi-tile .kt-value { font-size: 1.1rem; }
+  canvas { max-width: 100%; height: auto; }
+  /* 터치 크기: 누르는 것은 40px 이상 */
+  button, .filter-tab, select, .inp, .control-bar input[type="date"], .control-bar select { min-height: 40px; }
+  .filter-tab { display: inline-flex; align-items: center; }
+  .modal { padding: 8px; align-items: flex-end; }
+  .modal-box { max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 16px; }
+  .modal-x { min-width: 44px; min-height: 44px; }
+  #admgr-bpop { max-width: calc(100vw - 16px); }
+}
+@media (max-width: 700px) {
+  body { overflow-x: hidden; }   /* 최후 방어 — 실제 넘침은 아래 규칙으로 없앤다 */
+  .top-header h1 { font-size: 1rem; }
+  .container { padding: 14px 10px 96px; }
+  .section-body { padding: 14px; }
+  .section-header, .control-bar { flex-wrap: wrap; }
+  .control-bar { padding: 12px 14px; gap: 10px; }
+  .control-bar input[type="date"] { flex: 1; min-width: 120px; }
+  .page-sec div, .page-sec input, .page-sec select, .page-sec textarea, .page-sec canvas { max-width: 100%; min-width: 0 !important; }
+  .page-sec [style*="display:flex"], .page-sec [style*="display: flex"] { flex-wrap: wrap; }
+  .m-hide { display: none !important; }
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+  thead th { padding: 8px 5px; font-size: .76rem; }
+  tbody td { padding: 8px 5px; font-size: .8rem; }
+  th[style*="text-align:left"], td[style*="text-align:left"], td.name-cell, td.l { white-space: normal !important; word-break: break-word; }
+  table [style*="min-width"] { min-width: 120px !important; }
+  .cre-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+}
+/* ── 폰(≤768px): 광고관리자 표 → 카드 (2026-09-08. 맥북 화면은 이 블록이 안 켜져 그대로) ── */
+.mnav { display: none; }
+#sec-admgr .mcards { display: none; }
+@media (max-width: 768px) {
   #sec-admgr .table-wrap { display: none; }
   #sec-admgr .mcards { display: block; }
   #sec-admgr .mtabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -425,7 +456,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
   .mc-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #f0f2f5; font-size: .78rem; }
   .mc-foot .mc-budget { min-width: 0; }
   .mc-btns { display: flex; gap: 6px; flex: none; }
-  .mc-btns button { border: 1px solid #ccd0d5; background: #fff; border-radius: 8px; width: 38px; height: 34px; font-size: .85rem; color: #1c1e21; }
+  .mc-btns button { border: 1px solid #ccd0d5; background: #fff; border-radius: 8px; width: 42px; height: 40px; font-size: .85rem; color: #1c1e21; }
   .mc-btns button.on { background: #eef2ff; border-color: #a5b4fc; color: #4f46e5; }
   .mc-more { display: none; margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e4e6eb; font-size: .78rem; }
   .mcard.open .mc-more { display: block; }
@@ -433,7 +464,6 @@ textarea.inp { resize: vertical; min-height: 64px; }
   .mc-more .row > span:first-child { color: #65676b; flex: none; }
   .mc-more .row > span:last-child { text-align: right; min-width: 0; }
   .mc-more .drill { color: #1877f2; font-weight: 700; }
-  #admgr-bpop { max-width: calc(100vw - 16px); }
 }
 /* 판매 성과 (카페24) */
 .divider { width: 1px; height: 28px; background: #e5e7eb; }

@@ -19,7 +19,7 @@
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
     }, window.DASH_CFG || {});
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=202609111700" />
+  <link rel="stylesheet" href="./css/style.css?v=202609111942" />
 </head>
 <body>
 <!-- ═══ 로그인 게이트 (Supabase Auth) — 세션 없으면 앱을 가린다 ═══ -->
@@ -38,10 +38,12 @@
 </div>
 
 <header class="top-header">
+  <button id="btn-menu" class="btn-menu" aria-label="메뉴 열기" onclick="menuDrawer(true)"><i class="fa-solid fa-bars"></i></button>
   <h1><i class="fa-solid fa-images" style="color:#6366f1;"></i> 광고소재 <span>대시보드</span></h1>
   <div class="hdr-note"><i class="fa-solid fa-hard-drive"></i> 이 브라우저에 자동 저장 · <span id="hdr-count">소재 0개</span> <span id="auth-chip" style="margin-left:10px;"></span></div>
 </header>
 
+<div id="menu-backdrop" onclick="menuDrawer(false)"></div>
 <div class="layout">
   <nav class="side-menu">
     <div class="menu-group">소재</div>
@@ -64,6 +66,7 @@
     <button class="menu-item" data-menu="data" data-role="admin" onclick="showMenu('data')"><i class="fa-solid fa-database"></i> 데이터 관리</button>
       <div class="menu-group">현장</div>
     <a class="menu-item" href="shoot-board.html" target="_blank" rel="noopener" style="text-decoration:none"><i class="fa-solid fa-camera"></i> 출장촬영 보드</a>
+    <div class="drawer-foot" id="auth-chip-m"></div>
 </nav>
 
   <div class="container">
@@ -541,22 +544,22 @@
 
 <!-- 폰 하단 탭바 (≤768px에서만 보임 — showMenu가 data-menu로 active 처리) -->
 <nav class="mnav">
-  <button class="menu-item" data-menu="admgr" onclick="document.body.classList.remove('menu-open');showMenu('admgr')"><i class="fa-brands fa-meta"></i>광고관리자</button>
-  <button class="menu-item" data-menu="upload" onclick="document.body.classList.remove('menu-open');showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i>업로드</button>
-  <button class="menu-item" data-menu="perf" onclick="document.body.classList.remove('menu-open');showMenu('perf')"><i class="fa-solid fa-chart-column"></i>판매 성과</button>
-  <button class="menu-item" onclick="document.body.classList.toggle('menu-open');window.scrollTo(0,0)"><i class="fa-solid fa-bars"></i>더보기</button>
+  <button class="menu-item" data-menu="admgr" onclick="showMenu('admgr')"><i class="fa-brands fa-meta"></i>광고관리자</button>
+  <button class="menu-item" data-menu="upload" onclick="showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i>업로드</button>
+  <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column"></i>판매 성과</button>
+  <button class="menu-item" onclick="menuDrawer(true)"><i class="fa-solid fa-bars"></i>더보기</button>
 </nav>
-<script src="./js/core.js?v=202609111700"></script>
-<script src="./js/auth.js?v=202609111700"></script>
-<script src="./js/home.js?v=202609111700"></script>
-<script src="./js/creatives.js?v=202609111700"></script>
-<script src="./js/checkboard.js?v=202609111700"></script>
-<script src="./js/register.js?v=202609111700"></script>
-<script src="./js/upload.js?v=202609111700"></script>
-<script src="./js/admgr.js?v=202609111700"></script>
-<script src="./js/admgr-budget.js?v=202609111700"></script>
-<script src="./js/admgr-tabs.js?v=202609111700"></script>
-<script src="./js/data.js?v=202609111700"></script>
-<script src="./js/perf.js?v=202609111700"></script>
+<script src="./js/core.js?v=202609111942"></script>
+<script src="./js/auth.js?v=202609111942"></script>
+<script src="./js/home.js?v=202609111942"></script>
+<script src="./js/creatives.js?v=202609111942"></script>
+<script src="./js/checkboard.js?v=202609111942"></script>
+<script src="./js/register.js?v=202609111942"></script>
+<script src="./js/upload.js?v=202609111942"></script>
+<script src="./js/admgr.js?v=202609111942"></script>
+<script src="./js/admgr-budget.js?v=202609111942"></script>
+<script src="./js/admgr-tabs.js?v=202609111942"></script>
+<script src="./js/data.js?v=202609111942"></script>
+<script src="./js/perf.js?v=202609111942"></script>
 </body>
 </html>
