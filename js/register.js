@@ -114,9 +114,9 @@ async function regCopySave(product, text) {   // 직접 기입·수정한 문구
    상품명 = 괄호 묶음 뺀 핵심명 · R=영상/P=이미지 + 순번(이미 등록된 것 이어서) · 마진 = (판매가−공급가) 천 원 단위 내림 · 날짜 = 오늘 */
 /* 상품명 괄호 안의 버전 표기(여름ver / 기모ver. / 봄.가을VER.)는 파일명 상품명 앞에 붙인다 — 같은 이름 다른 버전 구분 */
 function regVerTag(name) {
-  // 한글 단어(봄/가을, 봄.가을, 투포켓 등) + ver(.)(숫자) 만 — 'silver' 같은 영단어 안의 ver은 제외. 파일명에 못 쓰는 / , 는 . 으로
-  const m = String(name || '').normalize('NFC').match(/([가-힣0-9.\/,]+?)\s*ver\.?(\d*)(?=[\s),\]]|$)/i);
-  return m ? `${m[1].replace(/[\/,]/g, '.')}ver${m[2]}` : '';
+  // 'ver' 바로 앞 한글 단어(봄/가을, 봄.가을, 투포켓 등) + ver(.)(숫자) — 'silver' 같은 영단어 안의 ver은 제외. 파일명에 못 쓰는 / 는 . 으로
+  const m = String(name || '').normalize('NFC').match(/([가-힣0-9.\/]+?)\s*ver\.?(\d*)(?=[\s),\]]|$)/i);   // 쉼표는 단어 경계 → '2사이즈,여름ver' → 여름ver
+  return m ? `${m[1].replace(/\//g, '.')}ver${m[2]}` : '';
 }
 function regPresetFileName(pr, kind, seq, ext, ymd, tag) {   // tag(소구점: 착용컷·인스타·다나대표…)는 순번 뒤에
   const ver = regVerTag(pr.name), pname = ver ? `${ver} ${pr.core}` : pr.core;
