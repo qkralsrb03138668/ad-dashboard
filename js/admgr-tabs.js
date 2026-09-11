@@ -332,7 +332,8 @@ const ADMGR_TJUDGE_DEFAULT = { days: 3, spend: 30000, offRoas: 1, goodRoas: 3, g
 let admgrTJudge = Object.assign({}, ADMGR_TJUDGE_DEFAULT, lsGet('adc_admgr_tjudge', null) || {});
 function admgrRecommend(a) {   // null = 평가중 아님. k: off | good | wait(기준 채웠지만 애매) | watch(아직 기준 미달)
   if (a.st !== 'eval') return null;
-  const dp = admgrDPlus(a) ?? 0, roas = a.spend ? (a.roas || 0) : 0, J = admgrTJudge;
+  // ROAS = 구매 전환값 ÷ 지출 (테스트 소재 데이터엔 roas 필드가 없고 value만 온다 — 실사고 2026-09-11: roas 0으로 읽어 전부 OFF 후보)
+  const dp = admgrDPlus(a) ?? 0, roas = a.spend ? (a.roas != null ? a.roas : (a.value || 0) / a.spend) : 0, J = admgrTJudge;
   if (dp < J.days || (a.spend || 0) < J.spend) return { k: 'watch', label: '지켜보기', why: `D+${dp} · ${won(a.spend || 0)} — 기준(D+${J.days}·${won(J.spend)}) 전` };
   if (roas < J.offRoas) return { k: 'off', label: 'OFF 후보', why: `ROAS ${roas.toFixed(2)} < ${J.offRoas}` };
   if (roas >= J.goodRoas && (a.purchases || 0) >= J.goodPurch) return { k: 'good', label: '우수 후보', why: `ROAS ${roas.toFixed(2)} · 구매 ${a.purchases}` };
