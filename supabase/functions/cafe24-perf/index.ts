@@ -52,7 +52,7 @@ async function generateCopy(no: number, token: string): Promise<{ message: strin
   const url = `${SHOP_URL}/product/detail.html?product_no=${no}`;
   const client = new Anthropic({ apiKey: key });
   const system = [
-    { type: "text" as const, text: `${COPY_PROMPT_ORIGINAL}\n\n${COPY_LONG_RULES}\n\n## 대표가 직접 쓴 실제 글 예시 (말투·리듬 참고용. 여기 나온 키·사이즈·가족 이야기 같은 개인 사실은 새 문구에 옮기지 말 것)\n${COPY_EXAMPLES_HUMAN}\n\n## 긴글 출력 예시\n${COPY_EXAMPLE_LONG}`, cache_control: { type: "ephemeral" as const } },
+    { type: "text" as const, text: `${COPY_PROMPT_ORIGINAL}\n\n${COPY_LONG_RULES}\n\n${COPY_EXAMPLES_HUMAN}\n\n${COPY_EXAMPLE_LONG}`, cache_control: { type: "ephemeral" as const } },
   ];
   // deno-lint-ignore no-explicit-any
   const res: any = await client.beta.messages.create({
@@ -61,7 +61,7 @@ async function generateCopy(no: number, token: string): Promise<{ message: strin
     output_config: { effort: "medium" },
     system,
     tools: [{ type: "web_fetch_20260209", name: "web_fetch", allowed_domains: [SHOP_URL.replace(/^https?:\/\//, "")], max_uses: 2 }],
-    messages: [{ role: "user", content: `아래 상품의 광고 문구를 기본값(긴글)으로 써줘. 상품 페이지(${url})를 열어 컬러·옵션·리뷰를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력.\n\n[카페24 상품 정보]\n${facts}` }],
+    messages: [{ role: "user", content: `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력.\n\n[카페24 상품 정보]\n${facts}` }],
   } as any);
   if (res.stop_reason === "refusal") throw new Error("문구 생성이 거부되었습니다 (안전 분류)");
   const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n").replace(/\n{3,}/g, "\n\n").trim();   // 빈 줄은 하나만

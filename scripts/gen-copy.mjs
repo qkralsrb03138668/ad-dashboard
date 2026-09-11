@@ -20,18 +20,21 @@ async function api(fn, params, body) {
   if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
   return j;
 }
-const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n## 대표가 직접 쓴 실제 글 예시 (말투·리듬 참고용. 여기 나온 키·사이즈·가족 이야기 같은 개인 사실은 새 문구에 옮기지 말 것)\n${P.COPY_EXAMPLES_HUMAN}\n\n## 긴글 출력 예시\n${P.COPY_EXAMPLE_LONG}`;
+const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n${P.COPY_EXAMPLES_HUMAN}\n\n${P.COPY_EXAMPLE_LONG}`;
 
 function generate(facts, url) {
-  const prompt = `아래 상품의 광고 문구를 기본값(긴글)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·리뷰를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력하고 다른 말은 하지 마.\n\n[카페24 상품 정보]\n${facts}`;
-  const out = execFileSync('claude', ['-p', prompt, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--allowedTools', 'WebFetch', '--append-system-prompt', SYSTEM],   // 사용자 지정: Fable 5.1 · 중간 { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+  const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력하고 다른 말은 하지 마.\n\n[카페24 상품 정보]\n${facts}`;
+  const out = execFileSync('claude', ['-p', prompt, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--allowedTools', 'WebFetch', '--append-system-prompt', SYSTEM], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });   // 모델: 사용자 지정 Fable 5.1 · 중간
   return out.replace(/\n{3,}/g, '\n\n').trim();   // 빈 줄은 하나만 (연속 줄바꿈 3회 이상 → 2회)
 }
 
 const dry = process.argv.includes('--dry');
 const only = process.argv.filter(a => /^\d+$/.test(a)).map(Number);
 let targets;   // [{product_no, product_name, creatives:[...]}]
-if (only.length) targets = only.map(no => ({ product_no: no, product_name: '', creatives: [] }));
+if (only.length) {   // 지정 상품은 저장본이 있어도 다시 생성(덮어씀) + 그 상품의 대기 소재 문구도 갱신
+  const { rows } = await api('meta-upload', { action: 'creatives_list', status: 'registered', limit: 500 });
+  targets = only.map(no => ({ product_no: no, product_name: (rows.find(r => r.product_no === no) || {}).product_name || '', creatives: rows.filter(r => r.product_no === no) }));
+}
 else {
   const { rows } = await api('meta-upload', { action: 'creatives_list', status: 'registered', limit: 500 });
   const need = rows.filter(r => r.product_no && !(r.text && r.text.message));
