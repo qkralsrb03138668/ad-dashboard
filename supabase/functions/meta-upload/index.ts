@@ -270,7 +270,19 @@ Deno.serve(async (req) => {
         await dbRest("product_alias?on_conflict=core_name", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
           body: JSON.stringify({ core_name: row.core_name, product_no: row.product_no, product_name: row.product_name, updated_at: new Date().toISOString() }) }).catch(() => {});
       }
-      return json({ row });
+      // 문구를 고치고 저장하면 같은 상품의 대기 소재 전부 + 상품 고정본(product_copy)도 같은 문구로 (2026-09-11 사용자 요청)
+      let applied = 0;
+      const t = (body.text ?? null) as Rec | null;
+      if (body.apply_product && row?.product_no && t && String(t.message ?? "").trim()) {
+        const others = await dbRest(`creatives?product_no=eq.${row.product_no}&status=eq.registered&id=neq.${id}&select=id,url`);
+        for (const o of (others.ok ? await others.json() : []) as Rec[]) {
+          const pr = await dbRest(`creatives?id=eq.${o.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ text: { ...t, link: o.url || t.link }, regen: false }) });
+          if (pr.ok) applied++;
+        }
+        await dbRest("product_copy?on_conflict=product_no", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ product_no: row.product_no, product_name: row.product_name, text: { message: t.message, title: t.title ?? "", description: t.description ?? "", cta: t.cta ?? "LEARN_MORE" }, source: "manual", updated_at: new Date().toISOString(), updated_by: me.email }) }).catch(() => {});
+      }
+      return json({ row, applied });
     }
     if (action === "creative_del") {
       const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);

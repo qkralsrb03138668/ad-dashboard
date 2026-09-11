@@ -163,8 +163,8 @@ function uplTextOpen(idx) {
   const title = idx >= 0 ? `광고 문구 — ${upl.files[idx].name}` : idx === -2 ? `광고 문구 — 선택한 ${selected.length}개 파일에 적용` : '광고 문구 일괄 기입 (모든 파일에 적용 · 등록 소재는 상품 URL 유지)';
   textModalOpen(title, base, t => {
     let n = 0;
-    if (uplTextIdx >= 0) upl.files[uplTextIdx].text = t;
-    else if (uplTextIdx === -2) { for (const f of upl.files) if (f.sel) { f.text = { ...t, link: f.url || t.link }; f.sel = false; n++; } }
+    if (uplTextIdx >= 0) { upl.files[uplTextIdx].text = t; uplTextPersist([upl.files[uplTextIdx]], t); }
+    else if (uplTextIdx === -2) { const sel = upl.files.filter(f => f.sel); for (const f of sel) { f.text = { ...t, link: f.url || t.link }; f.sel = false; n++; } uplTextPersist(sel, t); }
     else { upl.commonText = t; for (const f of upl.files) f.text = null; }
     uplRenderFiles();
     toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : uplTextIdx === -2 ? `선택한 ${n}개 파일에 문구를 적용했어요` : '모든 파일에 문구를 적용했어요');
@@ -179,6 +179,21 @@ function uplTextApply() {
   if (!t.message) { toast('본문을 입력하세요'); return; }
   closeModal('upl-text-modal');
   if (TEXT_MODAL.onApply) TEXT_MODAL.onApply(t);
+}
+
+/* 등록 소재의 문구를 고쳐 저장하면 서버에 저장 + 같은 상품의 대기 소재 전부 + 상품 고정본까지 같은 문구로 (상품마다 1회 호출) */
+async function uplTextPersist(files, t) {
+  const byNo = new Map();
+  for (const f of files) if (f.creative_id && f.product_no && !f.result && !byNo.has(f.product_no)) byNo.set(f.product_no, f);
+  let total = 0;
+  for (const [no, f] of byNo) {
+    try {
+      const { applied } = await uplCall({ action: 'creative_save' }, { id: f.creative_id, text: { ...t, link: f.url || t.link }, apply_product: true });
+      for (const o of upl.files) if (o.creative_id && o.product_no === no && !o.result) { o.text = { ...t, link: o.url || t.link }; o.regen = false; }
+      total += applied;
+    } catch (e) { toast('서버 저장 실패: ' + e.message); }
+  }
+  if (byNo.size) { uplRenderFiles(); reg.list = null; toast(`저장했어요 — 같은 상품 대기 소재 ${total}개와 상품 고정 문구도 함께 바꿨어요`); }
 }
 
 /* ── 진단: 쓰기 토큰의 페이지 권한 + validate_only (생성 없음) ── */

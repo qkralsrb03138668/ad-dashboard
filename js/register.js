@@ -273,7 +273,12 @@ function regRenderList() {
 function regListText(id) {
   const r = reg.list.find(x => x.id === id); if (!r) return;
   textModalOpen(`광고 문구 — ${r.file_name}`, r.text || { message: '', title: '', description: '', link: r.url || '', cta: 'LEARN_MORE' }, async t => {
-    try { const res = await uplCall({ action: 'creative_save' }, { id, text: t, url: t.link }); Object.assign(r, res.row); regRenderList(); toast('문구를 저장했어요'); if (r.product_no) regCopySave({ product_no: r.product_no, name: r.product_name }, t); }
+    try {
+      const res = await uplCall({ action: 'creative_save' }, { id, text: t, url: t.link, apply_product: true });
+      Object.assign(r, res.row);
+      if (r.product_no) { for (const o of reg.list) if (o.product_no === r.product_no && o.status === 'registered' && o.id !== id) o.text = { ...t, link: o.url || t.link }; regCopies.delete(r.product_no); }
+      regRenderList(); toast(res.applied ? `문구를 저장했어요 — 같은 상품 대기 소재 ${res.applied}개와 상품 고정 문구도 함께` : '문구를 저장했어요');
+    }
     catch (e) { toast('저장 실패: ' + e.message); }
   });
 }
