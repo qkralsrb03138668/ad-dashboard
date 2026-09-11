@@ -115,7 +115,7 @@
             <input class="inp" id="reg-preset-q" placeholder="상품명 검색" style="width:180px;background:#fff;font-size:.8rem;padding:6px 10px;" onfocus="regPresetInit()" oninput="regPresetFilter(true)" />
             <select class="inp" id="reg-preset" style="min-width:240px;max-width:100%;background:#fff;font-size:.8rem;padding:6px 10px;" onfocus="regPresetInit()" onchange="regPresetPick(this.value)"><option value="">— 파일명으로 자동 인식 —</option></select>
             <input class="inp" id="reg-preset-tag" placeholder="소구점 (착용컷·인스타·다나대표) — 선택" style="width:220px;background:#fff;font-size:.8rem;padding:6px 10px;" title="파일명의 순번 뒤에 들어가요. 행마다 따로 고칠 수도 있어요" />
-            <span id="reg-preset-note" style="font-size:.72rem;color:#6b7280;">고르면 이후 올리는 파일은 파일명과 상관없이 이 상품으로 등록돼요 (핸드폰 업로드용)</span>
+            <span id="reg-preset-note" style="font-size:.72rem;color:#6b7280;">상품을 고른 뒤 올리는 파일은 파일명 대신 이 상품으로 등록됩니다 (핸드폰에서 올릴 때 사용)</span>
           </div>
           <div id="reg-drop" style="border:2px dashed #c7d2fe;border-radius:12px;padding:16px;text-align:center;color:#6b7280;cursor:pointer;background:#fafaff;"
                onclick="$('reg-file').click()" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background='#fafaff'"

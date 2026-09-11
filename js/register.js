@@ -143,7 +143,7 @@ function regPresetFilter(auto) {   // auto: 검색 입력 중일 때만 결과 1
 function regPresetPick(no) {
   reg.preset = (reg.products || []).find(p => String(p.product_no) === String(no)) || null;
   const note = $('reg-preset-note');
-  note.innerHTML = reg.preset ? `<b style="color:#3730a3;">${esc(reg.preset.name)}</b>로 등록돼요 · <a href="#" onclick="regPresetPick('');return false;">해제</a>` : '고르면 이후 올리는 파일은 파일명과 상관없이 이 상품으로 등록돼요 (핸드폰 업로드용)';
+  note.innerHTML = reg.preset ? `<b style="color:#3730a3;">${esc(reg.preset.name)}</b>로 등록돼요 · <a href="#" onclick="regPresetPick('');return false;">해제</a>` : '상품을 고른 뒤 올리는 파일은 파일명 대신 이 상품으로 등록됩니다 (핸드폰에서 올릴 때 사용)';
   if ($('reg-preset').value !== String(reg.preset ? reg.preset.product_no : '')) regPresetFilter();
 }
 function regDel(id) { reg.rows = reg.rows.filter(r => r.id !== id); regRender(); }
