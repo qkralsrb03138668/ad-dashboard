@@ -6,7 +6,7 @@
    파일명 → 핵심 상품명(괄호 묶음 제거) → 카페24 상품 매칭(정확히 1개면 자동, 여러 개면 선택, 없으면 후보) →
    URL 자동 → 문구(선택) → 파일은 Meta 보관함(meta-upload image/video_*)으로, 메타데이터는 creatives 표로.
    체크보드는 creatives를 읽어 스토리(이미지)·릴스(영상) 칸을 자동 채운다. */
-const reg = { products: null, aliases: null, rows: [], list: null, listLoading: false, filter: 'registered', running: false };
+const reg = { products: null, aliases: null, rows: [], list: null, listLoading: false, filter: 'registered', running: false, preset: null };
 const SHOP_URL = (window.DASH_CFG && window.DASH_CFG.SHOP_URL) || 'https://danarobe.com';
 const REG_KIND_TYPE = { image: '스토리', video: '릴스' };
 // 맥 파일명은 한글이 자모 분리(NFD)로 들어와 카페24 상품명(NFC)과 문자열이 달라진다 → 항상 NFC로 맞춘 뒤 비교 (실사고 2026-09-10)
@@ -44,8 +44,14 @@ async function regAddFiles(list) {
     if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
     if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
     if (reg.rows.some(r => r.file.name === f.name && r.file.size === f.size)) continue;
+    if (reg.preset) {   // 상품을 먼저 골랐으면 파일명은 안 본다 — 등록 파일명은 `상품명_원본파일명` (광고세트·광고명이 됨)
+      const pr = reg.preset, fileName = regPresetFileName(pr, f.name);
+      reg.rows.push({ id: newId(), file: f, fileName, kind: isVideo ? 'video' : 'image', name: fileName.replace(/\.[^.]+$/, ''), core: pr.core, cands: [pr], product: pr, why: 'preset', multi: false,
+        url: productUrl(pr.product_no), text: null, sel: false, status: '대기', media: null, done: false });
+      continue;
+    }
     const m = regMatch(f.name);
-    reg.rows.push({ id: newId(), file: f, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), core: m.core, cands: m.cands, product: m.pick, why: m.why, multi: m.multi,
+    reg.rows.push({ id: newId(), file: f, fileName: f.name, kind: isVideo ? 'video' : 'image', name: f.name.replace(/\.[^.]+$/, ''), core: m.core, cands: m.cands, product: m.pick, why: m.why, multi: m.multi,
       url: m.pick ? productUrl(m.pick.product_no) : '', text: null, sel: false, status: '대기', media: null, done: false });
   }
   regRender();
@@ -101,6 +107,29 @@ async function regCopySave(product, text) {   // 직접 기입·수정한 문구
   try { const { row } = await perfApi({ action: 'copy_save' }, { product_no: product.product_no, product_name: product.name, text: { message: text.message, title: text.title, description: text.description, cta: text.cta } }); regCopies.set(product.product_no, row); }
   catch (e) { toast('상품 문구 저장 실패: ' + e.message); }
 }
+/* ── 상품 먼저 고르기 (핸드폰 업로드처럼 파일명을 못 바꿀 때) ── */
+function regPresetFileName(pr, name) {   // 파일명에 상품명이 이미 있으면 그대로, 아니면 `상품명_원본파일명`
+  const n = String(name).normalize('NFC');
+  return normKey(fileCore(n)) === pr.key ? n : `${pr.core}_${n}`;
+}
+async function regPresetInit() {
+  if (reg.products) return;
+  try { await regLoadRefs(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
+  regPresetFilter();
+}
+function regPresetFilter(auto) {   // auto: 검색 입력 중일 때만 결과 1개면 자동 선택 (해제 직후 재선택 방지)
+  const q = ($('reg-preset-q').value || '').trim().toLowerCase(), sel = $('reg-preset');
+  const cur = reg.preset ? String(reg.preset.product_no) : '';
+  const rows = (reg.products || []).filter(p => !q || p.name.toLowerCase().includes(q) || String(p.product_no).includes(q)).slice(0, 300);
+  sel.innerHTML = `<option value="">— 파일명으로 자동 인식 —</option>` + rows.map(p => `<option value="${p.product_no}" ${String(p.product_no) === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  if (auto && q && rows.length === 1 && !reg.preset) regPresetPick(String(rows[0].product_no));   // 검색 결과가 하나면 바로 선택
+}
+function regPresetPick(no) {
+  reg.preset = (reg.products || []).find(p => String(p.product_no) === String(no)) || null;
+  const note = $('reg-preset-note');
+  note.innerHTML = reg.preset ? `<b style="color:#3730a3;">${esc(reg.preset.name)}</b>로 등록돼요 · <a href="#" onclick="regPresetPick('');return false;">해제</a>` : '고르면 이후 올리는 파일은 파일명과 상관없이 이 상품으로 등록돼요 (핸드폰 업로드용)';
+  if ($('reg-preset').value !== String(reg.preset ? reg.preset.product_no : '')) regPresetFilter();
+}
 function regDel(id) { reg.rows = reg.rows.filter(r => r.id !== id); regRender(); }
 function regPick(i, no) {
   const r = reg.rows[i], p = reg.products.find(p => String(p.product_no) === String(no));
@@ -122,7 +151,7 @@ function regRender() {
       const opts = r.cands.map(c => `<option value="${c.product_no}" ${r.product && r.product.product_no === c.product_no ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
       return `<tr style="${warn ? 'background:#fffbeb;' : ''}">
         <td><input type="checkbox" ${r.sel ? 'checked' : ''} ${r.done ? 'disabled' : ''} onchange="reg.rows[${i}].sel=this.checked;regSelBtn()" /></td>
-        <td style="font-size:.78rem;"><i class="fa-solid ${r.kind === 'video' ? 'fa-video' : 'fa-image'}" style="color:#4f46e5;"></i> ${esc(r.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · 인식한 상품명: <b>${esc(r.core || '-')}</b></div></td>
+        <td style="font-size:.78rem;"><i class="fa-solid ${r.kind === 'video' ? 'fa-video' : 'fa-image'}" style="color:#4f46e5;"></i> ${esc(r.fileName || r.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div></td>
         <td style="min-width:240px;">${r.done ? esc(r.product ? r.product.name : '-') : `
           <select class="inp" style="width:100%;font-size:.78rem;background:#fff;padding:5px 8px;" onchange="regPick(${i}, this.value)">
             <option value="">— 상품 선택 —</option>${opts}</select>
@@ -176,8 +205,8 @@ async function regRun() {
         if (!r.media) r.media = await uplUploadMedia({ kind: r.kind, file: r.file, name: r.name, _reg: r }, pin);
         r.status = '기록 저장 중'; regRender();
         const p = r.product || (r.multi ? r.cands[0] : null);
-        await uplCall({ action: 'creative_add' }, { file_name: r.file.name, kind: r.kind, core_name: r.core, product_no: p ? p.product_no : null, product_name: p ? p.name : null, url: r.url || null, text: r.text, media: r.media });
-        r.done = true; r.status = '등록됨'; ok++; regLog(`${r.file.name}: 등록 완료`, 'ok');
+        await uplCall({ action: 'creative_add' }, { file_name: r.fileName || r.file.name, kind: r.kind, core_name: r.core, product_no: p ? p.product_no : null, product_name: p ? p.name : null, url: r.url || null, text: r.text, media: r.media });
+        r.done = true; r.status = '등록됨'; ok++; regLog(`${r.fileName || r.file.name}: 등록 완료`, 'ok');
       } catch (e) {
         r.status = '실패: ' + e.message; regLog(`${r.file.name}: ${e.message}`, 'err');
         if (/PIN/.test(e.message)) pinFail = true;

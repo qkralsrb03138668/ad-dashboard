@@ -109,6 +109,13 @@
             <b style="color:#1e1b4b;"><i class="fa-solid fa-cloud-arrow-up" style="color:#4f46e5;"></i> 소재 등록</b>
             <span style="font-size:.74rem;color:#6b7280;">파일명 앞부분(첫 _ 앞)으로 카페24 상품을 찾아 URL을 자동 기입 · 파일은 Meta 광고 보관함에 올라가고 광고 업로드 탭에서 바로 쓸 수 있어요</span>
           </div>
+          <!-- 상품 먼저 고르기 (핸드폰처럼 파일명을 못 바꾸는 경우) — 고르면 이후 올리는 파일은 파일명과 무관하게 이 상품으로 -->
+          <div class="control-bar" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;padding:10px 12px;">
+            <span style="font-size:.78rem;font-weight:700;color:#1e1b4b;"><i class="fa-solid fa-hand-pointer" style="color:#4f46e5;"></i> 상품 먼저 고르기</span>
+            <input class="inp" id="reg-preset-q" placeholder="상품명 검색" style="width:180px;background:#fff;font-size:.8rem;padding:6px 10px;" onfocus="regPresetInit()" oninput="regPresetFilter(true)" />
+            <select class="inp" id="reg-preset" style="min-width:240px;max-width:100%;background:#fff;font-size:.8rem;padding:6px 10px;" onfocus="regPresetInit()" onchange="regPresetPick(this.value)"><option value="">— 파일명으로 자동 인식 —</option></select>
+            <span id="reg-preset-note" style="font-size:.72rem;color:#6b7280;">고르면 이후 올리는 파일은 파일명과 상관없이 이 상품으로 등록돼요 (핸드폰 업로드용)</span>
+          </div>
           <div id="reg-drop" style="border:2px dashed #c7d2fe;border-radius:12px;padding:16px;text-align:center;color:#6b7280;cursor:pointer;background:#fafaff;"
                onclick="$('reg-file').click()" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background='#fafaff'"
                ondrop="event.preventDefault();this.style.background='#fafaff';regAddFiles(event.dataTransfer.files)">
