@@ -37,13 +37,21 @@ if (only.length) {   // 지정 상품은 저장본이 있어도 다시 생성(�
 }
 else {
   const { rows } = await api('meta-upload', { action: 'creatives_list', status: 'registered', limit: 500 });
-  const need = rows.filter(r => r.product_no && !(r.text && r.text.message));
+  const regen = rows.filter(r => r.product_no && r.regen);                          // 대시보드에서 '문구 다시 생성' 표시한 소재 → 저장본 있어도 새로
+  const need = rows.filter(r => r.product_no && !r.regen && !(r.text && r.text.message));
   const byNo = new Map();
-  for (const r of need) { if (!byNo.has(r.product_no)) byNo.set(r.product_no, { product_no: r.product_no, product_name: r.product_name, creatives: [] }); byNo.get(r.product_no).creatives.push(r); }
-  if (byNo.size) {
-    const { rows: copies } = await api('cafe24-perf', { action: 'copy_get', product_nos: [...byNo.keys()].join(',') });
-    for (const c of copies) {   // 저장본이 이미 있으면 생성 없이 소재에 채우기만
-      const t = byNo.get(c.product_no); if (!t) continue;
+  const put = (r, force) => { if (!byNo.has(r.product_no)) byNo.set(r.product_no, { product_no: r.product_no, product_name: r.product_name, creatives: [], force: false }); const t = byNo.get(r.product_no); t.creatives.push(r); if (force) t.force = true; };
+  for (const r of regen) put(r, true);
+  for (const r of need) put(r, false);
+  for (const t of byNo.values()) if (t.force) {   // 다시 생성하는 상품은 그 상품의 대기 소재 전부에 새 문구를 넣는다 (소재끼리 다른 문구가 되지 않게)
+    for (const r of rows) if (r.product_no === t.product_no && !t.creatives.some(x => x.id === r.id)) t.creatives.push(r);
+  }
+  if (regen.length) console.log(`↻ 다시 생성 표시된 소재 ${regen.length}개 (상품 ${new Set(regen.map(r => r.product_no)).size}개)`);
+  const plain = [...byNo.values()].filter(t => !t.force);
+  if (plain.length) {
+    const { rows: copies } = await api('cafe24-perf', { action: 'copy_get', product_nos: plain.map(t => t.product_no).join(',') });
+    for (const c of copies) {   // 저장본이 이미 있으면 생성 없이 소재에 채우기만 (다시 생성 표시가 없는 경우)
+      const t = byNo.get(c.product_no); if (!t || t.force) continue;
       for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...c.text, link: cr.url || '' } });
       console.log(`↺ ${t.product_name} — 저장된 문구를 소재 ${t.creatives.length}개에 채움`);
       byNo.delete(c.product_no);
@@ -63,7 +71,7 @@ for (const t of targets) {
     if (dry) { console.log('\n' + message + '\n'); continue; }
     const text = { message, title: '', description: '', cta: 'LEARN_MORE' };
     await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });
-    for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url } });
+    for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url }, regen: false });
     ok++; console.log(`✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
   } catch (e) { const m = String(e.message).split('\n')[0].replace(/^Command failed: claude .*$/, 'Claude Code 실행 실패 — 이 맥에서 claude 로그인 상태인지 확인하세요 (터미널에서 `claude` 한 번 실행)'); console.log(`\n✗ #${t.product_no}: ${m}`); }
 }

@@ -262,7 +262,7 @@ Deno.serve(async (req) => {
     if (action === "creative_save") {
       const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);
       const patch: Rec = {};
-      for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name"]) if (k in body) patch[k] = body[k];
+      for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name", "regen"]) if (k in body) patch[k] = body[k];
       const r = await dbRest(`creatives?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) });
       if (!r.ok) return json({ error: `수정 실패: ${await r.text()}` }, 500);
       const row = (await r.json())[0];
