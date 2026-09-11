@@ -306,6 +306,7 @@ function regSyncBoard() {
   for (const r of reg.list) {
     if (!r.product_no) continue;
     if (pt.products.some(p => p.product_no === r.product_no)) continue;
+    if ((pt.hidden || []).includes(r.product_no)) continue;   // 사용자가 보드에서 지운 상품은 다시 안 올림
     const byName = pt.products.find(p => !p.product_no && normKey(p.name) === normKey(r.product_name || r.core_name || ''));
     if (byName) { byName.product_no = r.product_no; changed = true; continue; }
     const cp = (reg.products || []).find(p => p.product_no === r.product_no);

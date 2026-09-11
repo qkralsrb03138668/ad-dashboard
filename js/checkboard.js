@@ -15,6 +15,9 @@ if (!lsGet('adc_pt_mig_thumb', false)) {   // 2026-09-10: '썸네일릴스' 열 
 let ptSel = new Set(), ptFilter = 'all', ptPage = 1, ptPer = Number(lsGet('adc_pt_per', 20)) || 20;
 
 function ptSave() { lsSet(LS.pt, pt); }
+/* 삭제한 상품 기억(pt.hidden) — 등록 소재가 있는 상품은 보드에 자동 추가되므로, 지운 건 다시 안 올라오게 */
+function ptHide(products) { pt.hidden = pt.hidden || []; for (const p of products) if (p.product_no && !pt.hidden.includes(p.product_no)) pt.hidden.push(p.product_no); }
+function ptUnhide(no) { if (pt.hidden) pt.hidden = pt.hidden.filter(x => x !== no); }
 /* 상품·유형 관리 도구 접기/펼치기 (기본 접힘, 브라우저에 기억) */
 function ptToolsToggle(force) {
   const open = force !== undefined ? force : $('pt-tools').style.display === 'none';
@@ -79,7 +82,7 @@ function ptPickToggle(no, on) {   // 목록은 다시 그리지 않음 (스크�
 }
 function ptPickAdd() {
   const added = ptCafe24Rows.filter(r => ptPickSel.has(r.product_no) && !ptHas(r))
-    .map(r => ({ id: newId(), name: r.name, product_no: r.product_no, created: r.created || '', cells: {} }));
+    .map(r => { ptUnhide(r.product_no); return { id: newId(), name: r.name, product_no: r.product_no, created: r.created || '', cells: {} }; });
   pt.products = [...added, ...pt.products];
   ptSave(); renderPTest(); closeModal('pt-pick-modal');
   toast(`상품 ${added.length}개를 추가했어요`);
@@ -105,7 +108,7 @@ const fmtYMD = d => d ? String(d).slice(2, 10).replace(/-/g, '.') : '-';
 function ptDelProduct(id) {
   const p = pt.products.find(x => x.id === id); if (!p) return;
   if (!confirm(`'${p.name}' 행을 삭제할까요?`)) return;
-  pt.products = pt.products.filter(x => x.id !== id);
+  ptHide([p]); pt.products = pt.products.filter(x => x.id !== id);
   ptSave(); renderPTest();
 }
 function ptAddType() {
@@ -154,13 +157,13 @@ function ptSelBtn() {
 }
 function ptDelSel() {
   if (!ptSel.size || !confirm(`선택한 상품 ${ptSel.size}개를 삭제할까요?`)) return;
-  pt.products = pt.products.filter(p => !ptSel.has(p.id));
+  ptHide(pt.products.filter(p => ptSel.has(p.id))); pt.products = pt.products.filter(p => !ptSel.has(p.id));
   ptSel.clear(); ptSave(); renderPTest(); toast('선택한 상품을 삭제했어요');
 }
 function ptDelAll() {
   if (!pt.products.length) return;
   if (!confirm(`상품 ${pt.products.length}개를 전부 삭제할까요? 체크 기록도 모두 지워져요.`)) return;
-  pt.products = []; ptPage = 1; ptSel.clear();
+  ptHide(pt.products); pt.products = []; ptPage = 1; ptSel.clear();
   ptSave(); renderPTest(); toast('상품을 전부 삭제했어요');
 }
 
