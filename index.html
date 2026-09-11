@@ -136,9 +136,7 @@
             <button class="btn-ghost" onclick="regTextOpen(-1)"><i class="fa-solid fa-pen"></i> 전체 문구 기입</button>
             <button class="btn-ghost" id="reg-text-sel" onclick="regTextOpen(-2)" disabled><i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입</button>
             <button class="btn-ghost" onclick="regGenSel()" title="체크한 파일의 상품 문구를 AI로 생성 (같은 상품은 1회)"><i class="fa-solid fa-wand-magic-sparkles" style="color:#7c3aed;"></i> 선택 AI 문구 생성</button>
-            <div class="input-group" style="margin:0;margin-left:auto;"><label>등록 PIN</label>
-              <input class="inp" id="reg-pin" type="password" inputmode="numeric" placeholder="등록용 PIN" style="width:120px;background:#fff;" /></div>
-            <button class="btn-analyze" id="reg-run" data-act="creative" onclick="regRun()"><i class="fa-solid fa-check"></i> 등록</button>
+            <button class="btn-analyze" id="reg-run" data-act="creative" style="margin-left:auto;" onclick="regRun()"><i class="fa-solid fa-check"></i> 등록</button>
           </div>
           <div id="reg-log" style="display:none;margin-top:10px;background:#0f172a;color:#cbd5e1;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;border-radius:10px;padding:10px 12px;max-height:180px;overflow:auto;line-height:1.6;"></div>
           <div style="display:flex;align-items:center;gap:10px;margin-top:16px;">
