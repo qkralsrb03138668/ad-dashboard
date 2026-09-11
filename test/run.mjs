@@ -119,10 +119,10 @@ console.log('② 소재 등록 — 파일명 → 상품 매칭');
     assert.equal(rows[0].text.message, '저장 본문'); assert.equal(rows[0].text.link, 'https://x/1'); assert.equal(rows[0].text.cta, 'SHOP_NOW'); assert.equal(rows[0].textFrom, 'saved');
     assert.equal(rows[1].text, null); assert.equal(rows[2].text.message, '이미 있음'); assert.equal(rows[3].text, null);
   });
-  test('상품 먼저 고르기: 파일명에 상품명 없으면 `상품명_원본`, 있으면 그대로', () => {
-    const fn = g('regPresetFileName'); const pr = { core: '클레르 블라우스', key: '클레르블라우스' };
-    assert.equal(fn(pr, 'IMG_1234.jpg'), '클레르 블라우스_IMG_1234.jpg');
-    assert.equal(fn(pr, '클레르 블라우스_인스타.mp4'), '클레르 블라우스_인스타.mp4');
+  test('상품 먼저 고르기 파일명: 상품명_R1|P1_마진(천원 내림)_YYMMDD_test.확장자', () => {
+    const fn = g('regPresetFileName'); const pr = { core: '레이스 클레르 블라우스', price: 56000, supply_price: 28000 };
+    assert.equal(fn(pr, 'video', 1, 'mp4', '2026-09-11'), '레이스 클레르 블라우스_R1_28_260911_test.mp4');
+    assert.equal(fn({ ...pr, price: 58000, supply_price: 29500 }, 'image', 3, 'JPG', '2026-09-11'), '레이스 클레르 블라우스_P3_28_260911_test.jpg');
   });
   test('맥 파일명(NFD 자모 분리)도 자동 매칭', () => { const m = regMatch('클레르 블라우스_릴스.mp4'.normalize('NFD')); assert.equal(m.pick && m.pick.product_no, 1); assert.equal(m.why, 'auto'); });
   test('매칭 실패 → 후보 없음·pick null', () => { const m = regMatch('없는상품.jpg'); assert.equal(m.pick, null); assert.equal(m.why, 'none'); });

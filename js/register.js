@@ -37,15 +37,16 @@ function regMatch(fileName) {
   return { core, cands, pick, why, multi: exact.length > 1 };
 }
 async function regAddFiles(list) {
-  try { await regLoadRefs(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
+  try { await regLoadRefs(); if (reg.preset && !reg.list) await regRefresh(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
   for (const f of list) {
     const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name);
     const isImage = /^image\//.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
     if (!isVideo && !isImage) { toast(`${f.name}: 지원하지 않는 형식`); continue; }
     if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
     if (reg.rows.some(r => r.file.name === f.name && r.file.size === f.size)) continue;
-    if (reg.preset) {   // 상품을 먼저 골랐으면 파일명은 안 본다 — 등록 파일명은 `상품명_원본파일명` (광고세트·광고명이 됨)
-      const pr = reg.preset, fileName = regPresetFileName(pr, f.name);
+    if (reg.preset) {   // 상품을 먼저 골랐으면 파일명은 안 본다 — 규칙대로 새 파일명 생성 (광고세트·광고명이 됨)
+      const pr = reg.preset, kind = isVideo ? 'video' : 'image';
+      const fileName = regPresetFileName(pr, kind, regPresetSeq(pr, kind), (f.name.match(/\.([^.]+)$/) || [])[1] || (isVideo ? 'mp4' : 'jpg'));
       reg.rows.push({ id: newId(), file: f, fileName, kind: isVideo ? 'video' : 'image', name: fileName.replace(/\.[^.]+$/, ''), core: pr.core, cands: [pr], product: pr, why: 'preset', multi: false,
         url: productUrl(pr.product_no), text: null, sel: false, status: '대기', media: null, done: false });
       continue;
@@ -108,9 +109,17 @@ async function regCopySave(product, text) {   // 직접 기입·수정한 문구
   catch (e) { toast('상품 문구 저장 실패: ' + e.message); }
 }
 /* ── 상품 먼저 고르기 (핸드폰 업로드처럼 파일명을 못 바꿀 때) ── */
-function regPresetFileName(pr, name) {   // 파일명에 상품명이 이미 있으면 그대로, 아니면 `상품명_원본파일명`
-  const n = String(name).normalize('NFC');
-  return normKey(fileCore(n)) === pr.key ? n : `${pr.core}_${n}`;
+/* 먼저 고른 상품의 파일명 규칙: `상품명_R1|P1_마진_YYMMDD_test.확장자`
+   상품명 = 괄호 묶음 뺀 핵심명 · R=영상/P=이미지 + 순번(이미 등록된 것 이어서) · 마진 = (판매가−공급가) 천 원 단위 내림 · 날짜 = 오늘 */
+function regPresetFileName(pr, kind, seq, ext, ymd) {
+  const margin = Math.floor(Math.max(0, (Number(pr.price) || 0) - (Number(pr.supply_price) || 0)) / 1000);
+  const d = (ymd || todayStr(0)).replace(/-/g, '').slice(2);   // 2026-09-11 → 260911
+  return `${pr.core}_${kind === 'video' ? 'R' : 'P'}${seq}_${margin}_${d}_test${ext ? '.' + ext.toLowerCase() : ''}`;
+}
+function regPresetSeq(pr, kind) {   // 다음 순번 = 서버에 등록된 같은 상품·같은 유형 수 + 이번 배치에 담긴 수 + 1
+    const onServer = (reg.list || []).filter(r => r.product_no === pr.product_no && r.kind === kind).length;
+    const inBatch = reg.rows.filter(r => r.product && r.product.product_no === pr.product_no && r.kind === kind && !r.done).length;
+    return onServer + inBatch + 1;
 }
 async function regPresetInit() {
   if (reg.products) return;
