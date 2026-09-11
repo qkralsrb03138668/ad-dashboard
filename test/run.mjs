@@ -123,6 +123,8 @@ console.log('② 소재 등록 — 파일명 → 상품 매칭');
     const fn = g('regPresetFileName'); const pr = { core: '레이스 클레르 블라우스', price: 56000, supply_price: 28000 };
     assert.equal(fn(pr, 'video', 1, 'mp4', '2026-09-11'), '레이스 클레르 블라우스_R1_28_260911_test.mp4');
     assert.equal(fn({ ...pr, price: 58000, supply_price: 29500 }, 'image', 3, 'JPG', '2026-09-11'), '레이스 클레르 블라우스_P3_28_260911_test.jpg');
+    assert.equal(fn(pr, 'video', 3, 'mov', '2026-09-11', '착용컷'), '레이스 클레르 블라우스_R3_착용컷_28_260911_test.mov');
+    assert.equal(fn(pr, 'video', 4, 'mp4', '2026-09-11', ' 다나 대표/인스타 '), '레이스 클레르 블라우스_R4_다나 대표 인스타_28_260911_test.mp4');
   });
   test('맥 파일명(NFD 자모 분리)도 자동 매칭', () => { const m = regMatch('클레르 블라우스_릴스.mp4'.normalize('NFD')); assert.equal(m.pick && m.pick.product_no, 1); assert.equal(m.why, 'auto'); });
   test('매칭 실패 → 후보 없음·pick null', () => { const m = regMatch('없는상품.jpg'); assert.equal(m.pick, null); assert.equal(m.why, 'none'); });

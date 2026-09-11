@@ -45,9 +45,10 @@ async function regAddFiles(list) {
     if (isImage && f.size > 30 * 1024 * 1024) { toast(`${f.name}: 이미지는 30MB까지`); continue; }
     if (reg.rows.some(r => r.file.name === f.name && r.file.size === f.size)) continue;
     if (reg.preset) {   // 상품을 먼저 골랐으면 파일명은 안 본다 — 규칙대로 새 파일명 생성 (광고세트·광고명이 됨)
-      const pr = reg.preset, kind = isVideo ? 'video' : 'image';
-      const fileName = regPresetFileName(pr, kind, regPresetSeq(pr, kind), (f.name.match(/\.([^.]+)$/) || [])[1] || (isVideo ? 'mp4' : 'jpg'));
-      reg.rows.push({ id: newId(), file: f, fileName, kind: isVideo ? 'video' : 'image', name: fileName.replace(/\.[^.]+$/, ''), core: pr.core, cands: [pr], product: pr, why: 'preset', multi: false,
+      const pr = reg.preset, kind = isVideo ? 'video' : 'image', seq = regPresetSeq(pr, kind), ext = (f.name.match(/\.([^.]+)$/) || [])[1] || (isVideo ? 'mp4' : 'jpg');
+      const tag = ($('reg-preset-tag') && $('reg-preset-tag').value || '').trim();
+      const fileName = regPresetFileName(pr, kind, seq, ext, null, tag);
+      reg.rows.push({ id: newId(), file: f, fileName, seq, ext, tag, kind, name: fileName.replace(/\.[^.]+$/, ''), core: pr.core, cands: [pr], product: pr, why: 'preset', multi: false,
         url: productUrl(pr.product_no), text: null, sel: false, status: '대기', media: null, done: false });
       continue;
     }
@@ -111,10 +112,16 @@ async function regCopySave(product, text) {   // 직접 기입·수정한 문구
 /* ── 상품 먼저 고르기 (핸드폰 업로드처럼 파일명을 못 바꿀 때) ── */
 /* 먼저 고른 상품의 파일명 규칙: `상품명_R1|P1_마진_YYMMDD_test.확장자`
    상품명 = 괄호 묶음 뺀 핵심명 · R=영상/P=이미지 + 순번(이미 등록된 것 이어서) · 마진 = (판매가−공급가) 천 원 단위 내림 · 날짜 = 오늘 */
-function regPresetFileName(pr, kind, seq, ext, ymd) {
+function regPresetFileName(pr, kind, seq, ext, ymd, tag) {   // tag(소구점: 착용컷·인스타·다나대표…)는 순번 뒤에
   const margin = Math.floor(Math.max(0, (Number(pr.price) || 0) - (Number(pr.supply_price) || 0)) / 1000);
   const d = (ymd || todayStr(0)).replace(/-/g, '').slice(2);   // 2026-09-11 → 260911
-  return `${pr.core}_${kind === 'video' ? 'R' : 'P'}${seq}_${margin}_${d}_test${ext ? '.' + ext.toLowerCase() : ''}`;
+  const t = String(tag || '').trim().replace(/[_\/\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${pr.core}_${kind === 'video' ? 'R' : 'P'}${seq}${t ? '_' + t : ''}_${margin}_${d}_test${ext ? '.' + ext.toLowerCase() : ''}`;
+}
+function regRowRename(i, tag) {   // 행의 소구점 바꾸면 파일명 다시 생성 (먼저 고른 상품 행만)
+  const r = reg.rows[i]; if (!r || r.why !== 'preset' || r.done) return;
+  r.tag = tag; r.fileName = regPresetFileName(r.product, r.kind, r.seq, r.ext, null, tag); r.name = r.fileName.replace(/\.[^.]+$/, '');
+  const cell = document.querySelector(`#reg-rows tbody tr:nth-child(${i + 1}) .reg-fname`); if (cell) cell.textContent = r.fileName;
 }
 function regPresetSeq(pr, kind) {   // 다음 순번 = 서버에 등록된 같은 상품·같은 유형 수 + 이번 배치에 담긴 수 + 1
     const onServer = (reg.list || []).filter(r => r.product_no === pr.product_no && r.kind === kind).length;
@@ -160,7 +167,7 @@ function regRender() {
       const opts = r.cands.map(c => `<option value="${c.product_no}" ${r.product && r.product.product_no === c.product_no ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
       return `<tr style="${warn ? 'background:#fffbeb;' : ''}">
         <td><input type="checkbox" ${r.sel ? 'checked' : ''} ${r.done ? 'disabled' : ''} onchange="reg.rows[${i}].sel=this.checked;regSelBtn()" /></td>
-        <td style="font-size:.78rem;"><i class="fa-solid ${r.kind === 'video' ? 'fa-video' : 'fa-image'}" style="color:#4f46e5;"></i> ${esc(r.fileName || r.file.name)}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div></td>
+        <td style="font-size:.78rem;"><i class="fa-solid ${r.kind === 'video' ? 'fa-video' : 'fa-image'}" style="color:#4f46e5;"></i> <span class="reg-fname">${esc(r.fileName || r.file.name)}</span><div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div>${r.why === 'preset' && !r.done ? `<div style="margin-top:4px;"><input class="inp" value="${esc(r.tag || '')}" placeholder="소구점 (착용컷·인스타·다나대표)" style="width:200px;font-size:.72rem;padding:3px 8px;background:#fff;" oninput="regRowRename(${i}, this.value)" /></div>` : ''}</td>
         <td style="min-width:240px;">${r.done ? esc(r.product ? r.product.name : '-') : `
           <select class="inp" style="width:100%;font-size:.78rem;background:#fff;padding:5px 8px;" onchange="regPick(${i}, this.value)">
             <option value="">— 상품 선택 —</option>${opts}</select>
