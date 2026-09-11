@@ -35,6 +35,9 @@ body {
   letter-spacing: .08em; padding: 12px 4px 2px 8px; user-select: none;
 }
 .side-menu .menu-group:first-child { padding-top: 0; }
+.menu-group.mg-toggle { cursor: pointer; }
+.menu-group.mg-toggle:hover { color: #4f46e5; }
+.menu-group.mg-toggle i { font-size: .6rem; width: 10px; }
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid #e7e8ee; border-radius: 12px;

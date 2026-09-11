@@ -43,13 +43,14 @@
 
 <div class="layout">
   <nav class="side-menu">
-    <div class="menu-group">분석</div>
-    <button class="menu-item" data-menu="home" onclick="showMenu('home')"><i class="fa-solid fa-house"></i> 대시보드</button>
-    <button class="menu-item" data-menu="compare" onclick="showMenu('compare')"><i class="fa-solid fa-scale-balanced"></i> 소재 비교</button>
     <div class="menu-group">소재</div>
-    <button class="menu-item" data-menu="ptest" onclick="showMenu('ptest')"><i class="fa-solid fa-clipboard-check"></i> 광고소재 대시보드</button>
-    <button class="menu-item" data-menu="list" onclick="showMenu('list')"><i class="fa-solid fa-table-cells"></i> 소재 목록</button>
-    <button class="menu-item" data-menu="test" onclick="showMenu('test')"><i class="fa-solid fa-flask"></i> 테스트 소재</button>
+    <button class="menu-item" data-menu="ptest" onclick="showMenu('ptest')"><i class="fa-solid fa-upload"></i> 소재 업로드</button>
+    <!-- 분석(CSV 기반 옛 메뉴) — 기본 접힘, 화살표로 펼침 (브라우저에 기억) -->
+    <div class="menu-group mg-toggle" id="mg-analysis-h" onclick="menuGroupToggle('analysis')"><i class="fa-solid fa-chevron-right"></i> 분석</div>
+    <div id="mg-analysis" style="display:none;flex-direction:column;gap:6px;">
+      <button class="menu-item" data-menu="home" onclick="showMenu('home')"><i class="fa-solid fa-house"></i> 대시보드</button>
+      <button class="menu-item" data-menu="compare" onclick="showMenu('compare')"><i class="fa-solid fa-scale-balanced"></i> 소재 비교</button>
+    </div>
     <div class="menu-group">Meta 연동</div>
     <button class="menu-item" data-menu="admgr" data-role="admin" onclick="showMenu('admgr')"><i class="fa-brands fa-meta"></i> 광고관리자</button>
     <button class="menu-item" data-menu="upload" data-role="admin" onclick="showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> 광고 업로드</button>
@@ -88,9 +89,9 @@
       <div class="section-body" id="home-body"></div>
     </div>
 
-    <!-- ═══ 광고소재 대시보드 (상품별 소재 테스트 체크보드) ═══ -->
+    <!-- ═══ 소재 업로드 (소재 등록 + 상품별 소재 체크보드) — 메뉴명 2026-09-11 변경(구 광고소재 대시보드) ═══ -->
     <div class="section-card page-sec" id="sec-ptest">
-      <div class="section-header"><h2><i class="fa-solid fa-clipboard-check" style="color:#4f46e5;font-size:.9em;"></i> 광고소재 대시보드</h2>
+      <div class="section-header"><h2><i class="fa-solid fa-upload" style="color:#4f46e5;font-size:.9em;"></i> 소재 업로드</h2>
         <span class="hdr-note">칸 클릭: — → <b style="color:#1d4ed8;">제작완료</b> → <b style="color:#15803d;">진행중</b> → 해제 · <span id="pt-sync" title="체크보드는 서버에 저장돼 관리자·마케터 모든 계정이 같은 보드를 봅니다"></span></span></div>
       <div class="section-body">
         <!-- 상품·유형 관리 도구 — 기본 접힘, 화살표로 펼침 (상태 기억) -->
@@ -150,23 +151,6 @@
       </div>
     </div>
 
-    <!-- ═══ 소재 목록 ═══ -->
-    <div class="section-card page-sec" id="sec-list">
-      <div class="section-header"><h2><i class="fa-solid fa-table-cells" style="color:#4f46e5;font-size:.9em;"></i> 소재 목록</h2>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-ghost" id="btn-view-grid" onclick="setListView('grid')"><i class="fa-solid fa-border-all"></i> 격자</button>
-          <button class="btn-ghost" id="btn-view-table" onclick="setListView('table')"><i class="fa-solid fa-list"></i> 표</button>
-        </div></div>
-      <div class="section-body">
-        <div class="filter-tabs" id="list-ch-tabs"></div>
-        <div class="filter-tabs" id="list-st-tabs"></div>
-        <div style="margin-bottom:14px;">
-          <input class="inp" id="list-q" placeholder="소재명·상품명 검색" style="max-width:320px;" oninput="renderList()" />
-        </div>
-        <div id="list-body"></div>
-      </div>
-    </div>
-
     <!-- ═══ 소재 비교 ═══ -->
     <div class="section-card page-sec" id="sec-compare">
       <div class="section-header"><h2><i class="fa-solid fa-scale-balanced" style="color:#4f46e5;font-size:.9em;"></i> 소재 비교</h2>
@@ -177,16 +161,6 @@
         <div class="sub-title">지표</div>
         <div class="filter-tabs" id="cmp-metric-tabs"></div>
         <div id="cmp-body"></div>
-      </div>
-    </div>
-
-    <!-- ═══ 테스트 소재 ═══ -->
-    <div class="section-card page-sec" id="sec-test">
-      <div class="section-header"><h2><i class="fa-solid fa-flask" style="color:#4f46e5;font-size:.9em;"></i> 테스트 소재</h2>
-        <span class="hdr-note">판정: 성과를 보고 [우수]·[애매]·[OFF] 버튼으로 직접 지정</span></div>
-      <div class="section-body">
-        <div class="filter-tabs" id="test-tabs"></div>
-        <div id="test-body"></div>
       </div>
     </div>
 

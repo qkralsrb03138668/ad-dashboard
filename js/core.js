@@ -108,8 +108,16 @@ function nextDay(ds) { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate
 
 /* ═══════════ 메뉴 ═══════════ */
 let curMenu = 'home';
+/* 접히는 메뉴 묶음 (2026-09-11: 분석 = 대시보드·소재 비교, 기본 접힘) — 상태는 브라우저에 기억 */
+function menuGroupToggle(id, force) {
+  const box = $('mg-' + id), open = force !== undefined ? force : box.style.display === 'none';
+  box.style.display = open ? 'flex' : 'none';
+  $('mg-' + id + '-h').querySelector('i').className = `fa-solid fa-chevron-${open ? 'down' : 'right'}`;
+  if (force === undefined) lsSet('adc_mg_' + id, open);
+}
 function showMenu(key) {
   curMenu = key;
+  if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
   document.querySelectorAll('.page-sec').forEach(el => el.style.display = 'none');
   $('sec-' + key).style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
@@ -121,9 +129,7 @@ function rerender() {
   const p = getPeriod();
   if (curMenu === 'home') renderHome(p);
   else if (curMenu === 'ptest') renderPTest();
-  else if (curMenu === 'list') renderList();
   else if (curMenu === 'compare') renderCompare(p);
-  else if (curMenu === 'test') renderTest();
   else if (curMenu === 'admgr') admgrOpen();
   else if (curMenu === 'upload') renderUpload();
   else if (curMenu === 'perf') perfMenuInit();
@@ -193,8 +199,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const p = getPeriod();
   $('pd-start').value = p.s; $('pd-end').value = p.e;
   updateHdr();
-  showMenu('home');
+  menuGroupToggle('analysis', !!lsGet('adc_mg_analysis', false));
+  showMenu('ptest');   // 첫 화면 = 소재 업로드 (2026-09-11: 분석 메뉴는 CSV 기반 옛 기능이라 접어 둠)
   await authInit();
-  if (!authIsAdmin()) showMenu('ptest');   // 마케터(워크스페이스 SSO 포함)는 광고소재 대시보드에서 시작 — 분석 메뉴는 이 브라우저의 CSV 데이터라 비어 있다
   backupToServer().then(d => { if (d) console.info('서버 백업 완료', d.day, d.bytes + 'B'); }).catch(e => console.warn('서버 백업 실패', e.message));   // 하루 1회, 실패해도 조용히(콘솔만)
 });
