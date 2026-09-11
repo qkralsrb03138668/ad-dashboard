@@ -60,7 +60,14 @@ function admgrVerdictBtns(a) {
 async function admgrTestVerdict(adId, v) {
   const cur = admgr.test.state.get(adId) || {};
   const nv = cur.verdict === v ? null : v;
-  try { await admgrTestSave(adId, { verdict: nv, verdict_at: nv ? new Date().toISOString() : null }); renderAdmgr(true); }
+  try {
+    await admgrTestSave(adId, { verdict: nv, verdict_at: nv ? new Date().toISOString() : null }); renderAdmgr(true);
+    const ui = lsGet('adc_admgr_best_ui', null) || {};
+    if (nv === 'good' && ui.autoAdd !== false && !admgr.demo) {   // 우수 → 베스트 소재에 자동 담기 (베스트 탭 스위치로 끌 수 있음)
+      const a = ((admgr.test.data || {}).ads || []).find(x => x.id === adId);
+      if (a && a.adset_id) { await metaPost({ action: 'best_add' }, [{ adset_id: a.adset_id, adset_name: a.adset_name || '', added_by: ADMGR_USER }]); admgr.best.loaded = false; toast('우수 판정 — 베스트 소재에 담았어요'); }
+    }
+  }
   catch (e) { toast('저장 실패: ' + e.message); }
 }
 /* 추가소재 열 — 우수 소재에서 요청/제작완료 체크(날짜 자동 기록). 우수가 아니어도 기존 체크는 계속 표시 */
@@ -642,35 +649,128 @@ async function admgrBestRemove(setId) {
     renderAdmgr();
   } catch (e) { toast('삭제 실패: ' + e.message); }
 }
+/* ── 베스트 소재: 성과 숫자(테스트 소재 누적 데이터) · 상품별 묶기 · 정렬/필터 · 타일 버튼(모델 광고·문구 복사·소재 등록) ── */
+function admgrBestMetric(a) {   // 누적 성과: 테스트 소재 데이터(광고 id) → 없으면 광고관리자 기간 데이터(세트 id)
+  const t = admgr.test;
+  const ta = t.loaded ? ((t.data || {}).ads || []).find(x => x.id === a.id) : null;
+  if (ta) return { spend: ta.spend || 0, purchases: ta.purchases || 0, value: ta.value || 0, reg: ta.reg_date || '', src: '누적' };
+  const st = (admgr.data ? admgrRows().sets : []).find(x => x.id === a.adset_id);
+  if (st) return { spend: st.spend || 0, purchases: st.purchases || 0, value: st.value || 0, reg: (st.created || '').slice(0, 10), src: '기간' };
+  return null;
+}
+function admgrBestSet(k, v) { admgr.best[k] = v; lsSet('adc_admgr_best_ui', { sort: admgr.best.sort, hideOff: admgr.best.hideOff, autoAdd: admgr.best.autoAdd }); renderAdmgr(true); }
+async function admgrBestCopyText(adId) {
+  const c = admgr.test.creatives && admgr.test.creatives.get(String(adId));
+  let msg = c && c.text && c.text.message;
+  if (!msg) { try { msg = (await uplCall({ action: 'model', ad_id: adId })).text.message; } catch (e) { toast('문구를 가져오지 못했어요: ' + e.message); return; } }
+  try { await navigator.clipboard.writeText(msg); } catch (e) { const ta = document.createElement('textarea'); ta.value = msg; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast('광고 문구를 복사했어요');
+}
+function admgrBestUseModel(adId) {   // 광고 업로드 ① 모델 광고로
+  showMenu('upload');
+  if (typeof uplPickAd === 'function') uplPickAd(String(adId));
+  toast('이 소재를 모델 광고로 잡았어요 — ② 소재를 확인하고 ③에서 생성하세요');
+}
 function renderAdmgrBest() {
   const b = admgr.best;
+  if (b.sort === undefined) { const ui = lsGet('adc_admgr_best_ui', null) || {}; b.sort = ui.sort || 'roas'; b.hideOff = !!ui.hideOff; b.autoAdd = ui.autoAdd !== false; b.prod = 'all'; }
   if (!admgrCfg() || admgr.demo) {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-star"></i></div>
-      <p>실제 Meta 연동 후, 광고세트 탭에서 세트를 체크하고 <b>베스트소재로</b>를 누르면 그 소재들이 여기에 격자로 모여요 (데모 모드에서는 제공되지 않아요).</p></div>`;
+      <p>실제 Meta 연동 후, 테스트 소재에서 <b>우수</b>로 판정하면 자동으로 여기에 모여요 (광고세트 탭에서 직접 담을 수도 있어요).</p></div>`;
   }
   if (!b.loaded) return `<div class="empty-state"><p>${b.loading ? '베스트소재를 불러오는 중…' : '<b>새로고침</b>을 누르면 베스트소재를 불러와요.'}</p></div>`;
   if (!(b.rows || []).length) {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div>
-      <p>아직 담은 세트가 없어요.<br/><b>광고세트</b> 탭에서 세트를 체크하고 <b>베스트소재로</b> 버튼을 누르면 여기에 소재가 모여요.</p></div>`;
+      <p>아직 담은 소재가 없어요.<br/>테스트 소재에서 <b>우수</b>를 누르면 자동으로 담기고, <b>광고세트</b> 탭에서 세트를 체크해 <b>베스트소재로</b>를 눌러도 돼요.</p></div>`;
   }
+  // 성과·등록 기록은 테스트 소재 데이터에서 — 아직 없으면 조용히 불러온다
+  if (!admgr.test.loaded && !admgr.test.loading) setTimeout(() => admgrTestFetch(), 0);
+  setTimeout(() => admgrTestCreativesEnsure(), 0);
   const nameOf = new Map(b.rows.map(r => [r.adset_id, r.adset_name]));
-  const chips = b.rows.map(r => `<span class="status-badge badge-blue" style="padding:3px 6px 3px 12px;gap:6px;">${esc(r.adset_name)}
-    <button onclick="admgrBestRemove('${r.adset_id}')" title="베스트소재에서 제거" style="border:none;background:#fff;color:#6b7280;border-radius:50%;width:18px;height:18px;line-height:1;font-size:.68rem;cursor:pointer;">✕</button></span>`).join(' ');
-  let ads = (b.ads || []);
-  if (admgr.q) ads = ads.filter(a => ((nameOf.get(a.adset_id) || '') + ' ' + a.name).toLowerCase().includes(admgr.q));
-  const tiles = ads.map(a => {
-    const src = a.image || a.thumb;
-    const setNm = nameOf.get(a.adset_id) || '';
-    return `<div class="cre-tile" style="aspect-ratio:9/16;" onclick="showMetaPreview('${a.id}')" title="${esc(a.name)} — 클릭하면 소재 보기">
-      ${src ? `<img src="${esc(src)}" loading="lazy" alt="" />` : `<div class="ct-ph"><i class="fa-regular fa-image"></i></div>`}
-      ${a.is_video ? '<div class="ct-play"><i class="fa-solid fa-play"></i></div>' : ''}
-      ${a.effective_status !== 'ACTIVE' ? '<span class="ct-status"><span class="status-badge badge-red">꺼짐</span></span>' : ''}
-      <div class="ct-name">${esc(setNm)}</div>
-    </div>`;
+  const cre = admgr.test.creatives || new Map();
+  let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)) }; });
+  if (admgr.q) ads = ads.filter(a => (a.setNm + ' ' + a.name).toLowerCase().includes(admgr.q));
+  const allAds = ads;
+  const prods = [...new Set(ads.map(a => a.prod))];
+  if (b.hideOff) ads = ads.filter(a => a.effective_status === 'ACTIVE');
+  if (b.prod && b.prod !== 'all') ads = ads.filter(a => a.prod === b.prod);
+  ads.sort((x, y) => b.sort === 'spend' ? y.m.spend - x.m.spend : b.sort === 'recent' ? String(y.m.reg).localeCompare(String(x.m.reg)) : y.roas - x.roas);
+  const rank = new Map([...allAds].sort((x, y) => y.roas - x.roas).map((a, k) => [a.id, k + 1]));
+  const sum = list => list.reduce((o, a) => ({ spend: o.spend + a.m.spend, purchases: o.purchases + a.m.purchases, value: o.value + a.m.value }), { spend: 0, purchases: 0, value: 0 });
+  const tot = sum(allAds), off = allAds.filter(a => a.effective_status !== 'ACTIVE').length;
+  const metricsReady = admgr.test.loaded;
+
+  const chip = (on, label, onclick) => `<button class="filter-tab ${on ? 'active' : ''}" onclick="${onclick}">${label}</button>`;
+  const sw = (on, label, onclick, title) => `<button class="filter-tab" style="display:inline-flex;align-items:center;gap:6px;${on ? 'color:#3730a3;border-color:#a5b4fc;' : ''}" onclick="${onclick}" title="${title || ''}"><span style="width:26px;height:14px;border-radius:999px;background:${on ? '#4f46e5' : '#d1d5db'};position:relative;display:inline-block;"><span style="position:absolute;top:2px;${on ? 'right:2px' : 'left:2px'};width:10px;height:10px;border-radius:50%;background:#fff;"></span></span>${label}</button>`;
+  const ctrl = `<div class="filter-tabs" style="margin-bottom:10px;">
+    ${chip(b.sort === 'roas', 'ROAS순', "admgrBestSet('sort','roas')")}${chip(b.sort === 'spend', '지출순', "admgrBestSet('sort','spend')")}${chip(b.sort === 'recent', '최근순', "admgrBestSet('sort','recent')")}
+    <span style="width:1px;height:22px;background:#e5e7eb;margin:0 4px;"></span>
+    ${chip(b.prod === 'all', `전체 ${allAds.length}`, "admgrBestSet('prod','all')")}${prods.map(pn => chip(b.prod === pn, `${esc(pn)} ${allAds.filter(a => a.prod === pn).length}`, `admgrBestSet('prod','${esc(pn)}')`)).join('')}
+    <span style="flex:1;"></span>
+    ${sw(b.hideOff, '꺼진 소재 숨기기', `admgrBestSet('hideOff',${!b.hideOff})`)}
+    ${sw(b.autoAdd, '우수 판정 시 자동 담기', `admgrBestSet('autoAdd',${!b.autoAdd})`, '테스트 소재에서 [우수]를 누르면 그 세트를 여기에 자동으로 담아요')}
+  </div>
+  <div class="info-bar"><i class="fa-solid fa-star"></i> 담은 세트 ${b.rows.length}개 · 소재 ${allAds.length}개 · 성과는 <b>등록 이후 누적</b>${metricsReady ? '' : ' (불러오는 중…)'} · 타일 클릭 = 큰 미리보기 · 상품 제목의 ✕ = 세트 빼기</div>`;
+  const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
+    <div class="kpi-tile kt-hero"><div class="kt-label"><i class="fa-solid fa-star"></i> 베스트 소재</div><div class="kt-value" style="font-size:1.15rem;">${allAds.length}개</div><div class="kt-sub">상품 ${prods.length}개</div></div>
+    ${admgrTile('누적 지출', metricsReady ? won(tot.spend) : '…')}${admgrTile('구매', metricsReady ? comma(tot.purchases) + '건' : '…')}
+    ${admgrTile('평균 ROAS', metricsReady ? `<span style="color:#15803d;">${tot.spend ? (tot.value / tot.spend).toFixed(2) : '—'}</span>` : '…')}
+    ${admgrTile('꺼진 소재', `<span style="color:${off ? '#dc2626' : '#374151'};">${off}개</span>`)}
+  </div>`;
+
+  const tile = a => {
+    const src = a.image || a.thumb, offed = a.effective_status !== 'ACTIVE', r = rank.get(a.id);
+    return `<div class="cre-tile" style="aspect-ratio:auto;display:flex;flex-direction:column;${offed ? 'opacity:.7;' : ''}">
+      <div style="position:relative;aspect-ratio:9/16;max-height:250px;overflow:hidden;cursor:zoom-in;background:#f3f4f6;" onclick="showMetaPreview('${a.id}')" title="${esc(a.name)} — 클릭하면 크게">
+        ${src ? `<img src="${esc(src)}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />` : `<div class="ct-ph"><i class="fa-regular fa-image"></i></div>`}
+        <span class="status-badge ${offed ? 'badge-red' : 'badge-green'}" style="position:absolute;top:8px;left:8px;font-size:.62rem;">${offed ? '꺼짐' : '우수'}</span>
+        ${r ? `<span style="position:absolute;top:8px;right:8px;font-size:.62rem;font-weight:800;padding:2px 7px;border-radius:999px;background:#111827cc;color:#fff;">#${r}</span>` : ''}
+        ${a.is_video ? '<div class="ct-play"><i class="fa-solid fa-play"></i></div>' : ''}
+      </div>
+      <div style="padding:8px 10px;">
+        <div class="ell" style="font-size:.76rem;font-weight:700;color:#1e1b4b;" title="${esc(a.setNm)}">${esc(a.setNm)}</div>
+        <div class="ell" style="font-size:.64rem;color:#6b7280;">${a.c ? `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(a.c.file_name) || '소재')} · ${esc((a.c.created_by_email || '').split('@')[0])} · ` : ''}${a.m.reg ? fmtMD(a.m.reg) + (admgrDPlus({ reg_date: a.m.reg }) != null ? ` (D+${admgrDPlus({ reg_date: a.m.reg })})` : '') : ''}</div>
+        <div style="display:flex;gap:10px;margin-top:6px;font-size:.66rem;color:#6b7280;">
+          <span>지출<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? won(a.m.spend) : '…'}</b></span>
+          <span>구매<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? comma(a.m.purchases) : '…'}</b></span>
+          <span>ROAS<b style="display:block;font-size:.8rem;color:#15803d;">${metricsReady ? (a.m.spend ? a.roas.toFixed(2) : '—') : '…'}</b></span></div>
+        <div style="display:flex;gap:4px;margin-top:8px;">
+          <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;background:#eef2ff;border-color:#c7d2fe;color:#3730a3;font-weight:700;" onclick="admgrBestUseModel('${a.id}')" title="광고 업로드 ①에 이 소재를 모델 광고로">모델 광고로</button>
+          <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;" onclick="admgrBestCopyText('${a.id}')" title="이 광고의 본문 문구를 복사">문구 복사</button>
+          <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;" onclick="admgrTestGoRegister('${esc(a.prod)}')" title="같은 상품으로 소재 등록">소재 등록</button></div>
+      </div></div>`;
+  };
+  const groups = new Map();
+  for (const a of ads) { if (!groups.has(a.prod)) groups.set(a.prod, []); groups.get(a.prod).push(a); }
+  const body = [...groups.entries()].map(([pn, list]) => {
+    const g = sum(list), sets = [...new Set(list.map(a => a.adset_id))];
+    return `<div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;margin-bottom:10px;font-size:.8rem;flex-wrap:wrap;">
+        <b style="color:#1e1b4b;">${esc(pn)}</b>
+        <span style="color:#6b7280;font-size:.72rem;">소재 ${list.length}개${metricsReady ? ` · 지출 ${won(g.spend)} · 구매 ${comma(g.purchases)} · ROAS <b style="color:#15803d;">${g.spend ? (g.value / g.spend).toFixed(2) : '—'}</b>` : ''}</span>
+        <span style="flex:1;"></span>
+        <a href="#" style="font-size:.72rem;" onclick="admgrTestGoRegister('${esc(pn)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 같은 상품 소재 등록</a>
+        ${sets.map(id => `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.64rem;" onclick="admgrBestRemove('${id}')" title="${esc(nameOf.get(id) || '')} 세트를 베스트에서 빼기"><i class="fa-solid fa-xmark"></i></button>`).join('')}</div>
+      <div class="cre-grid" style="grid-template-columns:repeat(auto-fill,minmax(196px,1fr));">${list.map(tile).join('')}</div></div>`;
   }).join('');
-  return `<div class="info-bar"><i class="fa-solid fa-star"></i> 담은 세트 ${b.rows.length}개 · 소재 ${ads.length}개 · 타일 클릭 = 소재 미리보기 · 세트 이름표의 ✕ = 목록에서 제거</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">${chips}</div>
-    <div class="cre-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));">${tiles || `<div class="empty-state"><p>${admgr.q ? '검색 결과가 없어요.' : '담은 세트에 표시할 소재가 없어요.'}</p></div>`}</div>`;
+  return ctrl + tiles + (body || `<div class="empty-state"><p>${admgr.q ? '검색 결과가 없어요.' : '조건에 맞는 소재가 없어요.'}</p></div>`);
+}
+
+/* 미리보기 하단: 광고 문구(복사) + 모델 광고로 / 같은 상품 소재 등록 */
+async function admgrPreviewExtra(adId) {
+  const box = $('ap-extra'); if (!box || admgr.demo) return;
+  const ta = ((admgr.test.data || {}).ads || []).find(x => x.id === adId) || ((admgr.best.ads || []).find(x => x.id === adId));
+  const prod = ta ? admgrProductOf({ adset_name: ta.adset_name || (new Map((admgr.best.rows || []).map(r => [r.adset_id, r.adset_name]))).get(ta.adset_id) || ta.name }) : '';
+  box.innerHTML = `<div style="display:flex;gap:6px;margin-top:10px;">
+      <button class="btn-analyze" style="padding:6px 12px;font-size:.74rem;" onclick="closeModal('admgr-preview');admgrBestUseModel('${adId}')"><i class="fa-solid fa-cloud-arrow-up"></i> 이 소재를 모델 광고로</button>
+      <button class="btn-ghost" style="padding:6px 12px;font-size:.74rem;" onclick="admgrBestCopyText('${adId}')"><i class="fa-regular fa-copy"></i> 문구 복사</button>
+      ${prod ? `<button class="btn-ghost" style="padding:6px 12px;font-size:.74rem;" onclick="closeModal('admgr-preview');admgrTestGoRegister('${esc(prod)}')"><i class="fa-solid fa-upload"></i> 같은 상품 소재 등록</button>` : ''}</div>
+    <div id="ap-copy" style="margin-top:10px;font-size:.76rem;line-height:1.6;white-space:pre-line;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;padding:10px 12px;color:#374151;max-height:220px;overflow:auto;text-align:left;">문구 불러오는 중…</div>`;
+  let msg = '';
+  const c = admgr.test.creatives && admgr.test.creatives.get(String(adId));
+  if (c && c.text && c.text.message) msg = c.text.message;
+  else if (typeof uplCall === 'function' && typeof authIsAdmin === 'function' && authIsAdmin()) { try { msg = (await uplCall({ action: 'model', ad_id: adId })).text.message || ''; } catch (e) { msg = ''; } }
+  const el = $('ap-copy'); if (el && apCur.id === adId) el.textContent = msg || '문구를 가져오지 못했어요';
 }
 
 /* ── 소재 미리보기 (원본 showMetaPreview — iframe + 형식 전환(피드/릴스/스토리) + 기간 7종 성과 차트) ── */
@@ -681,7 +781,7 @@ async function showMetaPreview(adId, fmt) {
   apCur.id = adId; apCur.fmt = fmt || 'feed';
   const myFmt = apCur.fmt;
   $('admgr-preview').classList.add('show');
-  if (!sameAd) { $('ap-title').textContent = '소재 미리보기'; $('ap-stats').innerHTML = ''; }
+  if (!sameAd) { $('ap-title').textContent = '소재 미리보기'; $('ap-stats').innerHTML = ''; if ($('ap-extra')) { $('ap-extra').innerHTML = ''; admgrPreviewExtra(adId); } }
   $('ap-fmt').innerHTML = AP_FMTS.map(([k, l]) =>
     `<button class="filter-tab ${myFmt === k ? 'active' : ''}" style="padding:4px 12px;font-size:.75rem;" onclick="showMetaPreview('${adId}','${k}')">${l}</button>`).join('')
     + '<span style="font-size:.7rem;color:#9ca3af;margin-left:4px;">미리보기 형식</span>';
