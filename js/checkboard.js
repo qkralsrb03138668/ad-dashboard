@@ -18,6 +18,10 @@ function ptSave() { lsSet(LS.pt, pt); }
 /* 삭제한 상품 기억(pt.hidden) — 등록 소재가 있는 상품은 보드에 자동 추가되므로, 지운 건 다시 안 올라오게 */
 function ptHide(products) { pt.hidden = pt.hidden || []; for (const p of products) if (p.product_no && !pt.hidden.includes(p.product_no)) pt.hidden.push(p.product_no); }
 function ptUnhide(no) { if (pt.hidden) pt.hidden = pt.hidden.filter(x => x !== no); }
+function ptUnhideAll() {
+  const n = (pt.hidden || []).length; if (!n) { toast('숨긴 상품이 없어요'); return; }
+  pt.hidden = []; ptSave(); renderPTest(); toast(`숨겼던 상품 ${n}개를 다시 표시해요 (소재가 등록된 상품만 올라와요)`);
+}
 /* 상품·유형 관리 도구 접기/펼치기 (기본 접힘, 브라우저에 기억) */
 function ptToolsToggle(force) {
   const open = force !== undefined ? force : $('pt-tools').style.display === 'none';
@@ -162,12 +166,13 @@ function ptDelSel() {
 }
 function ptDelAll() {
   if (!pt.products.length) return;
-  if (!confirm(`상품 ${pt.products.length}개를 전부 삭제할까요? 체크 기록도 모두 지워져요.`)) return;
-  ptHide(pt.products); pt.products = []; ptPage = 1; ptSel.clear();
-  ptSave(); renderPTest(); toast('상품을 전부 삭제했어요');
+  if (!confirm(`상품 ${pt.products.length}개를 전부 삭제할까요? 체크 기록도 모두 지워져요.\n(소재가 등록된 상품은 자동으로 다시 표시돼요)`)) return;
+  pt.products = []; pt.hidden = []; ptPage = 1; ptSel.clear();   // 전체 삭제 = 초기화 (숨김도 해제 → 등록 소재 있는 상품은 다시 올라옴)
+  ptSave(); renderPTest(); toast('상품을 전부 삭제했어요 — 소재가 등록된 상품은 자동으로 다시 표시돼요');
 }
 
 function renderPTest() {
+  if (!pt.products.length && (pt.hidden || []).length) pt.hidden = [];   // 보드가 비었는데 숨김만 남은 상태(전체 삭제 직후 등) → 자동 복구
   if ($('pt-tools') && !$('pt-tools').dataset.init) { $('pt-tools').dataset.init = '1'; ptToolsToggle(!!lsGet('adc_pt_tools_open', false)); }
   ptBackfillCreated();
   if (!reg.list && !reg.listLoading && admgrCfg()) regRefresh();   // 등록 기록은 서버에서 (처음 한 번, 이후 새로고침 버튼)
