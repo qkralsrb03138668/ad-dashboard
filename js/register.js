@@ -242,6 +242,11 @@ async function regRun() {
   regLog(`끝 — 성공 ${ok} / ${todo.length} · ${Math.round((Date.now() - t0) / 1000)}초`, ok === todo.length ? 'ok' : 'err');
   toast(`소재 등록 ${ok}/${todo.length} 완료${ok < todo.length ? ` · 실패 ${todo.length - ok}개 (아래 로그 확인)` : ''}`);
   reg.aliases = null; regRefresh(true);
+  // 끝나면 알림창으로 확실히 알림 (핸드폰에서도 보이게) — 사용자 요청 2026-09-11
+  const failed = todo.filter(r => /실패/.test(r.status));
+  alert(ok === todo.length
+    ? `소재 등록 완료 ✓\n${ok}개 등록됐어요.\n\n광고 업로드 탭에서 바로 쓸 수 있어요.`
+    : `소재 등록 ${ok}/${todo.length} 완료\n\n실패 ${failed.length}개:\n${failed.map(r => `· ${r.fileName || r.file.name}\n  ${r.status.replace(/^실패: /, '')}`).join('\n')}\n\n[등록]을 다시 누르면 실패한 것만 다시 시도해요.`);
 }
 /* 등록된 소재 목록 + 체크보드 반영 */
 async function regRefresh(force) {
