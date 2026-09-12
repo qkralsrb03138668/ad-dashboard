@@ -702,8 +702,44 @@ function renderAdmgrTest() {
     }).join('');
   } else bodyHtml = rows.map(rowHtml).join('');
   const table = `<div class="table-wrap tt-compact" style="max-height:640px;overflow:auto;"><table>${head}<tbody>${bodyHtml}</tbody></table></div>
-  <p style="font-size:.75rem;color:#9ca3af;margin-top:8px;">썸네일·세트명 클릭 = 미리보기 · 행 클릭 = 선택(일괄 제거용) · 판정 열: <b>▶ 추천</b> 아래 [애매]/[우수] 버튼으로 확정(재클릭 = 해제) · 우수는 추가소재 요청 → "등록하러"로 이동</p>`;
-  return ctrl + tiles + table;
+  <p class="m-hide" style="font-size:.75rem;color:#9ca3af;margin-top:8px;">썸네일·세트명 클릭 = 미리보기 · 행 클릭 = 선택(일괄 제거용) · 판정 열: <b>▶ 추천</b> 아래 [애매]/[우수] 버튼으로 확정(재클릭 = 해제) · 우수는 추가소재 요청 → "등록하러"로 이동</p>`;
+  /* 폰(≤768px): 표는 CSS로 숨겨지므로 카드 목록을 같이 그린다 (광고세트 탭 .mcards와 같은 틀). 카드 = 썸네일·세트명·판정 버튼·지출/구매/ROAS, 더보기 = 추가소재·메모·문구 */
+  let cards = '';
+  if (admgrMobile()) {
+    const card = a => {
+      const checked = t.sel.has(a.id), dp = admgrDPlus(a), c = cre.get(String(a.id));
+      const th = (t.thumbs || {})[a.id]; const thSrc = th && th !== '-' ? th : '';
+      const rec = admgrRecommend(a);
+      const recCls = rec ? (rec.k === 'off' ? 'badge-red' : rec.k === 'good' ? 'badge-green' : rec.k === 'wait' ? 'badge-yellow' : 'badge-gray') : '';
+      const judge = `${rec ? `<span class="status-badge ${recCls}" title="${esc(rec.why)}">${rec.k === 'watch' ? '' : '▶ '}${rec.label}</span> ` : admgrTestBadge(a)}${rec || ['meh', 'good', 'ended'].includes(a.st) ? admgrVerdictBtns(a) : ''}`;
+      return `<div class="mcard ${checked ? 'sel' : ''}">
+        <div class="mc-top" onclick="showMetaPreview('${a.id}')" style="cursor:pointer;">
+          <span style="flex:none;">${mediaThumbHtml(thSrc, 'image', 44)}</span>
+          <div class="mc-name" style="flex:1;"><b>${esc(a.adset_name)}</b><div class="mc-sub">${a.reg_date ? fmtMD(a.reg_date) + (dp == null ? '' : ` · D+${dp}`) : ''}${c ? ` · <i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc((c.created_by_email || '').split('@')[0])}` : ''}</div></div>
+          <div class="mc-tg" onclick="event.stopPropagation()"><label style="display:inline-flex;padding:4px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="admgrTestSel('${a.id}')" title="선택 (일괄 제거용)" /></label></div></div>
+        <div class="mc-judge" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${judge}</div>
+        <div class="mc-nums"><div><i>지출</i>${won(a.spend)}</div><div><i>구매 · CPA</i>${comma(a.purchases)}<span style="font-size:.64rem;color:#9ca3af;font-weight:600;"> ${a.purchases ? won(Math.round(a.spend / a.purchases)) : ''}</span></div><div><i>ROAS</i>${admgrRoasTd(a)}</div></div>
+        <div class="mc-foot"><div class="mc-budget" style="font-size:.72rem;color:#6b7280;">${a.meta.memo ? `<i class="fa-regular fa-note-sticky"></i> ${esc(a.meta.memo)}` : `<span style="color:#9ca3af;">${a.meta.asset_req_at ? '추가소재 요청됨' : '탭하면 미리보기'}</span>`}</div>
+          <div class="mc-btns"><button onclick="const c=this.closest('.mcard');c.classList.toggle('open');this.classList.toggle('on',c.classList.contains('open'))" title="더 보기"><i class="fa-solid fa-chevron-down"></i></button></div></div>
+        <div class="mc-more">
+          <div class="row"><span>추가소재</span><span>${admgrAssetCell(a)}</span></div>
+          ${a.meta.asset_req_at && !a.meta.asset_done_at ? `<div class="row"><span></span><span><a class="drill" href="#" onclick="admgrTestGoRegister('${esc(admgrProductOf(a))}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 소재 등록하러 →</a></span></div>` : ''}
+          <div class="row"><span>메모</span><span onclick="admgrTestMemo(event,'${a.id}')" style="cursor:text;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '탭해서 메모…'}</span></div>
+          <div class="row"><span>광고명</span><span style="font-size:.7rem;color:#6b7280;">${esc(a.name)}</span></div>
+          ${c ? `<div class="row"><span>문구</span><span><a class="drill" href="#" onclick="admgrTestCopy('${a.id}');return false;">보기·수정 →</a></span></div>` : ''}
+        </div></div>`;
+    };
+    let inner;
+    if (t.group) {
+      const groups = new Map();
+      for (const a of rows) { const k = admgrProductOf(a); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); }
+      const collapsed = t.collapsed || new Set();
+      inner = [...groups.entries()].map(([k, list]) => { const open = !collapsed.has(k); const spend = list.reduce((s0, a) => s0 + (a.spend || 0), 0);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px 6px;font-size:.8rem;" onclick="admgrTestGroupCollapse('${esc(k)}')"><i class="fa-solid fa-chevron-${open ? 'down' : 'right'}" style="color:#6b7280;"></i><b style="color:#1e1b4b;">${esc(k)}</b><span style="color:#6b7280;font-size:.7rem;">${list.length}개 · ${won(spend)}</span></div>` + (open ? list.map(card).join('') : ''); }).join('');
+    } else inner = rows.map(card).join('');
+    cards = `<div class="mcards">${inner}<p style="font-size:.7rem;color:#9ca3af;margin-top:6px;">카드 위쪽 탭 = 미리보기 · 체크 = 선택(일괄 제거) · [애매]/[우수] 재탭 = 해제 · ∨ = 추가소재·메모·문구</p></div>`;
+  }
+  return ctrl + tiles + table + cards;
 }
 
 /* ═══ 기존광고 중 OFF 탭 (3단계 — 원본 admgrOff* 이식) ═══
@@ -779,7 +815,14 @@ function renderAdmgrOff() {
         <td class="m-hide">${comma(s0.purchases)}</td>
         <td class="m-hide">${admgrCpa(s0)}</td>
         <td>${admgrRoasTd(s0)}</td></tr>`; }).join('')}</tbody></table></div>`;
-  return ctrl + info + tiles + table;
+  const cards = admgrMobile() ? `<div class="mcards">${rows.map(s0 => {
+    const offHm = s0.off_time ? new Date(s0.off_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' }) : '';
+    return `<div class="mcard">
+      <div class="mc-top"><div class="mc-name"><b>${esc(s0.name)}</b><div class="mc-sub">등록 ${s0.reg_date || '—'} · OFF ${s0.off_date || '—'} ${offHm}</div></div>
+        ${s0.reactivated ? '<span class="status-badge badge-green" style="flex:none;">다시 켜짐</span>' : ''}</div>
+      <div class="mc-nums"><div><i>누적 지출</i>${won(s0.spend)}</div><div><i>구매 · CPA</i>${comma(s0.purchases)}<span style="font-size:.64rem;color:#9ca3af;font-weight:600;"> ${s0.purchases ? admgrCpa(s0) : ''}</span></div><div><i>ROAS</i>${admgrRoasTd(s0)}</div></div>
+    </div>`; }).join('')}</div>` : '';
+  return ctrl + info + tiles + table + cards;
 }
 
 /* ═══ 베스트소재 탭 (3단계 — 원본 admgrBest* 이식) ═══
