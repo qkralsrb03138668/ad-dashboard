@@ -376,10 +376,13 @@ function renderAdmgr(keepScroll) {
   else if (admgr.view === 'best') main = renderAdmgrBest();
   else main = renderAdmgrHier(R, setsInSel, adsInSel, cfg);
 
-  body.innerHTML = banner + controls + (admgr.solo ? '' : tabs) + main;
+  /* 검색창에 커서가 있을 때(타이핑 중)는 컨트롤 바를 그대로 두고 그 아래만 다시 그린다 — 입력칸까지 새로 만들면 폰에서 키보드가
+     닫혔다 열리며 화면이 깜빡이고 한글 조합이 끊겼다 (2026-09-13 사용자 제보) */
+  const rest = (admgr.solo ? '' : tabs) + main;
+  if (hadFocus && $('admgr-rest') && $('admgr-banner')) { $('admgr-banner').innerHTML = banner; $('admgr-rest').innerHTML = rest; }
+  else body.innerHTML = `<div id="admgr-banner">${banner}</div>${controls}<div id="admgr-rest">${rest}</div>`;
   window.scrollTo(0, pageY);
   if (sc) { const w = body.querySelector('.table-wrap'); if (w) { w.scrollTop = sc.t; w.scrollLeft = sc.l; } }
-  if (hadFocus) { const i = $('admgr-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
   if (['camp', 'set', 'ad'].includes(admgr.view)) admgrColsApply();   // 열 표시/순서 (Meta의 '열' 메뉴) — 너비 적용보다 먼저
   admgrColResize();   // 표를 새로 그릴 때마다 핸들 재부착 + 저장된 너비 재적용 (원본 규칙)
 }
