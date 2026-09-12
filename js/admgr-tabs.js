@@ -21,6 +21,7 @@ async function admgrTestFetch() {
     t.loaded = true;
     t.sel.clear();
     if (!admgr.demo) lsSet('adc_admgr_test', { data: t.data, state: [...t.state.entries()] });
+    setTimeout(() => admgrTrendEnsure(), 0);   // 일별 스냅샷(추세·피로도)은 뒤따라 — 표는 먼저 그린다
   } catch (e) { toast('테스트 소재 조회 실패: ' + e.message); }
   t.loading = false; renderAdmgr();
 }
@@ -512,6 +513,52 @@ async function admgrBestReport() {
     } catch (e) { /* 저장 실패해도 화면 리포트는 정상 — 해석만 못 붙는다 */ }
   } catch (e) { $('rp-body').innerHTML = `<div class="empty-state"><p>리포트를 만들지 못했어요: ${esc(e.message)}</p></div>`; }
 }
+/* ═══ 추세·피로도 (2026-09-12) — test_ad_day 일별 누적 스냅샷(서버가 매일 1행)으로
+   최근 7일 성과 = 지금 누적 − 7일 전 이하 최신 행, 일별 증분 = 이웃 행 차이 → 작은 막대(스파크라인).
+   식음(피로) = 최근 7일 지출이 기준 이상인데 최근 ROAS가 누적 ROAS의 절반 미만 (누적 구매 5건↑일 때만). 스냅샷은 2026-09-12부터 쌓여 며칠간은 '추세 n일'로만 표시 */
+const ADMGR_TREND_DAYS = 7;
+const admgrShiftDay = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+async function admgrTrendEnsure() {
+  const t = admgr.test, today = todayStr(0);
+  if (admgr.demo || t.trendLoading || (t.trendDay === today && t.trend) || !admgrCfg()) return;
+  t.trendLoading = true;
+  try {
+    const { rows } = await metaGet({ action: 'daystats', since: admgrShiftDay(today, -(ADMGR_TREND_DAYS + 1)) });
+    t.trend = new Map(); (rows || []).forEach(r => (t.trend.get(r.ad_id) || t.trend.set(r.ad_id, []).get(r.ad_id)).push(r));
+    t.trendDay = today; renderAdmgr(true);
+  } catch (e) { /* 추세는 없어도 표는 정상 */ }
+  t.trendLoading = false;
+}
+function admgrTrend(a, trendMap, today) {   // null = 스냅샷 없음. { days, recent, daily:[{day,spend,purchases,value}], cumRoas, recentRoas, tired }
+  const L = ((trendMap || admgr.test.trend) && (trendMap || admgr.test.trend).get(a.id)) || [];
+  if (!L.length) return null;
+  today = today || todayStr(0);
+  const from = admgrShiftDay(today, -ADMGR_TREND_DAYS);
+  const M = r => ({ spend: +r.spend || 0, purchases: +r.purchases || 0, value: +r.value || 0 });
+  const sub = (x, y) => ({ spend: x.spend - y.spend, purchases: x.purchases - y.purchases, value: x.value - y.value });
+  const cum = M(a);
+  let base = null; for (const r of L) if (r.day <= from) base = r;
+  const recent = base ? sub(cum, M(base)) : (a.reg_date && a.reg_date >= from ? cum : null);
+  const pts = L.filter(r => r.day > from).map(r => ({ day: r.day, ...M(r) }));
+  if (!pts.length || pts[pts.length - 1].day !== today) pts.push({ day: today, ...cum }); else pts[pts.length - 1] = { day: today, ...cum };   // 오늘은 지금 누적으로
+  const daily = []; let prev = base ? M(base) : (a.reg_date && a.reg_date >= from ? { spend: 0, purchases: 0, value: 0 } : null);
+  for (const p of pts) { if (prev) daily.push({ day: p.day, ...sub(p, prev) }); prev = p; }
+  const roas = m => m && m.spend > 0 ? m.value / m.spend : 0;
+  const cumRoas = roas(cum), recentRoas = roas(recent);
+  const tired = !!recent && recent.spend >= admgrTJudge.spend && cum.purchases >= 5 && cumRoas > 0 && recentRoas < cumRoas * 0.5;
+  return { days: L.length, recent, daily, cumRoas, recentRoas, tired };
+}
+function admgrSparkHtml(tr, be) {   // 일별 ROAS 막대 7개 (높이 = ROAS, 손익분기(없으면 1) 미만은 빨강) + 최근 7일 ROAS
+  if (!tr) return '';
+  const line = be || 1, cap = Math.max(line * 3, 3);
+  const bars = tr.daily.slice(-ADMGR_TREND_DAYS).map(d => { const r = d.spend > 0 ? d.value / d.spend : 0, h = d.spend > 0 ? Math.max(2, Math.round(Math.min(r, cap) / cap * 14)) : 1;
+    return `<rect width="4" height="${h}" y="${14 - h}" fill="${d.spend <= 0 ? '#e5e7eb' : r < line ? '#ef4444' : '#22c55e'}"><title>${fmtMD(d.day)} 지출 ${won(Math.round(d.spend))} · 구매 ${d.purchases} · ROAS ${r.toFixed(2)}</title></rect>`; });
+  const svg = bars.length ? `<svg width="${bars.length * 6}" height="14" style="vertical-align:middle;">${bars.map((b, i) => `<g transform="translate(${i * 6},0)">${b}</g>`).join('')}</svg>` : '';
+  const txt = tr.days < 3 ? `<span style="color:#c4c9d4;" title="일별 스냅샷이 ${tr.days}일치 — 3일부터 추세가 보여요">추세 ${tr.days}일</span>`
+    : tr.recent ? `<span title="최근 7일 지출 ${won(Math.round(tr.recent.spend))} · 구매 ${tr.recent.purchases} · ROAS ${tr.recentRoas.toFixed(2)} (누적 ${tr.cumRoas.toFixed(2)})">7일 ${tr.recentRoas.toFixed(1)}</span>` : '';
+  return `<div style="font-size:.6rem;color:#9ca3af;white-space:nowrap;display:flex;align-items:center;gap:4px;">${svg}${txt}${tr.tired ? '<span class="status-badge badge-red" style="font-size:.58rem;padding:0 5px;" title="최근 7일 ROAS가 누적의 절반 미만 — 소재 피로, 교체 준비">식음</span>' : ''}</div>`;
+}
+
 /* ═══ 퍼널 진단 (2026-09-12) — "왜 안 터졌는지"를 노출→클릭→랜딩→장바구니→구매 단계로.
    기준은 절대값이 아니라 지금 보이는 테스트 소재들의 중앙값(노출 1,000↑인 것) — 계정·시즌이 바뀌어도 자동으로 맞춰진다.
    ponytail: 진단은 규칙 6개. 정밀 기준이 필요해지면 admgrFunnelBase에 분위수 추가 */
@@ -739,7 +786,7 @@ function renderAdmgrTest() {
         <td class="ctr" style="text-align:left;">${admgrFunnelCell(a, fbase)}</td>
         <td class="num"><b>${won(a.spend)}</b></td>
         <td class="num m-hide">${comma(a.purchases)}<div style="font-size:.62rem;color:#9ca3af;">${a.purchases ? won(Math.round(a.spend / a.purchases)) : '—'}</div></td>
-        <td class="num">${admgrRoasTd(a)}</td>
+        <td class="num">${admgrRoasTd(a)}${admgrSparkHtml(admgrTrend(a), rec && rec.be)}</td>
         <td class="ctr" style="white-space:nowrap;">${admgrAssetCell(a)}${a.meta.asset_req_at && !a.meta.asset_done_at ? `<div><a href="#" style="font-size:.62rem;" onclick="event.stopPropagation();admgrTestGoRegister('${esc(admgrProductOf(a))}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 등록하러</a></div>` : ''}</td>
         <td class="m-hide ell" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="${a.meta.memo ? esc(a.meta.memo) + ' — 클릭해서 수정' : '클릭해서 메모'}" style="cursor:text;text-align:left;font-size:.7rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '메모…'}</td>
       </tr>`;
@@ -788,7 +835,7 @@ function renderAdmgrTest() {
           <div class="mc-tg" onclick="event.stopPropagation()"><label style="display:inline-flex;padding:4px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="admgrTestSel('${a.id}')" title="선택 (일괄 제거용)" /></label></div></div>
         <div class="mc-judge" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${judge}</div>
         <div class="mc-nums"><div><i>지출</i>${won(a.spend)}</div><div><i>구매 · CPA</i>${comma(a.purchases)}<span style="font-size:.64rem;color:#9ca3af;font-weight:600;"> ${a.purchases ? won(Math.round(a.spend / a.purchases)) : ''}</span></div><div><i>ROAS</i>${admgrRoasTd(a)}</div></div>
-        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${admgrFunnelCell(a, fbase)}</div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${admgrFunnelCell(a, fbase)}${admgrSparkHtml(admgrTrend(a), rec && rec.be)}</div>
         <div class="mc-foot"><div class="mc-budget" style="font-size:.72rem;color:#6b7280;">${a.meta.memo ? `<i class="fa-regular fa-note-sticky"></i> ${esc(a.meta.memo)}` : `<span style="color:#9ca3af;">${a.meta.asset_req_at ? '추가소재 요청됨' : '탭하면 미리보기'}</span>`}</div>
           <div class="mc-btns"><button onclick="const c=this.closest('.mcard');c.classList.toggle('open');this.classList.toggle('on',c.classList.contains('open'))" title="더 보기"><i class="fa-solid fa-chevron-down"></i></button></div></div>
         <div class="mc-more">
@@ -976,7 +1023,9 @@ function renderAdmgrBest() {
   setTimeout(() => admgrTestCreativesEnsure(), 0);
   const nameOf = new Map(b.rows.map(r => [r.adset_id, r.adset_name]));
   const cre = admgr.test.creatives || new Map();
-  let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)) }; });
+  const testAds = admgr.test.loaded ? ((admgr.test.data || {}).ads || []) : [];
+  if (admgr.test.loaded) setTimeout(() => admgrTrendEnsure(), 0);
+  let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; const ta = testAds.find(x => x.id === a.id); return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)), tr: ta ? admgrTrend(ta) : null }; });
   if (admgr.q) ads = ads.filter(a => (a.setNm + ' ' + a.name).toLowerCase().includes(admgr.q));
   const allAds = ads;
   const prods = [...new Set(ads.map(a => a.prod))];
@@ -1005,6 +1054,7 @@ function renderAdmgrBest() {
     ${admgrTile('누적 지출', metricsReady ? won(tot.spend) : '…')}${admgrTile('구매', metricsReady ? comma(tot.purchases) + '건' : '…')}
     ${admgrTile('평균 ROAS', metricsReady ? `<span style="color:#15803d;">${tot.spend ? (tot.value / tot.spend).toFixed(2) : '—'}</span>` : '…')}
     ${admgrTile('꺼진 소재', `<span style="color:${off ? '#dc2626' : '#374151'};">${off}개</span>`)}
+    ${admgrTile('식은 소재 <span title="최근 7일 ROAS가 누적의 절반 미만 (일별 스냅샷 3일치부터 판정)" style="color:#c4c9d4;cursor:help;">?</span>', `<span style="color:${allAds.filter(a => a.tr && a.tr.tired).length ? '#dc2626' : '#374151'};">${allAds.filter(a => a.tr && a.tr.tired).length}개</span>`)}
   </div>`;
 
   const tile = a => {
@@ -1023,6 +1073,7 @@ function renderAdmgrBest() {
           <span>지출<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? won(a.m.spend) : '…'}</b></span>
           <span>구매<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? comma(a.m.purchases) : '…'}</b></span>
           <span>ROAS<b style="display:block;font-size:.8rem;color:#15803d;">${metricsReady ? (a.m.spend ? a.roas.toFixed(2) : '—') : '…'}</b></span></div>
+        ${a.tr ? `<div style="margin-top:4px;">${admgrSparkHtml(a.tr, null)}</div>` : ''}
         <div style="display:flex;gap:4px;margin-top:8px;">
           <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;background:#eef2ff;border-color:#c7d2fe;color:#3730a3;font-weight:700;" onclick="admgrBestUseModel('${a.id}')" title="광고 업로드 ①에 이 소재를 모델 광고로">모델 광고로</button>
           <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;" onclick="admgrBestCopyText('${a.id}')" title="이 광고의 본문 문구를 복사">문구 복사</button>

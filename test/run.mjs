@@ -275,6 +275,25 @@ test('admgrFunnelDiag: 중앙값 기준 후크·클릭·랜딩·장바구니·�
   assert.ok(g('admgrFunnelCell')({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, freq: 3.4, purchases: 8, spend: 50000 }, base).includes('빈도 3.4'));
 });
 
+test('admgrTrend: 스냅샷 기준 최근 7일·일별 증분·식음 판정', () => {
+  const rows = [['2026-09-04', 100000, 10, 500000], ['2026-09-05', 110000, 11, 550000], ['2026-09-10', 150000, 12, 580000], ['2026-09-11', 170000, 12, 590000]]
+    .map(([day, spend, purchases, value]) => ({ ad_id: '1', day, spend, purchases, value }));
+  const map = new Map([['1', rows]]);
+  const f = g('admgrTrend');
+  const tr = f({ id: '1', reg_date: '2026-08-01', spend: 200000, purchases: 13, value: 620000 }, map, '2026-09-12');
+  assert.equal(tr.days, 4);
+  assert.equal([tr.recent.spend, tr.recent.purchases, tr.recent.value].join(), '90000,2,70000');     // 누적 − 09/05 행(7일 전 이하 최신)
+  assert.equal(tr.daily.map(d => d.day + ':' + d.spend).join(), '2026-09-10:40000,2026-09-11:20000,2026-09-12:30000');
+  assert.ok(tr.tired);   // 최근 ROAS 0.78 < 누적 3.1의 절반, 지출 9만 ≥ 3만, 구매 13 ≥ 5
+  const ok = f({ id: '1', reg_date: '2026-08-01', spend: 200000, purchases: 20, value: 1000000 }, map, '2026-09-12');
+  assert.ok(!ok.tired);
+  assert.equal(f({ id: '2', spend: 1000 }, map, '2026-09-12'), null);
+  const html = g('admgrSparkHtml')(tr, 2);
+  assert.ok(html.includes('<svg') && html.includes('식음') && html.includes('7일 0.8'));
+  const young = f({ id: '1', reg_date: '2026-08-01', spend: 200000, purchases: 13, value: 620000 }, new Map([['1', rows.slice(3)]]), '2026-09-12');
+  assert.ok(g('admgrSparkHtml')(young, 2).includes('추세 1일'));
+});
+
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
   const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-08-01', gone: false,
     effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', spend: m.spend, purchases: m.pur, value: m.val, meta: m.meta || {} });

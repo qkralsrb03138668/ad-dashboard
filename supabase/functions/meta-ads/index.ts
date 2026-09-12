@@ -584,12 +584,13 @@ Deno.serve(async (req) => {
     // 일별 누적 스냅샷 조회 (주간 리포트) — 기간 시작일(d1)과 이전 기간 시작일(d0) 각각 앞 3일까지 → 클라이언트가 날짜 이하 최신 행을 기준선으로 쓴다
     if (action === "daystats") {
       const day = (k: string) => { const v = url.searchParams.get(k) ?? ""; return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };
-      const d1 = day("d1"), d0 = day("d0");
-      if (!d1 || !d0) return json({ error: "d0·d1 날짜 필요" }, 400);
+      const d1 = day("d1"), d0 = day("d0"), since = day("since");   // since=YYYY-MM-DD → 그날 이후 전부 (추세·피로도용, 최근 8일 정도)
+      if (!since && (!d1 || !d0)) return json({ error: "d0·d1 또는 since 날짜 필요" }, 400);
       const back = (d: string) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() - 3); return x.toISOString().slice(0, 10); };
+      const where = since ? `day=gte.${since}` : `or=(and(day.gte.${back(d1!)},day.lte.${d1}),and(day.gte.${back(d0!)},day.lte.${d0}))`;
       const rows: unknown[] = [];
       for (let off = 0; off < 20000; off += 1000) {   // 소재 300개 × 8일 > PostgREST 기본 1,000행 한도 → 페이지로
-        const r = await dbRest(`test_ad_day?select=ad_id,day,spend,purchases,value&or=(and(day.gte.${back(d1)},day.lte.${d1}),and(day.gte.${back(d0)},day.lte.${d0}))&order=day.asc,ad_id.asc&limit=1000&offset=${off}`);
+        const r = await dbRest(`test_ad_day?select=ad_id,day,spend,purchases,value&${where}&order=day.asc,ad_id.asc&limit=1000&offset=${off}`);
         if (!r.ok) break;
         const page = await r.json() as unknown[]; rows.push(...page);
         if (page.length < 1000) break;
