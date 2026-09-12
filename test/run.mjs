@@ -259,6 +259,22 @@ test('admgrRecommend: 상품 마진 손익분기 ROAS 기준 + 표본 부족', (
   assert.equal(f(ad({ set: '없는상품_R1_test', pur: 2, val: 80000 })).k, 'wait');           // 미매칭 → 고정 기준(OFF<1, 우수≥3)
 });
 
+test('admgrFunnelDiag: 중앙값 기준 후크·클릭·랜딩·장바구니·상세 진단', () => {
+  const base = g('admgrFunnelBase')([
+    { imp: 10000, clicks: 100, v3: 3000, lpv: 80, atc: 10, purchases: 5 }, { imp: 20000, clicks: 240, v3: 5000, lpv: 200, atc: 20, purchases: 8 }, { imp: 500, clicks: 50, v3: 400, lpv: 40, purchases: 1 },   // 노출 500은 기준선에서 제외
+  ]);
+  assert.equal(base.n, 2); assert.ok(Math.abs(base.ctr - 0.011) < 0.001);
+  const d = a => g('admgrFunnelDiag')({ spend: 50000, ...a }, base).k;
+  assert.equal(d({ imp: 800, clicks: 10 }), 'nodata');
+  assert.equal(d({ imp: 10000, clicks: 110, v3: 1500, lpv: 90, purchases: 3 }), 'hook');            // 3초 15% < 중앙값 27.5%×0.7
+  assert.equal(d({ imp: 10000, clicks: 50, v3: 3000, lpv: 40, purchases: 3 }), 'click');           // CTR 0.5% < 1.1%×0.7
+  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 50, purchases: 3 }), 'landing');        // 도착 42% < 60%
+  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 10, purchases: 1 }), 'cart'); // 장바구니→구매 10% < 중앙값 45%의 절반
+  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 1, purchases: 0 }), 'detail');// 클릭 평균 이상, 구매 0, 지출 5만
+  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 2, purchases: 8 }), 'good');
+  assert.ok(g('admgrFunnelCell')({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, freq: 3.4, purchases: 8, spend: 50000 }, base).includes('빈도 3.4'));
+});
+
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
   const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-08-01', gone: false,
     effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', spend: m.spend, purchases: m.pur, value: m.val, meta: m.meta || {} });

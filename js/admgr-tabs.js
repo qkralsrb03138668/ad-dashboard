@@ -173,9 +173,10 @@ async function admgrTestXlsx() {
     if (!rows.length) { toast('내려받을 소재가 없어요'); return; }
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('테스트 소재');
-    const heads = ['광고세트명', '소재명', '등록일', 'D+', '상태', '누적 지출', '구매', '구매당 비용', 'ROAS', '추가소재 요청일', '제작완료일', '메모'];
+    const heads = ['광고세트명', '소재명', '등록일', 'D+', '상태', '누적 지출', '구매', '구매당 비용', 'ROAS', '추가소재 요청일', '제작완료일', '메모', '노출', 'CTR', '3초 재생율', '랜딩 도착률', '장바구니', '빈도', '퍼널 진단'];
     heads.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
-    [34, 34, 12, 6, 10, 12, 8, 12, 8, 14, 12, 24].forEach((w, i) => ws.column(i + 1).width(w));
+    [34, 34, 12, 6, 10, 12, 8, 12, 8, 14, 12, 24, 10, 8, 10, 10, 8, 6, 14].forEach((w, i) => ws.column(i + 1).width(w));
+    const fbase = admgrFunnelBase(admgrTestRowSets().vis);
     rows.forEach((a, ri) => {
       const r = ri + 2;
       const dp = admgrDPlus(a);
@@ -189,6 +190,9 @@ async function admgrTestXlsx() {
       put(10, a.meta.asset_req_at ? String(a.meta.asset_req_at).slice(0, 10) : '');
       put(11, a.meta.asset_done_at ? String(a.meta.asset_done_at).slice(0, 10) : '');
       put(12, a.meta.memo || '');
+      const fr = admgrFunnelRates(a);
+      put(13, a.imp || 0); if (fr) { put(14, Number((fr.ctr * 100).toFixed(2))); if (fr.ts != null) put(15, Number((fr.ts * 100).toFixed(1))); if (fr.lpvR != null) put(16, Number((fr.lpvR * 100).toFixed(0))); put(17, a.atc || 0); put(18, Number((fr.freq || 0).toFixed(1))); }
+      put(19, admgrFunnelDiag(a, fbase).label);
     });
     [6, 7, 8].forEach(c => ws.range(2, c, rows.length + 1, c).style('numberFormat', '#,##0'));
     const out = await wb.outputAsync();
@@ -508,6 +512,48 @@ async function admgrBestReport() {
     } catch (e) { /* 저장 실패해도 화면 리포트는 정상 — 해석만 못 붙는다 */ }
   } catch (e) { $('rp-body').innerHTML = `<div class="empty-state"><p>리포트를 만들지 못했어요: ${esc(e.message)}</p></div>`; }
 }
+/* ═══ 퍼널 진단 (2026-09-12) — "왜 안 터졌는지"를 노출→클릭→랜딩→장바구니→구매 단계로.
+   기준은 절대값이 아니라 지금 보이는 테스트 소재들의 중앙값(노출 1,000↑인 것) — 계정·시즌이 바뀌어도 자동으로 맞춰진다.
+   ponytail: 진단은 규칙 6개. 정밀 기준이 필요해지면 admgrFunnelBase에 분위수 추가 */
+const ADMGR_FUNNEL_MIN_IMP = 1000;
+function admgrFunnelRates(a) {
+  if (!(a.imp > 0)) return null;
+  const ctr = (a.clicks || 0) / a.imp, ts = a.v3 > 0 ? a.v3 / a.imp : null, lpvR = a.clicks > 0 ? (a.lpv || 0) / a.clicks : null;
+  const cvr = a.lpv > 0 ? (a.purchases || 0) / a.lpv : a.clicks > 0 ? (a.purchases || 0) / a.clicks : null;
+  return { ctr, ts, lpvR, cvr, atcR: a.lpv > 0 ? (a.atc || 0) / a.lpv : null, cartR: a.atc >= 3 ? (a.purchases || 0) / a.atc : null, freq: a.freq || 0 };   // cartR = 장바구니→구매 (장바구니 3건↑만)
+}
+const admgrMedian = arr => { const L = arr.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); return L.length ? (L.length % 2 ? L[(L.length - 1) / 2] : (L[L.length / 2 - 1] + L[L.length / 2]) / 2) : null; };
+function admgrFunnelBase(rows) {   // 표본 기준선 — 노출 1,000↑ 소재들의 중앙값
+  const R = rows.filter(a => a.imp >= ADMGR_FUNNEL_MIN_IMP).map(admgrFunnelRates).filter(Boolean);
+  return { n: R.length, ctr: admgrMedian(R.map(r => r.ctr)), ts: admgrMedian(R.map(r => r.ts)), lpvR: admgrMedian(R.map(r => r.lpvR)), cvr: admgrMedian(R.map(r => r.cvr)), cartR: admgrMedian(R.map(r => r.cartR)) };
+}
+/* 진단 결과: { k, label, fix, cls } — k: nodata | hook | click | landing | detail | cart | good | ok */
+function admgrFunnelDiag(a, base) {
+  const r = admgrFunnelRates(a);
+  if (!r || a.imp < ADMGR_FUNNEL_MIN_IMP) return { k: 'nodata', label: '노출 부족', fix: `노출 ${comma(a.imp || 0)} < ${comma(ADMGR_FUNNEL_MIN_IMP)} — 진단은 조금 더 돌린 뒤`, cls: 'badge-gray' };
+  const J = admgrTJudge;
+  if (r.ts != null && base.ts && r.ts < base.ts * 0.7) return { k: 'hook', label: '후크 약함', fix: `3초 재생 ${(r.ts * 100).toFixed(0)}% (평균 ${(base.ts * 100).toFixed(0)}%) — 첫 1초 장면·자막을 바꿔서 다시`, cls: 'badge-red' };
+  if (base.ctr && r.ctr < base.ctr * 0.7) return { k: 'click', label: '클릭 약함', fix: `CTR ${(r.ctr * 100).toFixed(2)}% (평균 ${(base.ctr * 100).toFixed(2)}%) — 소구점·문구 첫 줄을 바꿔서 다시`, cls: 'badge-red' };
+  if (r.lpvR != null && a.clicks >= 30 && r.lpvR < 0.6) return { k: 'landing', label: '랜딩 이탈', fix: `클릭 ${comma(a.clicks)} 중 도착 ${(r.lpvR * 100).toFixed(0)}% — 상세페이지 로딩·링크 확인`, cls: 'badge-orange' };
+  if (a.atc >= 5 && base.cartR != null && r.cartR < base.cartR * 0.5) return { k: 'cart', label: '장바구니 이탈', fix: `장바구니 ${comma(a.atc)} → 구매 ${comma(a.purchases || 0)} (${(r.cartR * 100).toFixed(0)}%, 평균 ${(base.cartR * 100).toFixed(0)}%) — 옵션·배송비·결제 단계 확인`, cls: 'badge-orange' };   // 고정 20%는 절반 가까이 걸려서(실데이터 41/145) 중앙값의 절반 미만만
+  if (base.ctr && r.ctr >= base.ctr && (a.purchases || 0) === 0 && (a.spend || 0) >= J.spend) return { k: 'detail', label: '클릭↑ 구매 0', fix: `CTR ${(r.ctr * 100).toFixed(2)}%로 소재는 통했는데 구매 0 — 상세페이지·가격·후기 확인`, cls: 'badge-orange' };
+  if (base.ctr && base.cvr != null && r.ctr >= base.ctr && r.cvr != null && r.cvr >= base.cvr) return { k: 'good', label: '퍼널 균형', fix: `CTR·전환율 모두 평균 이상 — 예산 확대 후보`, cls: 'badge-green' };
+  return { k: 'ok', label: '특이 없음', fix: '각 단계가 평균 근처', cls: 'badge-gray' };
+}
+function admgrFunnelTip(a, r) {   // 툴팁·엑셀용 숫자 한 줄
+  if (!r) return '노출 데이터 없음';
+  const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
+  return `노출 ${comma(a.imp)} · 링크 클릭 ${comma(a.clicks || 0)} (CTR ${pct(r.ctr)})${r.ts != null ? ` · 3초 재생 ${pct(r.ts)}` : ''} · 랜딩 도착 ${comma(a.lpv || 0)} (${pct(r.lpvR)}) · 장바구니 ${comma(a.atc || 0)} · 구매 ${comma(a.purchases || 0)} (전환율 ${pct(r.cvr)}) · 빈도 ${(r.freq || 0).toFixed(1)}`;
+}
+function admgrFunnelCell(a, base) {
+  const r = admgrFunnelRates(a), d = admgrFunnelDiag(a, base);
+  const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
+  const nums = r ? `CTR ${pct(r.ctr)}${r.ts != null ? ` · 3초 ${pct(r.ts)}` : r.lpvR != null ? ` · 도착 ${pct(r.lpvR)}` : ''}` : '—';
+  return `<div title="${esc(admgrFunnelTip(a, r))}\n${esc(d.fix)}" style="cursor:help;">
+    <div style="font-size:.64rem;color:#6b7280;white-space:nowrap;">${nums}${r && r.freq >= 3 ? ` <span style="color:#b45309;" title="같은 사람에게 평균 ${r.freq.toFixed(1)}회 노출 — 피로 주의">빈도 ${r.freq.toFixed(1)}</span>` : ''}</div>
+    <span class="status-badge ${d.cls}" style="font-size:.6rem;margin-top:2px;">${d.label}</span></div>`;
+}
+
 /* ── 판정 추천: 기준(일수·지출·ROAS·구매)은 화면에서 바꿀 수 있고 브라우저에 기억 ── */
 /* 기준: useBe=상품 마진으로 손익분기 ROAS를 계산해 소재마다 다른 기준(OFF = 손익분기 미만, 우수 = 손익분기×beMult 이상). 상품이 안 잡히면 offRoas/goodRoas 고정값.
    goodPurch = 우수에 필요한 최소 구매(표본) — ROAS가 좋아도 이보다 적으면 '표본 부족' (구매 몇 건의 ROAS는 우연이 크다) */
@@ -669,6 +715,7 @@ function renderAdmgrTest() {
   }
   const allChecked = rows.length && rows.every(r => t.sel.has(r.id));
   const cre = t.creatives || new Map();
+  const fbase = admgrFunnelBase(vis);   // 퍼널 기준선 — 숨긴 것 빼고 전체 테스트 소재의 중앙값 (필터와 무관하게 같은 기준)
   /* 열: 선택 · 소재(썸네일+세트명+광고명+등록기록) · 등록(MM/DD, D+) · 판정(추천 → 현재 상태 → 버튼) · 지출 · 구매/CPA · ROAS · 추가소재 · 메모 */
   const rowHtml = a => {
     const checked = t.sel.has(a.id), dp = admgrDPlus(a), c = cre.get(String(a.id));
@@ -689,6 +736,7 @@ function renderAdmgrTest() {
           ${rec ? `<div><span class="status-badge ${recCls}" title="${esc(rec.why)}">${rec.k === 'watch' ? '' : '▶ '}${rec.label}</span></div>` : `<div>${admgrTestBadge(a)}</div>`}
           ${rec ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ['meh', 'good', 'ended'].includes(a.st) ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ''}
           ${rec && rec.be ? `<div style="font-size:.6rem;color:#9ca3af;white-space:nowrap;" title="${esc(rec.why)}">손익 ${rec.be.toFixed(1)} · 우수 ${rec.goodR.toFixed(1)}↑</div>` : rec && rec.k !== 'watch' ? '<div style="font-size:.6rem;color:#c4c9d4;" title="카페24 상품과 이름이 안 맞아 고정 기준 사용">상품 미매칭</div>' : ''}</td>
+        <td class="ctr" style="text-align:left;">${admgrFunnelCell(a, fbase)}</td>
         <td class="num"><b>${won(a.spend)}</b></td>
         <td class="num m-hide">${comma(a.purchases)}<div style="font-size:.62rem;color:#9ca3af;">${a.purchases ? won(Math.round(a.spend / a.purchases)) : '—'}</div></td>
         <td class="num">${admgrRoasTd(a)}</td>
@@ -696,10 +744,11 @@ function renderAdmgrTest() {
         <td class="m-hide ell" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="${a.meta.memo ? esc(a.meta.memo) + ' — 클릭해서 수정' : '클릭해서 메모'}" style="cursor:text;text-align:left;font-size:.7rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '메모…'}</td>
       </tr>`;
   };
-  const head = `<colgroup><col style="width:28px;"><col><col style="width:64px;"><col style="width:132px;"><col style="width:88px;"><col class="m-hide" style="width:84px;"><col style="width:64px;"><col style="width:96px;"><col class="m-hide" style="width:130px;"></colgroup>
+  const head = `<colgroup><col style="width:28px;"><col><col style="width:64px;"><col style="width:132px;"><col style="width:120px;"><col style="width:88px;"><col class="m-hide" style="width:84px;"><col style="width:64px;"><col style="width:96px;"><col class="m-hide" style="width:110px;"></colgroup>
     <thead><tr>
       <th class="cb"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrTestSelAll()" title="표시된 전체 선택/해제" /></th>
       ${admgrTh('aname', '소재 · 광고세트명').replace('<th class="sortable ', '<th style="text-align:left;" class="sortable ')}${admgrTh('reg', '등록')}<th class="ctr" title="▶ 추천 → 현재 상태 → 버튼으로 확정">판정</th>
+      <th style="text-align:left;" title="노출→클릭→랜딩→장바구니→구매 단계 진단. 기준 = 노출 1,000↑ 테스트 소재 ${fbase.n}개의 중앙값 (CTR ${fbase.ctr != null ? (fbase.ctr * 100).toFixed(2) + '%' : '—'}${fbase.ts != null ? ' · 3초 ' + (fbase.ts * 100).toFixed(0) + '%' : ''}). 마우스를 올리면 숫자와 고칠 점">퍼널 <i class="fa-regular fa-circle-question" style="color:#c4c9d4;"></i></th>
       ${admgrTh('spend', '지출').replace('<th class="sortable ', '<th class="num sortable ')}${admgrTh('purchases', '구매 / CPA', 'm-hide').replace('<th class="sortable ', '<th class="num sortable ')}${admgrTh('roas', 'ROAS').replace('<th class="sortable ', '<th class="num sortable ')}
       <th class="ctr">추가소재</th><th class="m-hide" style="text-align:left;">메모</th>
     </tr></thead>`;
@@ -716,7 +765,7 @@ function renderAdmgrTest() {
         <td class="ctr" style="color:#6b7280;"><i class="fa-solid fa-chevron-${open ? 'down' : 'right'}"></i></td>
         <td style="text-align:left;" class="ell"><b style="color:#1e1b4b;">${esc(k)}</b> <span style="font-size:.68rem;color:#6b7280;">${list.length}개 · 평가중 ${st.eval} · <span style="color:#22c55e;">우수 ${st.good}</span> · <span style="color:#f97316;">애매 ${st.meh}</span> · <span style="color:#ef4444;">OFF ${st.off}</span></span>
           <a href="#" style="font-size:.66rem;margin-left:8px;" onclick="event.stopPropagation();admgrTestGoRegister('${esc(k)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 소재 등록</a></td>
-        <td></td><td></td>
+        <td></td><td></td><td></td>
         <td class="num"><b>${won(spend)}</b></td><td class="num m-hide">${comma(purch)}<div style="font-size:.62rem;color:#9ca3af;">${purch ? won(Math.round(spend / purch)) : '—'}</div></td>
         <td class="num"><b>${spend ? (value / spend).toFixed(2) : '—'}</b></td><td></td><td class="m-hide"></td></tr>` + (open ? list.map(rowHtml).join('') : '');
     }).join('');
@@ -739,6 +788,7 @@ function renderAdmgrTest() {
           <div class="mc-tg" onclick="event.stopPropagation()"><label style="display:inline-flex;padding:4px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="admgrTestSel('${a.id}')" title="선택 (일괄 제거용)" /></label></div></div>
         <div class="mc-judge" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${judge}</div>
         <div class="mc-nums"><div><i>지출</i>${won(a.spend)}</div><div><i>구매 · CPA</i>${comma(a.purchases)}<span style="font-size:.64rem;color:#9ca3af;font-weight:600;"> ${a.purchases ? won(Math.round(a.spend / a.purchases)) : ''}</span></div><div><i>ROAS</i>${admgrRoasTd(a)}</div></div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${admgrFunnelCell(a, fbase)}</div>
         <div class="mc-foot"><div class="mc-budget" style="font-size:.72rem;color:#6b7280;">${a.meta.memo ? `<i class="fa-regular fa-note-sticky"></i> ${esc(a.meta.memo)}` : `<span style="color:#9ca3af;">${a.meta.asset_req_at ? '추가소재 요청됨' : '탭하면 미리보기'}</span>`}</div>
           <div class="mc-btns"><button onclick="const c=this.closest('.mcard');c.classList.toggle('open');this.classList.toggle('on',c.classList.contains('open'))" title="더 보기"><i class="fa-solid fa-chevron-down"></i></button></div></div>
         <div class="mc-more">

@@ -152,6 +152,11 @@ function addDays(ymd: string, d: number): string {
 }
 
 // actions/action_values 배열에서 구매 항목 추출 (픽셀 설정에 따라 purchase 또는 omni_purchase)
+function pickAct(arr: unknown, types: string[]): number {   // actions 배열에서 첫 번째로 맞는 action_type 값
+  const list = (arr ?? []) as { action_type?: string; value?: unknown }[];
+  for (const t of types) { const hit = list.find((a) => a.action_type === t); if (hit) return num(hit.value); }
+  return 0;
+}
 function pickPurchase(arr: unknown): number {
   const list = (arr ?? []) as { action_type?: string; value?: unknown }[];
   for (const t of ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"]) {
@@ -334,7 +339,7 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
   const insParams = {
     time_range: JSON.stringify({ since: "2024-01-01", until: today }),
     level: "ad",
-    fields: "ad_id,adset_id,spend,actions,action_values",
+    fields: "ad_id,adset_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions",   // 퍼널 진단(2026-09-12): 노출·도달·빈도·링크 클릭·ThruPlay (+actions 안의 3초 재생·랜딩 도착·장바구니)
     limit: "500",
   };
   const [adRows, insRows] = await Promise.all([
@@ -370,6 +375,13 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
       spend: m ? num(m.spend) : 0,
       purchases: m ? pickPurchase(m.actions) : 0,
       value: m ? pickPurchase(m.action_values) : 0,
+      // 퍼널: imp 노출 · clicks 링크 클릭 · v3 3초 재생(영상만 값이 있음) · thru ThruPlay(15초 또는 끝) · lpv 랜딩 도착 · atc 장바구니 · freq 빈도
+      imp: m ? num(m.impressions) : 0, reach: m ? num(m.reach) : 0, freq: m ? num(m.frequency) : 0,
+      clicks: m ? num(m.inline_link_clicks) : 0,
+      v3: m ? pickAct(m.actions, ["video_view"]) : 0,
+      thru: m ? pickAct(m.video_thruplay_watched_actions, ["video_view"]) : 0,
+      lpv: m ? pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]) : 0,
+      atc: m ? pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]) : 0,
     };
   });
 
