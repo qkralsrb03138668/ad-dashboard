@@ -278,13 +278,15 @@ function admgrReportHtml(rep, thumbs) {
       : '<div style="margin-left:12px;font-size:.78rem;color:#9ca3af;">없음</div>'}</section>`).join('');
   return head + body;
 }
+const admgrRp = { kind: 'test', cur: null };   // 모달에 지금 떠 있는 리포트 — cur = { title, text(), html() } (복사·인쇄 공용)
+function admgrReportRefresh() { admgrRp.kind === 'best' ? admgrBestReport() : admgrTestReport(); }
 function admgrReportModal() {
   let m = $('admgr-report');
   if (m) return m;
   m = document.createElement('div'); m.className = 'modal'; m.id = 'admgr-report';
   m.onclick = e => { if (e.target === m) closeModal('admgr-report'); };
-  m.innerHTML = `<div class="modal-box wide" style="max-width:860px;"><div class="modal-head" style="flex-wrap:wrap;"><b>주간 리포트</b>
-    <select id="rp-days" class="inp" style="width:auto;padding:4px 8px;font-size:.76rem;" onchange="admgrTestReport()">
+  m.innerHTML = `<div class="modal-box wide" style="max-width:860px;"><div class="modal-head" style="flex-wrap:wrap;"><b id="rp-title">주간 리포트</b>
+    <select id="rp-days" class="inp" style="width:auto;padding:4px 8px;font-size:.76rem;" onchange="admgrReportRefresh()">
       <option value="7">최근 7일</option><option value="14">최근 14일</option><option value="30">최근 30일</option></select>
     <button class="filter-tab" style="color:#4f46e5;" onclick="admgrReportCopy()" title="플로우·카톡에 붙여넣기용 텍스트"><i class="fa-regular fa-copy"></i> 텍스트 복사</button>
     <button class="filter-tab" onclick="admgrReportPrint()" title="새 창 → 인쇄 대화상자에서 PDF로 저장"><i class="fa-solid fa-print"></i> 인쇄·PDF</button>
@@ -295,13 +297,11 @@ function admgrReportModal() {
 async function admgrTestReport() {
   const t = admgr.test;
   if (!t.loaded) { await admgrTestFetch(); if (!t.loaded) return; }
-  admgrReportModal().classList.add('show');
-  const sel = $('rp-days');
-  if (!sel.dataset.init) { sel.value = String(lsGet('adc_admgr_rpdays', 7)); sel.dataset.init = '1'; }
-  const days = +sel.value || 7; lsSet('adc_admgr_rpdays', days);
+  const days = admgrReportOpen('test', '주간 리포트 (테스트 소재)');
   t.thumbs = t.thumbs || {};
   const rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0));
   t.report = rep;
+  admgrRp.cur = { title: `테스트 소재 리포트 ${rep.from}~${rep.to}`, text: () => admgrReportText(rep), html: () => admgrReportHtml(rep, t.thumbs) };
   $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
   const need = admgr.demo ? [] : [...new Set(rep.all.filter(a => !(a.id in t.thumbs)).map(a => a.adset_id))];
   if (!need.length) return;
@@ -314,25 +314,199 @@ async function admgrTestReport() {
     if (t.report === rep) $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
   } catch (e) { toast('썸네일 조회 실패 (텍스트는 정상): ' + e.message); }
 }
+function admgrReportOpen(kind, title) {   // 모달 열고 기간 읽기 — 두 리포트 공용
+  admgrReportModal().classList.add('show');
+  admgrRp.kind = kind; $('rp-title').textContent = title;
+  const sel = $('rp-days');
+  if (!sel.dataset.init) { sel.value = String(lsGet('adc_admgr_rpdays', 7)); sel.dataset.init = '1'; }
+  const days = +sel.value || 7; lsSet('adc_admgr_rpdays', days);
+  return days;
+}
 async function admgrReportCopy() {
-  const rep = admgr.test.report; if (!rep) return;
-  const txt = admgrReportText(rep);
+  const c = admgrRp.cur; if (!c) return;
+  const txt = c.text();
   try { await navigator.clipboard.writeText(txt); }
   catch (e) { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
   toast('리포트 텍스트를 복사했어요 — 플로우에 붙여넣기');
 }
 function admgrReportPrint() {
   /* 팝업 창 대신 숨은 iframe에 그려서 인쇄 — 팝업 차단·앱 내 브라우저에서도 동작. 인쇄 대화상자에서 'PDF로 저장' */
-  const t = admgr.test; if (!t.report) return;
+  const c = admgrRp.cur; if (!c) return;
   const old = $('rp-print'); if (old) old.remove();
   const f = document.createElement('iframe'); f.id = 'rp-print';
   f.style.cssText = 'position:fixed;left:-9999px;width:800px;height:600px;border:0;';
-  f.srcdoc = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>테스트 소재 리포트 ${esc(t.report.from)}~${esc(t.report.to)}</title>
+  f.srcdoc = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(c.title)}</title>
     <style>body{font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;margin:24px;color:#111827;max-width:800px;}img{max-width:100%;}</style></head>
-    <body>${admgrReportHtml(t.report, t.thumbs || {})}
+    <body>${c.html()}
     <script>Promise.all([...document.images].map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))).then(()=>setTimeout(()=>{focus();print();},300));</script></body></html>`;
   document.body.appendChild(f);
   toast('인쇄 창이 열려요 — 대상에서 "PDF로 저장"을 고르세요');
+}
+/* ═══ 베스트 소재 주간 리포트 — MD팀·컨텐츠팀 회의용 (2026-09-12) ═══
+   숫자는 여기서 계산(브라우저), 해석은 scripts/weekly-insight.mjs(이 맥의 Claude Code)가 붙인다.
+   기간 성과 = 지금 누적 − 기간 시작일 스냅샷(test_ad_day, 서버가 매일 1행). 스냅샷이 없는 옛 소재는 누적으로 대신하고 approx 표시.
+   ponytail: 컷 유형(시연/착용)은 회의 뒤 태그 추가 예정 — 지금은 소구점·릴스/이미지·가격대·문구 훅만 */
+const ADMGR_BR_VERDICT = { expand: ['확장', '#16a34a', '재입고·유사 상품 소싱 + 추가 소재'], more: ['소재 추가 테스트', '#2563eb', '베스트 1개 — 같은 소구점으로 소재를 더'], replace: ['교체 검토', '#dc2626', '베스트였지만 식음 — 새 소구점으로 재시도 또는 정리'] };
+function admgrBestReportBuild(inp, days, today) {
+  const { tests = [], best = [], bestAds = [], dayRows = [], cre = new Map(), products = [], judge = ADMGR_TJUDGE_DEFAULT } = inp;
+  const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const from = shift(today, -(days - 1)), prevFrom = shift(from, -days);
+  const inWin = iso => { const d = String(iso || '').slice(0, 10); return !!d && d >= from && d <= today; };
+  const byAd = new Map();
+  dayRows.slice().sort((x, y) => String(x.day).localeCompare(String(y.day))).forEach(r => (byAd.get(r.ad_id) || byAd.set(r.ad_id, []).get(r.ad_id)).push(r));
+  const baseAt = (id, day) => { const L = byAd.get(id) || []; let b = null; for (const r of L) if (r.day <= day) b = r; return b; };
+  const M = (s, p, v) => ({ spend: +s || 0, purchases: +p || 0, value: +v || 0 });
+  const sub = (a, b) => M(a.spend - b.spend, a.purchases - b.purchases, a.value - b.value);
+  let approx = 0;
+  const period = a => {   // { cur, prev } — cur: 이번 기간, prev: 이전 기간(모르면 null)
+    const cum = M(a.spend, a.purchases, a.value), b1 = baseAt(a.id, from), b0 = baseAt(a.id, prevFrom);
+    let cur, prev;
+    if (b1) { cur = sub(cum, b1); prev = b0 ? sub(b1, b0) : (a.reg_date >= prevFrom ? M(b1.spend, b1.purchases, b1.value) : null); }
+    else if (a.reg_date && a.reg_date >= from) { cur = cum; prev = M(0, 0, 0); }
+    else { cur = cum; prev = null; approx++; }
+    return { cur, prev };
+  };
+  const roas = m => m && m.spend > 0 ? m.value / m.spend : 0;
+  const sum = list => list.reduce((o, m) => m ? M(o.spend + m.spend, o.purchases + m.purchases, o.value + m.value) : o, M(0, 0, 0));
+  const testById = new Map(tests.map(a => [a.id, a]));
+  const T = tests.map(a => ({ ...a, p: period(a), prod: admgrProductOf(a), c: cre.get(String(a.id)) }));
+  // 베스트 소재: creatives 응답(bestAds) + 테스트 데이터로 성과 연결. 테스트 세트가 아닌 베스트는 성과 없이 이름만
+  const setNm = new Map(best.map(r => [String(r.adset_id), r.adset_name || '']));
+  const B = bestAds.map(a => { const t = T.find(x => x.id === a.id); const nm = setNm.get(String(a.adset_id)) || a.name; return { id: a.id, adset_id: a.adset_id, name: nm, prod: admgrProductOf({ adset_name: nm }), active: a.effective_status === 'ACTIVE', video: !!a.is_video, t, c: cre.get(String(a.id)) }; });
+  const Bm = B.filter(a => a.t);
+  const S = {
+    best: { n: B.length, active: B.filter(a => a.active).length, cur: sum(Bm.map(a => a.t.p.cur)), prev: dayRows.length ? sum(Bm.map(a => a.t.p.prev)) : null },   // 스냅샷이 하나도 없으면 전주 대비 없음
+    test: { n: T.filter(a => !a.gone).length, cur: sum(T.map(a => a.p.cur)), prev: dayRows.length ? sum(T.map(a => a.p.prev)) : null },
+  };
+  const newBest = best.filter(r => inWin(r.created_at)).map(r => r.adset_name || r.adset_id);
+  const offBest = B.filter(a => !a.active).map(a => a.name);
+  const top = Bm.filter(a => a.t.p.cur.spend > 0).sort((x, y) => roas(y.t.p.cur) - roas(x.t.p.cur) || y.t.p.cur.spend - x.t.p.cur.spend).slice(0, 3).map(a => ({ name: a.name, m: a.t.p.cur }));
+  const cooled = Bm.filter(a => a.active && a.t.p.cur.spend >= judge.spend && roas(a.t.p.cur) < judge.offRoas).map(a => ({ name: a.name, m: a.t.p.cur }));
+  // 패턴: 릴스/이미지 · 소구점 · 가격대 — 베스트 소재의 이번 기간 성과로
+  const bucket = (list, keyOf) => { const m = new Map(); list.forEach(a => { const k = keyOf(a); (m.get(k) || m.set(k, []).get(k)).push(a); });
+    return [...m.entries()].map(([k, L]) => ({ k, n: L.length, m: sum(L.map(a => a.t.p.cur)) })).sort((x, y) => roas(y.m) - roas(x.m)); };
+  const fmt = bucket(Bm, a => a.video ? '릴스' : '이미지');
+  const tags = bucket(Bm, a => (a.c && admgrTagOf(a.c.file_name)) || '미기입');
+  const pidx = products.map(p => ({ ...p, n: admgrProdKey(p.name) })).filter(p => p.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
+  const priceOf = nm => { const n = admgrNorm(nm); const p = pidx.find(p => n.includes(p.n)); return p ? p.price : 0; };
+  const band = pr => !pr ? '가격 미상' : pr < 30000 ? '3만 미만' : pr < 50000 ? '3~5만' : pr < 80000 ? '5~8만' : '8만 이상';
+  const price = pidx.length ? bucket(Bm, a => band(priceOf(a.name))) : [];
+  // 문구 훅 검사 — 사이즈 숫자·체형커버 단어 (2026-09-11 베스트 공식 중 문구로 확인 가능한 부분)
+  const HOOK = /\b(44|55|66|77|88)\b|사이즈|kg|\d{2,3}\s?cm|뱃살|팔뚝|허벅지|골반|체형|커버|날씬|슬림|가려|숨겨/;
+  const withText = B.filter(a => a.c && a.c.text && a.c.text.message);
+  const formula = { n: withText.length, hit: withText.filter(a => HOOK.test(String(a.c.text.message).normalize('NFC'))).length };
+  // 상품 판단 — 베스트가 있는 상품만
+  const prodMap = new Map();
+  B.forEach(a => { const g = prodMap.get(a.prod) || prodMap.set(a.prod, { name: a.prod, best: 0, active: 0, tests: 0, good: 0, ms: [] }).get(a.prod); g.best++; if (a.active) g.active++; if (a.t) g.ms.push(a.t.p.cur); });
+  T.forEach(a => { const g = prodMap.get(a.prod); if (!g) return; if (inWin(a.reg_date)) g.tests++; if (a.meta.verdict === 'good') g.good++; });
+  const prods = [...prodMap.values()].map(g => {
+    const m = sum(g.ms), r = roas(m);
+    const cold = g.active === 0 || (m.spend >= judge.spend && r < judge.offRoas);
+    const v = cold ? 'replace' : g.best >= 2 ? 'expand' : 'more';
+    return { ...g, m, roas: r, v, label: ADMGR_BR_VERDICT[v][0], why: g.active === 0 ? '베스트 전부 꺼짐' : cold ? `이번 기간 ROAS ${r.toFixed(1)} (기준 ${judge.offRoas} 미만)` : g.best >= 2 ? `베스트 ${g.best}개 (켜짐 ${g.active})` : '베스트 1개' };
+  }).sort((x, y) => ['expand', 'more', 'replace'].indexOf(x.v) - ['expand', 'more', 'replace'].indexOf(y.v) || y.m.spend - x.m.spend);
+  // 테스트 효율 — 기간 안 등록·판정. 등록자별은 대시보드로 올린 소재(creatives)만 알 수 있다
+  const vAt = a => a.meta.verdict_at || a.meta.updated_at;
+  const reg = T.filter(a => inWin(a.reg_date));
+  const good = T.filter(a => a.meta.verdict === 'good' && inWin(vAt(a))).length, meh = T.filter(a => a.meta.verdict === 'meh' && inWin(vAt(a))).length;   // 판정 뒤 꺼져도 판정은 판정 (st 아닌 verdict)
+  const off = reg.filter(a => ['off', 'ended', 'rejected'].includes(a.st)).length;
+  const who = new Map();
+  reg.forEach(a => { if (!a.c) return; const k = { 'dash-key': '관리자' }[a.c.created_by_email] || String(a.c.created_by_email || '').split('@')[0] || '?'; const w = who.get(k) || who.set(k, { who: k, n: 0, good: 0 }).get(k); w.n++; if (a.meta.verdict === 'good') w.good++; });
+  const eff = { reg: reg.length, good, meh, off, rate: good + meh + off ? good / (good + meh + off) : null, by: [...who.values()].sort((x, y) => y.good - x.good || y.n - x.n) };
+  // 다음 주 액션 — 규칙으로. 해석·우선순위는 AI 해석(scripts/weekly-insight.mjs)에서
+  const names = v => prods.filter(p => p.v === v).map(p => p.name);
+  const bestTag = tags.find(t => t.k !== '미기입' && t.m.spend > 0), bestFmt = fmt.length > 1 ? fmt[0] : null;
+  const md = [], ct = [];
+  if (names('expand').length) md.push(`재입고·유사 상품 소싱 검토: ${names('expand').join(', ')}`);
+  if (names('replace').length) md.push(`판매 추이 확인 후 정리 여부 결정: ${names('replace').join(', ')}`);
+  if (newBest.length) md.push(`이번 기간 새 베스트 상품 재고 확인: ${[...new Set(newBest.map(n => admgrProductOf({ adset_name: n })))].join(', ')}`);
+  if (bestTag) ct.push(`소구점 '${bestTag.k}' 반복 (ROAS ${roas(bestTag.m).toFixed(1)}) — 다른 상품에도 같은 훅으로`);
+  if (bestFmt) ct.push(`${bestFmt.k} 비중 유지 (ROAS ${roas(bestFmt.m).toFixed(1)} vs ${fmt[1].k} ${roas(fmt[1].m).toFixed(1)})`);
+  if (names('more').length) ct.push(`추가 소재 촬영: ${names('more').join(', ')}`);
+  if (names('replace').length) ct.push(`새 소구점으로 재시도: ${names('replace').join(', ')}`);
+  if (formula.n) ct.push(`사이즈·체형커버 훅 문구 비율 ${formula.hit}/${formula.n} — ${formula.hit < formula.n ? '나머지 소재 문구에도 훅 넣기' : '전 소재 적용 중, 유지'}`);
+  return { from, to: today, days, prevFrom, approx, S, newBest, offBest, top, cooled, fmt, tags, price, formula, prods, eff, actions: { md, ct } };
+}
+function admgrBestReportText(rep, ai) {
+  const R = m => m && m.spend > 0 ? (m.value / m.spend).toFixed(1) : '—';
+  const line = m => `지출 ${won(m.spend)} · 구매 ${comma(m.purchases)} · ROAS ${R(m)}`;
+  const diff = (c, p) => { if (!p) return '(이전 기간 스냅샷 없음 — 다음 주부터 비교)'; const d = (a, b) => b ? `${a >= b ? '+' : ''}${Math.round((a - b) / b * 100)}%` : '—'; return `(전 기간 대비 지출 ${d(c.spend, p.spend)} · 구매 ${d(c.purchases, p.purchases)})`; };
+  const L = [`📊 베스트 소재 주간 리포트 · ${fmtMD(rep.from)}~${fmtMD(rep.to)} (${rep.days}일)`, ''];
+  L.push(`■ 요약`, ` · 베스트 소재 ${rep.S.best.n}개 (켜짐 ${rep.S.best.active}) — ${line(rep.S.best.cur)} ${diff(rep.S.best.cur, rep.S.best.prev)}`,
+    ` · 테스트 전체 ${rep.S.test.n}개 — ${line(rep.S.test.cur)} ${diff(rep.S.test.cur, rep.S.test.prev)}`);
+  if (rep.approx) L.push(` · ※ 스냅샷 없는 옛 소재 ${rep.approx}개는 누적으로 계산 (다음 주부터 정확)`);
+  L.push('', `■ 베스트 변동`, ` · 새로 담김 ${rep.newBest.length}: ${rep.newBest.join(' / ') || '없음'}`, ` · 꺼진 베스트 ${rep.offBest.length}: ${rep.offBest.join(' / ') || '없음'}`);
+  rep.top.forEach((a, i) => L.push(` · TOP${i + 1} ${a.name} — ${line(a.m)}`));
+  rep.cooled.forEach(a => L.push(` · 식음 ${a.name} — ${line(a.m)}`));
+  const bk = (title, list) => { L.push('', `■ ${title}`); if (!list.length) L.push('  데이터 없음'); list.forEach(b => L.push(` · ${b.k} ${b.n}개 — ${line(b.m)}`)); };
+  bk('릴스 vs 이미지 (베스트, 이번 기간)', rep.fmt); bk('소구점별', rep.tags); if (rep.price.length) bk('가격대별', rep.price);
+  if (rep.formula.n) L.push(` · 문구 훅(사이즈·체형커버) ${rep.formula.hit}/${rep.formula.n}`);
+  L.push('', `■ 상품 판단`); if (!rep.prods.length) L.push('  베스트 상품 없음');
+  rep.prods.forEach(p => L.push(` · [${p.label}] ${p.name} — 베스트 ${p.best}(켜짐 ${p.active}) · 기간 테스트 ${p.tests} · ${line(p.m)} · ${p.why}`));
+  const e = rep.eff;
+  L.push('', `■ 테스트 효율`, ` · 새 테스트 ${e.reg}개 · 우수 ${e.good} · 애매 ${e.meh} · 종료 ${e.off}${e.rate != null ? ` · 우수율 ${Math.round(e.rate * 100)}%` : ''}`);
+  e.by.forEach(w => L.push(` · ${w.who}님 소재 ${w.n}개 중 우수 ${w.good}${w.good ? ' 👍' : ''}`));
+  L.push('', `■ 다음 주 액션`, ` [MD팀]`); (rep.actions.md.length ? rep.actions.md : ['특이사항 없음']).forEach(x => L.push(`  · ${x}`));
+  L.push(` [컨텐츠팀]`); (rep.actions.ct.length ? rep.actions.ct : ['특이사항 없음']).forEach(x => L.push(`  · ${x}`));
+  if (ai && ai.text) L.push('', `■ AI 해석 (${fmtMD(String(ai.at || '').slice(0, 10))} 생성)`, ai.text.trim());
+  return L.join('\n');
+}
+function admgrBestReportHtml(rep, ai) {
+  const R = m => m && m.spend > 0 ? (m.value / m.spend).toFixed(1) : '—';
+  const pct = (a, b) => b ? `<span style="color:${a >= b ? '#16a34a' : '#dc2626'};font-weight:700;">${a >= b ? '+' : ''}${Math.round((a - b) / b * 100)}%</span>` : '';
+  const kpi = (label, val, sub) => `<div class="kpi-tile"><div class="kt-label">${label}</div><div class="kt-value" style="font-size:1.05rem;">${val}</div>${sub ? `<div class="kt-sub">${sub}</div>` : ''}</div>`;
+  const sec = (title, color, body, note) => `<section style="margin-bottom:16px;break-inside:avoid;"><div style="display:flex;align-items:baseline;gap:8px;border-left:4px solid ${color};padding-left:8px;margin-bottom:6px;"><b style="font-size:.92rem;color:#111827;">${title}</b>${note ? `<span style="font-size:.7rem;color:#9ca3af;">${note}</span>` : ''}</div><div style="margin-left:12px;font-size:.8rem;color:#374151;line-height:1.7;">${body}</div></section>`;
+  const tbl = (rows, heads) => `<table style="border-collapse:collapse;font-size:.76rem;margin:4px 0;"><tr>${heads.map(h => `<th style="text-align:left;padding:2px 10px 2px 0;color:#6b7280;font-weight:600;">${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(c => `<td style="padding:2px 10px 2px 0;border-top:1px solid #f1f2f6;">${c}</td>`).join('')}</tr>`).join('')}</table>`;
+  const mrow = (k, n, m) => [esc(k), n + '개', won(m.spend), comma(m.purchases), `<b style="color:#15803d;">${R(m)}</b>`];
+  const bc = rep.S.best.cur, bp = rep.S.best.prev, tc = rep.S.test.cur;
+  const head = `<div style="margin-bottom:12px;"><div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">베스트 소재 주간 리포트 <span style="font-weight:600;color:#6b7280;font-size:.85rem;">${fmtMD(rep.from)} ~ ${fmtMD(rep.to)} (${rep.days}일)</span></div>
+    ${rep.approx ? `<div style="font-size:.7rem;color:#b45309;margin-top:4px;">※ 스냅샷 없는 옛 소재 ${rep.approx}개는 누적 성과로 계산했어요 — 다음 주부터 기간 성과가 정확해져요</div>` : ''}
+    ${!bp ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:4px;">이전 기간 스냅샷이 아직 없어 전주 대비는 다음 주부터 나와요</div>` : ''}</div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-bottom:14px;">
+      ${kpi('베스트 소재', `${rep.S.best.n}개`, `켜짐 ${rep.S.best.active}`)}${kpi('베스트 지출', won(bc.spend), bp ? pct(bc.spend, bp.spend) : '')}${kpi('베스트 구매', comma(bc.purchases) + '건', bp ? pct(bc.purchases, bp.purchases) : '')}
+      ${kpi('베스트 ROAS', `<span style="color:#15803d;">${R(bc)}</span>`, bp ? '이전 ' + R(bp) : '')}${kpi('테스트 전체', `${rep.S.test.n}개`, `지출 ${won(tc.spend)} · ROAS ${R(tc)}`)}</div>`;
+  const chg = `<div>새로 담김 <b>${rep.newBest.length}</b>: ${rep.newBest.map(esc).join(' / ') || '없음'}</div><div>꺼진 베스트 <b style="color:${rep.offBest.length ? '#dc2626' : '#374151'};">${rep.offBest.length}</b>: ${rep.offBest.map(esc).join(' / ') || '없음'}</div>
+    ${rep.top.length ? tbl(rep.top.map((a, i) => [`<b>TOP${i + 1}</b>`, esc(a.name), won(a.m.spend), comma(a.m.purchases), `<b style="color:#15803d;">${R(a.m)}</b>`]), ['', '소재', '지출', '구매', 'ROAS']) : ''}
+    ${rep.cooled.length ? `<div style="color:#dc2626;">식은 베스트: ${rep.cooled.map(a => `${esc(a.name)} (ROAS ${R(a.m)})`).join(' / ')}</div>` : ''}`;
+  const pat = [['릴스 vs 이미지', rep.fmt], ['소구점', rep.tags], ['가격대', rep.price]].filter(([, L]) => L.length).map(([t, L]) => `<div style="margin-top:4px;"><b style="font-size:.74rem;color:#4b5563;">${t}</b>${tbl(L.map(b => mrow(b.k, b.n, b.m)), ['', '소재', '지출', '구매', 'ROAS'])}</div>`).join('')
+    + (rep.formula.n ? `<div style="margin-top:4px;">문구 훅(사이즈·체형커버) <b>${rep.formula.hit}/${rep.formula.n}</b> 소재</div>` : '');
+  const V = ADMGR_BR_VERDICT;
+  const pr = rep.prods.length ? tbl(rep.prods.map(p => [`<span style="display:inline-block;padding:1px 8px;border-radius:999px;background:${V[p.v][1]}18;color:${V[p.v][1]};font-weight:700;">${p.label}</span>`, `<b>${esc(p.name)}</b>`, `${p.best} (켜짐 ${p.active})`, p.tests, won(p.m.spend), comma(p.m.purchases), `<b style="color:#15803d;">${R(p.m)}</b>`, `<span style="color:#6b7280;">${esc(p.why)}</span>`]), ['판단', '상품', '베스트', '기간 테스트', '지출', '구매', 'ROAS', '근거']) : '베스트 상품 없음';
+  const e = rep.eff;
+  const ef = `<div>새 테스트 <b>${e.reg}</b>개 · 우수 <b style="color:#16a34a;">${e.good}</b> · 애매 ${e.meh} · 종료 ${e.off}${e.rate != null ? ` · 우수율 <b>${Math.round(e.rate * 100)}%</b>` : ''}</div>${e.by.map(w => `<div>${esc(w.who)}님 소재 ${w.n}개 중 우수 ${w.good}${w.good ? ' 👍' : ''}</div>`).join('')}`;
+  const act = `<div><b style="color:#7c2d12;">MD팀</b>${(rep.actions.md.length ? rep.actions.md : ['특이사항 없음']).map(x => `<div>· ${esc(x)}</div>`).join('')}</div><div style="margin-top:6px;"><b style="color:#1d4ed8;">컨텐츠팀</b>${(rep.actions.ct.length ? rep.actions.ct : ['특이사항 없음']).map(x => `<div>· ${esc(x)}</div>`).join('')}</div>`;
+  const aiBox = ai && ai.text
+    ? sec('AI 해석', '#7c3aed', `<div style="white-space:pre-line;background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:10px 12px;">${esc(ai.text.trim())}</div>`, `${fmtMD(String(ai.at || '').slice(0, 10))} 생성 · 바탕화면 '주간리포트-해석'으로 갱신`)
+    : sec('AI 해석', '#7c3aed', `<div style="color:#9ca3af;">아직 없음 — 이 리포트를 연 뒤 바탕화면의 <b>주간리포트-해석.command</b>를 실행하면 여기에 붙어요 (이 맥의 Claude Code 사용, 결제 없음)</div>`);
+  return head + sec('베스트 변동', '#16a34a', chg) + sec('터진 이유 — 패턴', '#2563eb', pat || '베스트 소재 성과 데이터 없음', '베스트 소재의 이번 기간 성과')
+    + sec('상품 판단', '#4f46e5', pr, `${V.expand[0]}=${V.expand[2]} · ${V.more[0]}=${V.more[2]} · ${V.replace[0]}=${V.replace[2]}`)
+    + sec('테스트 효율', '#0891b2', ef, '등록자별은 대시보드로 올린 소재만') + sec('다음 주 액션', '#ea580c', act) + aiBox;
+}
+async function admgrBestReport() {
+  const b = admgr.best, t = admgr.test;
+  if (!admgrCfg() || admgr.demo) { toast('실제 Meta 연동 후 쓸 수 있어요'); return; }
+  const days = admgrReportOpen('best', '주간 리포트 (베스트 소재)');
+  $('rp-body').innerHTML = '<div class="empty-state"><p>베스트·테스트 소재와 일별 스냅샷을 모으는 중…</p></div>';
+  try {
+    if (!b.loaded) await admgrBestFetch();
+    if (!t.loaded) await admgrTestFetch();
+    if (!t.loaded) throw new Error('테스트 소재를 불러오지 못했어요');
+    if (!t.creatives) await admgrTestCreativesEnsure();
+    if (!admgr.products && !admgr.productsLoading) await admgrLoadProducts();
+    const today = todayStr(0), from = (() => { const d = new Date(today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); })();
+    const prevFrom = (() => { const d = new Date(from + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - days); return d.toISOString().slice(0, 10); })();
+    const [dayRes, aiRes] = await Promise.all([metaGet({ action: 'daystats', d1: from, d0: prevFrom }), sbCall('client-log', { action: 'state_get', key: 'best_report_ai' }).catch(() => null)]);
+    b.ai = aiRes && aiRes.data ? aiRes.data : null;
+    const rep = admgrBestReportBuild({ tests: admgrTestRowSets().vis, best: b.rows || [], bestAds: b.ads || [], dayRows: dayRes.rows || [], cre: t.creatives || new Map(), products: admgr.products || [], judge: admgrTJudge }, days, today);
+    b.report = rep;
+    admgrRp.cur = { title: `베스트 소재 주간 리포트 ${rep.from}~${rep.to}`, text: () => admgrBestReportText(rep, b.ai), html: () => admgrBestReportHtml(rep, b.ai) };
+    $('rp-body').innerHTML = admgrBestReportHtml(rep, b.ai);
+    // 숫자 리포트를 계정 공유 상태에 저장 → 바탕화면 '주간리포트-해석'이 읽어 AI 해석을 붙인다 (마지막으로 연 리포트 기준)
+    try {
+      const cur = await sbCall('client-log', { action: 'state_get', key: 'best_report' });
+      await sbCall('client-log', { action: 'state_set' }, { key: 'best_report', base: cur.ver || null, data: { from: rep.from, to: rep.to, days, at: new Date().toISOString(), text: admgrBestReportText(rep, null) } });
+    } catch (e) { /* 저장 실패해도 화면 리포트는 정상 — 해석만 못 붙는다 */ }
+  } catch (e) { $('rp-body').innerHTML = `<div class="empty-state"><p>리포트를 만들지 못했어요: ${esc(e.message)}</p></div>`; }
 }
 /* ── 판정 추천: 기준(일수·지출·ROAS·구매)은 화면에서 바꿀 수 있고 브라우저에 기억 ── */
 const ADMGR_TJUDGE_DEFAULT = { days: 3, spend: 30000, offRoas: 1, goodRoas: 3, goodPurch: 3 };
@@ -401,7 +575,7 @@ function admgrTestCopy(adId) {
   });
 }
 /* 세트명 앞부분(첫 _ 앞) = 상품명 — 상품별 묶기·소재 등록 이동에 사용 */
-const admgrProductOf = a => String(a.adset_name || a.name || '').normalize('NFC').split('_')[0].replace(/\s+\d{6}\b.*$/, '').trim() || '(이름 없음)';
+const admgrProductOf = a => String(a.adset_name || a.name || '').normalize('NFC').split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim() || '(이름 없음)';   // 꼬리 날짜·가격 숫자 제거 ('안스 후드 집업 28500 260906 test' → '안스 후드 집업')
 async function admgrTestGoRegister(prodName) {
   showMenu('ptest');
   try { await regPresetInit(); } catch (e) { toast('상품 목록을 불러오지 못했어요'); return; }
@@ -681,7 +855,8 @@ function renderAdmgrBest() {
   if (!b.loaded) return `<div class="empty-state"><p>${b.loading ? '베스트소재를 불러오는 중…' : '<b>새로고침</b>을 누르면 베스트소재를 불러와요.'}</p></div>`;
   if (!(b.rows || []).length) {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div>
-      <p>아직 담은 소재가 없어요.<br/>테스트 소재에서 <b>우수</b>를 누르면 자동으로 담기고, <b>광고세트</b> 탭에서 세트를 체크해 <b>베스트소재로</b>를 눌러도 돼요.</p></div>`;
+      <p>아직 담은 소재가 없어요.<br/>테스트 소재에서 <b>우수</b>를 누르면 자동으로 담기고, <b>광고세트</b> 탭에서 세트를 체크해 <b>베스트소재로</b>를 눌러도 돼요.</p>
+      <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;margin-top:8px;" onclick="admgrBestReport()"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트 (테스트 효율만)</button></div>`;
   }
   // 성과·등록 기록은 테스트 소재 데이터에서 — 아직 없으면 조용히 불러온다
   if (!admgr.test.loaded && !admgr.test.loading) setTimeout(() => admgrTestFetch(), 0);
@@ -709,6 +884,7 @@ function renderAdmgrBest() {
     <span style="flex:1;"></span>
     ${sw(b.hideOff, '꺼진 소재 숨기기', `admgrBestSet('hideOff',${!b.hideOff})`)}
     ${sw(b.autoAdd, '우수 판정 시 자동 담기', `admgrBestSet('autoAdd',${!b.autoAdd})`, '테스트 소재에서 [우수]를 누르면 그 세트를 여기에 자동으로 담아요')}
+    <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrBestReport()" title="회의용 — 이번 기간 베스트 성과·전주 대비·패턴(릴스/이미지·소구점·가격대)·상품 판단·테스트 효율·다음 주 액션 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트</button>
   </div>
   <div class="info-bar"><i class="fa-solid fa-star"></i> 담은 세트 ${b.rows.length}개 · 소재 ${allAds.length}개 · 성과는 <b>등록 이후 누적</b>${metricsReady ? '' : ' (불러오는 중…)'} · 타일 클릭 = 큰 미리보기 · 상품 제목의 ✕ = 세트 빼기</div>`;
   const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">

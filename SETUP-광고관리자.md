@@ -111,6 +111,7 @@ GitHub Pages 대신 로컬 파일로 열거나, config.js만 따로 넣은 사�
   $$);
   ```
   확인: `select * from cron.job_run_details where jobid=(select jobid from cron.job where jobname='meta-sync-5min') order by start_time desc limit 5;` · 마지막 수집 `select payload from api_cache where cache_key='meta:sync:last';`
+- **일별 스냅샷(2026-09-12)**: `test_ad_day`(마이그레이션 0013) — testads 조회 때마다 그날 행을 덮어쓰고, sync는 **하루 첫 실행**에 테스트 소재를 한 번 수집해 그날 행을 보장(cron 외 Meta 호출 하루 +2). 베스트 주간 리포트의 기간 증분·전주 대비가 여기서 나오며, 첫 주는 스냅샷이 없어 누적으로 표시된다. 조회 `meta-ads?action=daystats&d1=기간시작&d0=이전기간시작`. 마이그레이션 적용: `supabase db query --linked --project-ref pydxcqfztjogmztvayux -f supabase/migrations/0013_test_ad_day.sql` (`--linked`만 주면 "Cannot find project ref").
 - **3단계(미착수)**: Meta 앱 Standard Access 검수(비즈니스 인증) — 판매용·다계정이면 필수.
 
 ## 다음 단계 (원하면)

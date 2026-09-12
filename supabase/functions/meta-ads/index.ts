@@ -319,6 +319,107 @@ async function syncInfo(): Promise<{ sync_at: string | null }> {
   return { sync_at: r?.at && Date.now() - new Date(r.at).getTime() < 15 * 60_000 ? r.at : null };
 }
 
+// 테스트 소재 수집 본체 — testads 액션(5분 캐시)과 sync(하루 첫 실행)가 같이 쓴다. test_ad_snap(현재값)·test_ad_day(일별 누적)에 보관.
+async function fetchTestads(c: Creds, kw: string, today: string) {
+  const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
+  const testSets = allSets.filter((r) => kwRe.test(String(r.name ?? "")));
+  const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
+  const setIds = [...setName.keys()].slice(0, 200);   // IN 필터 값 개수·URL 길이 방어
+  if (!setIds.length) {
+    return { fetched_at: new Date().toISOString(), until: today, adset_count: 0, truncated: false, ads: [] };
+  }
+
+  const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
+  const insParams = {
+    time_range: JSON.stringify({ since: "2024-01-01", until: today }),
+    level: "ad",
+    fields: "ad_id,adset_id,spend,actions,action_values",
+    limit: "500",
+  };
+  const [adRows, insRows] = await Promise.all([
+    graphGetAll(`${c.account}/ads`, {
+      fields: "id,name,status,effective_status,created_time,adset_id",
+      filtering: adsetFilter,
+      limit: "500",
+    }, c.token),
+    // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
+    graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilter }, c.token)
+      .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
+  ]);
+
+  const metric = new Map(insRows
+    .filter((r) => setName.has(String(r.adset_id ?? "")))
+    .map((r) => [String(r.ad_id ?? ""), r]));
+  const regDate = (ct: string) => {
+    const d = new Date(ct);
+    return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
+  };
+  const ads = adRows.map((a) => {
+    const id = String(a.id ?? "");
+    const m = metric.get(id);
+    return {
+      id,
+      name: String(a.name ?? ""),
+      adset_id: String(a.adset_id ?? ""),
+      adset_name: setName.get(String(a.adset_id ?? "")) ?? "",
+      status: String(a.status ?? ""),                       // 소재 자체 스위치
+      effective_status: String(a.effective_status ?? ""),   // 실제 상태 (상위 꺼짐·검토중·거부 포함)
+      created_time: String(a.created_time ?? ""),
+      reg_date: regDate(String(a.created_time ?? "")),
+      spend: m ? num(m.spend) : 0,
+      purchases: m ? pickPurchase(m.actions) : 0,
+      value: m ? pickPurchase(m.action_values) : 0,
+    };
+  });
+
+  let goneAds: Record<string, unknown>[] = [];
+  try {
+    if (ads.length) {
+      await dbRest(`test_ad_snap?on_conflict=ad_id`, {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(ads.map((a) => ({
+          ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
+          status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
+          spend: a.spend, purchases: a.purchases, value: a.value,
+          last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (본문에서 제외)
+        }))),
+      });
+      // 일별 누적 스냅샷 (주간 리포트) — 같은 날은 덮어쓰기 → 하루 1행
+      await dbRest(`test_ad_day?on_conflict=ad_id,day`, {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(ads.map((a) => ({ ad_id: a.id, day: today, spend: a.spend, purchases: a.purchases, value: a.value,
+          status: a.status, effective_status: a.effective_status, snap_at: new Date().toISOString() }))),
+      });
+    }
+    const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString();
+    const res2 = await dbRest(`test_ad_snap?last_seen=gte.${encodeURIComponent(cutoff)}&select=*`);
+    const snaps = res2.ok ? (await res2.json()) as Record<string, unknown>[] : [];
+    const liveIds = new Set(ads.map((a) => a.id));
+    goneAds = snaps
+      .filter((s) => !liveIds.has(String(s.ad_id)))
+      .map((s) => ({
+        id: String(s.ad_id), name: String(s.name ?? ""),
+        adset_id: String(s.adset_id ?? ""), adset_name: String(s.adset_name ?? ""),
+        status: String(s.status ?? ""), effective_status: String(s.effective_status ?? ""),
+        created_time: "", reg_date: String(s.reg_date ?? ""),
+        spend: num(s.spend), purchases: num(s.purchases), value: num(s.value),
+        gone: true, gone_since: String(s.last_seen ?? ""),
+      }));
+  } catch { /* 보관 실패해도 본 목록은 정상 반환 */ }
+
+  const body = {
+    fetched_at: new Date().toISOString(),
+    until: today,
+    adset_count: setIds.length,
+    truncated: setName.size > setIds.length,
+    ads: [...ads, ...goneAds],
+  };
+  return body;
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -356,6 +457,8 @@ Deno.serve(async (req) => {
       curKey = `meta:budgethist:${t}:${t}`;
       const b = await fetchBudgetHistory(c, t, t);
       await cacheSet(curKey, b);
+      const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
+      if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
       await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
@@ -462,100 +565,24 @@ Deno.serve(async (req) => {
       const cacheKey = `meta:testads:${kw.toLowerCase()}:${today}`;
       const pre = await metaPre(cacheKey, 5 * 60 * 1000);   // 60초 → 5분 (한도 방어), 사용량 80%↑면 15분
       if (pre) return pre;
-
-      const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-      const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
-      const testSets = allSets.filter((r) => kwRe.test(String(r.name ?? "")));
-      const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
-      const setIds = [...setName.keys()].slice(0, 200);   // IN 필터 값 개수·URL 길이 방어
-      if (!setIds.length) {
-        const empty = { fetched_at: new Date().toISOString(), until: today, adset_count: 0, truncated: false, ads: [] };
-        await cacheSet(cacheKey, empty);
-        return json(empty);
-      }
-
-      const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
-      const insParams = {
-        time_range: JSON.stringify({ since: "2024-01-01", until: today }),
-        level: "ad",
-        fields: "ad_id,adset_id,spend,actions,action_values",
-        limit: "500",
-      };
-      const [adRows, insRows] = await Promise.all([
-        graphGetAll(`${c.account}/ads`, {
-          fields: "id,name,status,effective_status,created_time,adset_id",
-          filtering: adsetFilter,
-          limit: "500",
-        }, c.token),
-        // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
-        graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilter }, c.token)
-          .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
-      ]);
-
-      const metric = new Map(insRows
-        .filter((r) => setName.has(String(r.adset_id ?? "")))
-        .map((r) => [String(r.ad_id ?? ""), r]));
-      const regDate = (ct: string) => {
-        const d = new Date(ct);
-        return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
-      };
-      const ads = adRows.map((a) => {
-        const id = String(a.id ?? "");
-        const m = metric.get(id);
-        return {
-          id,
-          name: String(a.name ?? ""),
-          adset_id: String(a.adset_id ?? ""),
-          adset_name: setName.get(String(a.adset_id ?? "")) ?? "",
-          status: String(a.status ?? ""),                       // 소재 자체 스위치
-          effective_status: String(a.effective_status ?? ""),   // 실제 상태 (상위 꺼짐·검토중·거부 포함)
-          created_time: String(a.created_time ?? ""),
-          reg_date: regDate(String(a.created_time ?? "")),
-          spend: m ? num(m.spend) : 0,
-          purchases: m ? pickPurchase(m.actions) : 0,
-          value: m ? pickPurchase(m.action_values) : 0,
-        };
-      });
-
-      let goneAds: Record<string, unknown>[] = [];
-      try {
-        if (ads.length) {
-          await dbRest(`test_ad_snap?on_conflict=ad_id`, {
-            method: "POST",
-            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-            body: JSON.stringify(ads.map((a) => ({
-              ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
-              status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
-              spend: a.spend, purchases: a.purchases, value: a.value,
-              last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (본문에서 제외)
-            }))),
-          });
-        }
-        const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString();
-        const res2 = await dbRest(`test_ad_snap?last_seen=gte.${encodeURIComponent(cutoff)}&select=*`);
-        const snaps = res2.ok ? (await res2.json()) as Record<string, unknown>[] : [];
-        const liveIds = new Set(ads.map((a) => a.id));
-        goneAds = snaps
-          .filter((s) => !liveIds.has(String(s.ad_id)))
-          .map((s) => ({
-            id: String(s.ad_id), name: String(s.name ?? ""),
-            adset_id: String(s.adset_id ?? ""), adset_name: String(s.adset_name ?? ""),
-            status: String(s.status ?? ""), effective_status: String(s.effective_status ?? ""),
-            created_time: "", reg_date: String(s.reg_date ?? ""),
-            spend: num(s.spend), purchases: num(s.purchases), value: num(s.value),
-            gone: true, gone_since: String(s.last_seen ?? ""),
-          }));
-      } catch { /* 보관 실패해도 본 목록은 정상 반환 */ }
-
-      const body = {
-        fetched_at: new Date().toISOString(),
-        until: today,
-        adset_count: setIds.length,
-        truncated: setName.size > setIds.length,
-        ads: [...ads, ...goneAds],
-      };
+      const body = await fetchTestads(c, kw, today);
       await cacheSet(cacheKey, body);
       return json(body);
+    }
+    // 일별 누적 스냅샷 조회 (주간 리포트) — 기간 시작일(d1)과 이전 기간 시작일(d0) 각각 앞 3일까지 → 클라이언트가 날짜 이하 최신 행을 기준선으로 쓴다
+    if (action === "daystats") {
+      const day = (k: string) => { const v = url.searchParams.get(k) ?? ""; return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };
+      const d1 = day("d1"), d0 = day("d0");
+      if (!d1 || !d0) return json({ error: "d0·d1 날짜 필요" }, 400);
+      const back = (d: string) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() - 3); return x.toISOString().slice(0, 10); };
+      const rows: unknown[] = [];
+      for (let off = 0; off < 20000; off += 1000) {   // 소재 300개 × 8일 > PostgREST 기본 1,000행 한도 → 페이지로
+        const r = await dbRest(`test_ad_day?select=ad_id,day,spend,purchases,value&or=(and(day.gte.${back(d1)},day.lte.${d1}),and(day.gte.${back(d0)},day.lte.${d0}))&order=day.asc,ad_id.asc&limit=1000&offset=${off}`);
+        if (!r.ok) break;
+        const page = await r.json() as unknown[]; rows.push(...page);
+        if (page.length < 1000) break;
+      }
+      return json({ rows });
     }
 
     // ═══ 이식 3단계 — 베스트소재 썸네일 (원본 creatives) ═══

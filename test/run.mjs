@@ -248,6 +248,47 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
+test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
+  const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-08-01', gone: false,
+    effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', spend: m.spend, purchases: m.pur, value: m.val, meta: m.meta || {} });
+  const tests = [
+    ad('1', { set: '루즈핏 니트_R1_28_260801_test', spend: 100000, pur: 10, val: 500000, meta: { verdict: 'good', verdict_at: '2026-09-10T00:00:00Z' } }),
+    ad('2', { set: '루즈핏 니트_R2_28_260801_test', spend: 50000, pur: 2, val: 60000 }),
+    ad('3', { set: '스커트_P1_20_260908_test', reg: '2026-09-08', spend: 40000, pur: 4, val: 200000, meta: { verdict: 'good', verdict_at: '2026-09-11T00:00:00Z' } }),
+    ad('4', { set: '블라우스_R1_15_260810_test', spend: 90000, pur: 1, val: 30000, es: 'PAUSED', meta: { verdict: 'meh', verdict_at: '2026-09-09T00:00:00Z' } }),
+    ad('5', { set: '바지_R1_10_260909_test', reg: '2026-09-09', spend: 3000, pur: 0, val: 0, es: 'PAUSED' }),
+  ].map(a => ({ ...a, st: g('admgrTestStatusOf')(a, a.meta) }));
+  const best = [{ adset_id: 's1', adset_name: '루즈핏 니트_R1_28_260801_test', created_at: '2026-08-20T00:00:00Z' }, { adset_id: 's2', adset_name: '루즈핏 니트_R2_28_260801_test', created_at: '2026-09-06T00:00:00Z' },
+    { adset_id: 's3', adset_name: '스커트_P1_20_260908_test', created_at: '2026-09-11T00:00:00Z' }, { adset_id: 's4', adset_name: '블라우스_R1_15_260810_test', created_at: '2026-08-15T00:00:00Z' }];
+  const bestAds = [{ id: '1', adset_id: 's1', effective_status: 'ACTIVE', is_video: true }, { id: '2', adset_id: 's2', effective_status: 'ACTIVE', is_video: true },
+    { id: '3', adset_id: 's3', effective_status: 'ACTIVE', is_video: false }, { id: '4', adset_id: 's4', effective_status: 'PAUSED', is_video: true }];
+  // 1: 기준선 둘 다 있음(증분 = 20,000/3/100,000 · 이전 = 30,000) · 2: 이번 기준선만(옛 소재 → 이전 미상) · 4: 스냅샷 없음(누적, approx) · 3·5: 기간 안 등록(누적 = 증분)
+  const dayRows = [{ ad_id: '1', day: '2026-08-29', spend: 50000, purchases: 5, value: 250000 }, { ad_id: '1', day: '2026-09-05', spend: 80000, purchases: 7, value: 400000 },
+    { ad_id: '2', day: '2026-09-04', spend: 45000, purchases: 2, value: 60000 }];
+  const cre = new Map([['1', { file_name: '니트_R1_사이즈_28_260801_test.mov', created_by_email: 'kim@x.com', text: { message: '77사이즈도 편해요' } }], ['3', { file_name: '스커트_P1_핏_20_260908_test.jpg', created_by_email: 'kim@x.com', text: { message: '가을에 딱' } }],
+    ['5', { file_name: '바지_R1_10_260909_test.mov', created_by_email: 'lee@x.com' }]]);
+  const products = [{ name: '루즈핏 니트 (자체제작)', price: 39000, supply: 15000 }, { name: '스커트', price: 89000, supply: 30000 }];
+  const rep = g('admgrBestReportBuild')({ tests, best, bestAds, dayRows, cre, products }, 7, '2026-09-11');
+  assert.equal(rep.from + ' ' + rep.prevFrom, '2026-09-05 2026-08-29');
+  assert.equal(rep.approx, 1);
+  assert.equal([rep.S.best.n, rep.S.best.active, rep.S.best.cur.spend, rep.S.best.cur.purchases, rep.S.best.prev.spend].join(), '4,3,155000,8,30000');   // 1:20000+2:5000+3:40000+4:90000 / 구매 3+0+4+1
+  assert.equal(rep.newBest.join('|'), '루즈핏 니트_R2_28_260801_test|스커트_P1_20_260908_test');
+  assert.equal(rep.offBest.join('|'), '블라우스_R1_15_260810_test');
+  assert.equal(rep.top[0].name, '스커트_P1_20_260908_test');   // ROAS 5.0 동률(니트1 20,000·스커트 40,000) → 지출 큰 순
+  assert.equal(rep.fmt.map(b => b.k + b.n).join(), '이미지1,릴스3');
+  assert.equal(rep.tags.map(b => b.k).join(), '사이즈,핏,미기입');
+  assert.equal(rep.price.map(b => b.k + ':' + b.n).join(), '8만 이상:1,3~5만:2,가격 미상:1');
+  assert.equal(rep.formula.hit + '/' + rep.formula.n, '1/2');
+  assert.equal(rep.prods.map(p => p.name + ':' + p.v).join(), '루즈핏 니트:expand,스커트:more,블라우스:replace');
+  assert.equal([rep.eff.reg, rep.eff.good, rep.eff.meh, rep.eff.off].join(), '2,2,1,1');
+  assert.equal(JSON.stringify(rep.eff.by), JSON.stringify([{ who: 'kim', n: 1, good: 1 }, { who: 'lee', n: 1, good: 0 }]));
+  assert.ok(rep.actions.md[0].includes('니트') && rep.actions.ct.some(x => x.includes("'사이즈'")));
+  const txt = g('admgrBestReportText')(rep, { text: '해석', at: '2026-09-11T09:00:00Z' });
+  assert.ok(txt.includes('■ 요약') && txt.includes('[확장] 루즈핏 니트') && txt.includes('kim님 소재 1개 중 우수 1') && txt.includes('■ AI 해석'));
+  const html = g('admgrBestReportHtml')(rep, null);
+  assert.ok(html.includes('베스트 소재 주간 리포트') && html.includes('교체 검토') && html.includes('주간리포트-해석'));
+});
+
 console.log('⑤ 소재 메뉴 단독 화면 (테스트 소재·베스트소재)');
 test('showMenu(atest): 광고관리자 섹션을 test 탭만으로, admgr 복귀 시 이전 탭 복원', () => {
   vm.runInContext("admgr.view = 'camp';", ctx);
