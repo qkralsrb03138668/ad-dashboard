@@ -509,16 +509,32 @@ async function admgrBestReport() {
   } catch (e) { $('rp-body').innerHTML = `<div class="empty-state"><p>리포트를 만들지 못했어요: ${esc(e.message)}</p></div>`; }
 }
 /* ── 판정 추천: 기준(일수·지출·ROAS·구매)은 화면에서 바꿀 수 있고 브라우저에 기억 ── */
-const ADMGR_TJUDGE_DEFAULT = { days: 3, spend: 30000, offRoas: 1, goodRoas: 3, goodPurch: 3 };
+/* 기준: useBe=상품 마진으로 손익분기 ROAS를 계산해 소재마다 다른 기준(OFF = 손익분기 미만, 우수 = 손익분기×beMult 이상). 상품이 안 잡히면 offRoas/goodRoas 고정값.
+   goodPurch = 우수에 필요한 최소 구매(표본) — ROAS가 좋아도 이보다 적으면 '표본 부족' (구매 몇 건의 ROAS는 우연이 크다) */
+const ADMGR_TJUDGE_DEFAULT = { days: 3, spend: 30000, offRoas: 1, goodRoas: 3, goodPurch: 5, useBe: true, beMult: 1.5 };
 let admgrTJudge = Object.assign({}, ADMGR_TJUDGE_DEFAULT, lsGet('adc_admgr_tjudge', null) || {});
-function admgrRecommend(a) {   // null = 평가중 아님. k: off | good | wait(기준 채웠지만 애매) | watch(아직 기준 미달)
+/* 손익분기 ROAS = 판매가 ÷ (판매가 − 공급가×1.1) — 광고세트 탭 오늘의 판정과 같은 마진 식(admgrMarginOf). 세트 id로 직접 입력한 마진도 반영. 상품 못 찾으면 null */
+function admgrBreakEven(a) {
+  const name = a.adset_name || a.name || '';
+  const n = admgrNorm(name), p = admgrProdIdx().find(p => n.includes(p.n));
+  const manual = admgr.margins[a.adset_id];
+  if (p && p.price > 0) { const m = manual > 0 ? manual : p.price - (p.supply || 0) * 1.1; return m > 0 ? { be: p.price / m, price: p.price, margin: m, name: p.name } : null; }
+  return null;
+}
+function admgrRecommend(a) {   // null = 평가중 아님. k: off | good | wait(기준 채웠지만 애매·표본 부족) | watch(아직 기준 미달)
   if (a.st !== 'eval') return null;
   // ROAS = 구매 전환값 ÷ 지출 (테스트 소재 데이터엔 roas 필드가 없고 value만 온다 — 실사고 2026-09-11: roas 0으로 읽어 전부 OFF 후보)
   const dp = admgrDPlus(a) ?? 0, roas = a.spend ? (a.roas != null ? a.roas : (a.value || 0) / a.spend) : 0, J = admgrTJudge;
-  if (dp < J.days || (a.spend || 0) < J.spend) return { k: 'watch', label: '지켜보기', why: `D+${dp} · ${won(a.spend || 0)} — 기준(D+${J.days}·${won(J.spend)}) 전` };
-  if (roas < J.offRoas) return { k: 'off', label: 'OFF 후보', why: `ROAS ${roas.toFixed(2)} < ${J.offRoas}` };
-  if (roas >= J.goodRoas && (a.purchases || 0) >= J.goodPurch) return { k: 'good', label: '우수 후보', why: `ROAS ${roas.toFixed(2)} · 구매 ${a.purchases}` };
-  return { k: 'wait', label: '애매', why: `ROAS ${roas.toFixed(2)} · 구매 ${a.purchases || 0} — 우수·OFF 기준 사이` };
+  const be = J.useBe !== false ? admgrBreakEven(a) : null;
+  const offR = be ? be.be : J.offRoas, goodR = be ? be.be * (J.beMult || 1.5) : J.goodRoas, base = be ? `손익분기 ${be.be.toFixed(1)}` : '고정 기준';
+  const out = r => ({ ...r, be: be ? be.be : null, offR, goodR });
+  if (dp < J.days || (a.spend || 0) < J.spend) return out({ k: 'watch', label: '지켜보기', why: `D+${dp} · ${won(a.spend || 0)} — 기준(D+${J.days}·${won(J.spend)}) 전` });
+  if (roas < offR) return out({ k: 'off', label: 'OFF 후보', why: `ROAS ${roas.toFixed(2)} < ${offR.toFixed(1)} (${base}${be ? ' — 이 소재는 손해' : ''})` });
+  if (roas >= goodR) {
+    if ((a.purchases || 0) >= J.goodPurch) return out({ k: 'good', label: '우수 후보', why: `ROAS ${roas.toFixed(2)} ≥ ${goodR.toFixed(1)} (${base}×${J.beMult || 1.5}) · 구매 ${a.purchases}` });
+    return out({ k: 'wait', sample: true, label: '표본 부족', why: `ROAS ${roas.toFixed(2)}는 좋지만 구매 ${a.purchases || 0}건 < ${J.goodPurch}건 — 우연일 수 있어 더 지켜보기` });
+  }
+  return out({ k: 'wait', label: '애매', why: `ROAS ${roas.toFixed(2)} · 구매 ${a.purchases || 0} — OFF(${offR.toFixed(1)})·우수(${goodR.toFixed(1)}) 사이` });
 }
 const ADMGR_REC_RANK = { off: 0, good: 0, wait: 1, watch: 2 };
 function admgrTJudgeCmp(x, y) {
@@ -535,7 +551,7 @@ function admgrRecBadge(a) {
   return `<div style="margin-bottom:3px;"><span class="status-badge ${cls}" title="${esc(r.why)}" style="font-size:.62rem;">${r.k === 'watch' ? '' : '▶ '}${r.label}</span></div>`;
 }
 function admgrTJudgeToggle() { admgr.test.judgeOpen = !admgr.test.judgeOpen; renderAdmgr(true); }
-function admgrTJudgeSet(k, v) { admgrTJudge[k] = Number(v) || ADMGR_TJUDGE_DEFAULT[k]; lsSet('adc_admgr_tjudge', admgrTJudge); renderAdmgr(true); }
+function admgrTJudgeSet(k, v) { admgrTJudge[k] = k === 'useBe' ? !!Number(v) : (Number(v) || ADMGR_TJUDGE_DEFAULT[k]); lsSet('adc_admgr_tjudge', admgrTJudge); renderAdmgr(true); }
 function admgrTJudgeReset() { admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT }; lsSet('adc_admgr_tjudge', admgrTJudge); renderAdmgr(true); }
 
 /* ── 행 썸네일: 리포트용 캐시(t.thumbs)를 표에도 — 없는 세트만 100개씩 조회 후 다시 그림 ── */
@@ -590,6 +606,7 @@ function admgrTestGroupToggle() { const t = admgr.test; t.group = !t.group; lsSe
 function admgrTestGroupCollapse(key) { const t = admgr.test; t.collapsed = t.collapsed || new Set(); t.collapsed.has(key) ? t.collapsed.delete(key) : t.collapsed.add(key); renderAdmgr(true); }
 
 function renderAdmgrTest() {
+  if (!admgr.products && !admgr.productsLoading && admgrCfg() && !admgr.demo) admgrLoadProducts();   // 손익분기 ROAS용 카페24 판매가·공급가
   const t = admgr.test;
   if (t.group === undefined) t.group = !!lsGet('adc_admgr_test_group', false);
   if (!admgrCfg() && !admgr.demo) {
@@ -618,8 +635,10 @@ function renderAdmgrTest() {
       <b style="color:#1e1b4b;">판정 추천 기준</b>
       <label>D+ <input class="inp" type="number" min="0" value="${J.days}" style="width:60px;padding:3px 6px;" onchange="admgrTJudgeSet('days',this.value)" />일 이상</label>
       <label>누적 지출 <input class="inp" type="number" min="0" step="1000" value="${J.spend}" style="width:90px;padding:3px 6px;" onchange="admgrTJudgeSet('spend',this.value)" />원 이상일 때</label>
-      <label><span style="color:#dc2626;">OFF 후보</span>: ROAS <input class="inp" type="number" min="0" step="0.1" value="${J.offRoas}" style="width:60px;padding:3px 6px;" onchange="admgrTJudgeSet('offRoas',this.value)" /> 미만</label>
-      <label><span style="color:#15803d;">우수 후보</span>: ROAS <input class="inp" type="number" min="0" step="0.1" value="${J.goodRoas}" style="width:60px;padding:3px 6px;" onchange="admgrTJudgeSet('goodRoas',this.value)" /> 이상 · 구매 <input class="inp" type="number" min="0" value="${J.goodPurch}" style="width:50px;padding:3px 6px;" onchange="admgrTJudgeSet('goodPurch',this.value)" />건 이상</label>
+      <label style="display:inline-flex;align-items:center;gap:4px;"><input type="checkbox" ${J.useBe !== false ? 'checked' : ''} onchange="admgrTJudgeSet('useBe',this.checked?1:0)" style="margin:0;" /> <b>상품 마진으로 손익분기 ROAS</b> 계산 (OFF = 손익분기 미만 · 우수 = 손익분기 × <input class="inp" type="number" min="1" step="0.1" value="${J.beMult || 1.5}" style="width:56px;padding:3px 6px;" onchange="admgrTJudgeSet('beMult',this.value)" /> 이상)</label>
+      <label title="${J.useBe !== false ? '카페24 상품과 이름이 안 맞을 때만 쓰는 고정값' : ''}"><span style="color:#dc2626;">OFF 후보</span>${J.useBe !== false ? '(미매칭 시)' : ''}: ROAS <input class="inp" type="number" min="0" step="0.1" value="${J.offRoas}" style="width:60px;padding:3px 6px;" onchange="admgrTJudgeSet('offRoas',this.value)" /> 미만</label>
+      <label><span style="color:#15803d;">우수 후보</span>${J.useBe !== false ? '(미매칭 시)' : ''}: ROAS <input class="inp" type="number" min="0" step="0.1" value="${J.goodRoas}" style="width:60px;padding:3px 6px;" onchange="admgrTJudgeSet('goodRoas',this.value)" /> 이상</label>
+      <label title="ROAS가 좋아도 구매가 이보다 적으면 '표본 부족' — 구매 몇 건의 ROAS는 우연이 크다">표본: 구매 <input class="inp" type="number" min="0" value="${J.goodPurch}" style="width:50px;padding:3px 6px;" onchange="admgrTJudgeSet('goodPurch',this.value)" />건 이상이어야 우수</label>
       <span style="color:#9ca3af;">그 사이는 '애매', 기준 전은 '지켜보기'</span>
       <button class="btn-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="admgrTJudgeReset()">기본값</button></div>` : '';
   const ctrl = `<div class="filter-tabs" style="margin-bottom:10px;">
@@ -668,7 +687,8 @@ function renderAdmgrTest() {
         <td class="ctr" style="white-space:nowrap;">${a.reg_date ? fmtMD(a.reg_date) : '—'}<div style="font-size:.62rem;color:#9ca3af;">${dp == null ? '' : 'D+' + dp}</div></td>
         <td class="ctr" style="white-space:nowrap;">
           ${rec ? `<div><span class="status-badge ${recCls}" title="${esc(rec.why)}">${rec.k === 'watch' ? '' : '▶ '}${rec.label}</span></div>` : `<div>${admgrTestBadge(a)}</div>`}
-          ${rec ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ['meh', 'good', 'ended'].includes(a.st) ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ''}</td>
+          ${rec ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ['meh', 'good', 'ended'].includes(a.st) ? `<div style="margin-top:2px;">${admgrVerdictBtns(a)}</div>` : ''}
+          ${rec && rec.be ? `<div style="font-size:.6rem;color:#9ca3af;white-space:nowrap;" title="${esc(rec.why)}">손익 ${rec.be.toFixed(1)} · 우수 ${rec.goodR.toFixed(1)}↑</div>` : rec && rec.k !== 'watch' ? '<div style="font-size:.6rem;color:#c4c9d4;" title="카페24 상품과 이름이 안 맞아 고정 기준 사용">상품 미매칭</div>' : ''}</td>
         <td class="num"><b>${won(a.spend)}</b></td>
         <td class="num m-hide">${comma(a.purchases)}<div style="font-size:.62rem;color:#9ca3af;">${a.purchases ? won(Math.round(a.spend / a.purchases)) : '—'}</div></td>
         <td class="num">${admgrRoasTd(a)}</td>
@@ -711,7 +731,7 @@ function renderAdmgrTest() {
       const th = (t.thumbs || {})[a.id]; const thSrc = th && th !== '-' ? th : '';
       const rec = admgrRecommend(a);
       const recCls = rec ? (rec.k === 'off' ? 'badge-red' : rec.k === 'good' ? 'badge-green' : rec.k === 'wait' ? 'badge-yellow' : 'badge-gray') : '';
-      const judge = `${rec ? `<span class="status-badge ${recCls}" title="${esc(rec.why)}">${rec.k === 'watch' ? '' : '▶ '}${rec.label}</span> ` : admgrTestBadge(a)}${rec || ['meh', 'good', 'ended'].includes(a.st) ? admgrVerdictBtns(a) : ''}`;
+      const judge = `${rec ? `<span class="status-badge ${recCls}" title="${esc(rec.why)}">${rec.k === 'watch' ? '' : '▶ '}${rec.label}</span> ` : admgrTestBadge(a)}${rec || ['meh', 'good', 'ended'].includes(a.st) ? admgrVerdictBtns(a) : ''}${rec && rec.be ? `<span style="font-size:.62rem;color:#9ca3af;">손익 ${rec.be.toFixed(1)} · 우수 ${rec.goodR.toFixed(1)}↑</span>` : ''}`;
       return `<div class="mcard ${checked ? 'sel' : ''}">
         <div class="mc-top" onclick="showMetaPreview('${a.id}')" style="cursor:pointer;">
           <span style="flex:none;">${mediaThumbHtml(thSrc, 'image', 44)}</span>

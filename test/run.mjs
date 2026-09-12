@@ -248,6 +248,17 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
+test('admgrRecommend: 상품 마진 손익분기 ROAS 기준 + 표본 부족', () => {
+  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);   // 마진 28,000 → 손익분기 1.79, 우수 2.68↑
+  const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: '2026-01-01', st: 'eval', spend: 50000, purchases: m.pur, value: m.val });
+  const f = g('admgrRecommend');
+  assert.equal(f(ad({ pur: 2, val: 80000 })).k, 'off');                                  // ROAS 1.6 < 1.79 (고정 기준 1이면 애매였을 것)
+  const s = f(ad({ pur: 2, val: 150000 })); assert.equal(s.k + ':' + s.label, 'wait:표본 부족');   // ROAS 3.0 ≥ 2.68 이지만 구매 2 < 5
+  assert.equal(f(ad({ pur: 6, val: 150000 })).k, 'good');
+  assert.ok(Math.abs(f(ad({ pur: 6, val: 150000 })).be - 1.786) < 0.01);
+  assert.equal(f(ad({ set: '없는상품_R1_test', pur: 2, val: 80000 })).k, 'wait');           // 미매칭 → 고정 기준(OFF<1, 우수≥3)
+});
+
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
   const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-08-01', gone: false,
     effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', spend: m.spend, purchases: m.pur, value: m.val, meta: m.meta || {} });
