@@ -396,7 +396,7 @@ function admgrBudgetPop(ev, id, level) {
       ${primary}
     </div>
     ${pend ? `<a onclick="admgrBudgetCancel(${pend.id})" style="display:block;margin-top:8px;font-size:.7rem;color:#9ca3af;cursor:pointer;">23:55 예약 취소</a>` : ''}`;
-  const r0 = ev.target.closest('td').getBoundingClientRect();
+  const r0 = (ev.target.closest('td, .mcard') || ev.target).getBoundingClientRect();   // 폰 카드에는 td가 없어 null 오류가 났다 (2026-09-13)
   pop.style.display = 'block';
   const pw = 270, ph = pop.offsetHeight || 230;
   pop.style.left = Math.max(8, Math.min(r0.left, window.innerWidth - pw - 12)) + 'px';

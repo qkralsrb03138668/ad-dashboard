@@ -410,6 +410,9 @@ textarea.inp { resize: vertical; min-height: 64px; }
   .modal-box { max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 16px; }
   .modal-x { min-width: 44px; min-height: 44px; }
   #admgr-bpop { max-width: calc(100vw - 16px); }
+  /* 아이폰 사파리는 글자 16px 미만인 입력칸에 커서를 두면 화면을 자동 확대한다 → 폰에선 입력칸 글자 16px 고정 (2026-09-13) */
+  .inp, input:not([type]), input[type="text"], input[type="number"], input[type="search"], input[type="date"], input[type="email"], input[type="password"], select, textarea { font-size: 16px !important; }
+  #sec-admgr .mc-more input[type="text"] { min-height: 36px; width: 110px !important; }
 }
 @media (max-width: 700px) {
   body { overflow-x: hidden; }   /* 최후 방어 — 실제 넘침은 아래 규칙으로 없앤다 */
