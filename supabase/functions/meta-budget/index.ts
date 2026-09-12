@@ -128,19 +128,27 @@ async function runReset(): Promise<Record<string, unknown>> {
   // 23:55 예약이 걸린 세트는 원복하지 않는다 — 바로 이어지는 runPending이 예약 금액을 넣는다 (2026-09-07 사용자 확인)
   const reserved = new Set(((await pg(`budget_writes?status=eq.pending&mode=eq.midnight&apply_date=lte.${day}&select=object_id`, "GET")) as { object_id: string }[]).map((r) => String(r.object_id)));
   let ok = 0, fail = 0, same = 0, skipped = 0;
+  const todo: { id: string; target: number; now: { name: string; budget: number } }[] = [];
   for (const s of snap) {
     const id = String(s.adset_id), target = Math.round(num(s.budget));
     const now = cur.get(id); if (!now) continue;
     if (reserved.has(id)) { skipped++; continue; }
     if (Math.round(now.budget) === target) { same++; continue; }
-    try {
-      await metaSetBudget(id, target);
-      await pg("budget_writes", "POST", { object_id: id, object_name: now.name, level: "adset", old_budget: now.budget, new_budget: target, mode: "reset", status: "applied", requested_by: "cron", applied_at: new Date().toISOString() });
-      ok++;
-    } catch (e) {
-      await pg("budget_writes", "POST", { object_id: id, object_name: now.name, level: "adset", old_budget: now.budget, new_budget: target, mode: "reset", status: "failed", requested_by: "cron", applied_at: new Date().toISOString(), error: String(e).slice(0, 300) }).catch(() => {});
-      fail++;
-    }
+    todo.push({ id, target, now });
+  }
+  // 10개씩 동시 실행 — 순차(개당 ~1.3초)로는 120개면 150초를 넘겨 Edge Function이 도중에 끊겼다 (2026-09-12 실사례: 116개 원복 뒤 중단, 승인 행·예약이 미처리)
+  // ponytail: 동시 10개 고정. Full Access 한도(시간당 수만 회)엔 한참 못 미침. 한도 오류가 나기 시작하면 5로 낮출 것
+  for (let i = 0; i < todo.length; i += 10) {
+    await Promise.all(todo.slice(i, i + 10).map(async ({ id, target, now }) => {
+      try {
+        await metaSetBudget(id, target);
+        await pg("budget_writes", "POST", { object_id: id, object_name: now.name, level: "adset", old_budget: now.budget, new_budget: target, mode: "reset", status: "applied", requested_by: "cron", applied_at: new Date().toISOString() });
+        ok++;
+      } catch (e) {
+        await pg("budget_writes", "POST", { object_id: id, object_name: now.name, level: "adset", old_budget: now.budget, new_budget: target, mode: "reset", status: "failed", requested_by: "cron", applied_at: new Date().toISOString(), error: String(e).slice(0, 300) }).catch(() => {});
+        fail++;
+      }
+    }));
   }
   await pg(`budget_writes?id=eq.${appr[0].id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString(), error: `원복 ${ok}·동일 ${same}·예약우선 ${skipped}·실패 ${fail}` });
   if (ok) await clearMetaCaches();
@@ -171,18 +179,20 @@ async function checkPin(pin: string): Promise<string | null> {
 // 예약분 일괄 적용 — 23:55(run_reset 뒤) 및 00:00(run, 보조)에 호출. apply_date ≤ 오늘인 pending 전부
 async function runPending(): Promise<Record<string, unknown>> {
   const today = seoulToday();
-  const due = (await pg(`budget_writes?status=eq.pending&apply_date=lte.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];
+  const due = (await pg(`budget_writes?status=eq.pending&mode=neq.reset_approve&apply_date=lte.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];   // 승인 행(object_id "*")은 예산 적용 대상이 아님 — runReset이 끊긴 날 00:00 보조 실행이 "*"에 예산을 넣으려다 실패 기록을 남겼다 (2026-09-13)
   let ok = 0, fail = 0;
-  for (const row of due) {
-    try {
-      if (!env("META_WRITE_TOKEN")) throw new Error("META_WRITE_TOKEN 미설정");
-      await metaSetBudget(String(row.object_id), num(row.new_budget));
-      await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString() });
-      ok++;
-    } catch (e) {
-      await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "failed", applied_at: new Date().toISOString(), error: String(e).slice(0, 300) }).catch(() => {});
-      fail++;
-    }
+  for (let i = 0; i < due.length; i += 10) {   // runReset과 같은 이유로 10개씩 동시 (2026-09-13)
+    await Promise.all(due.slice(i, i + 10).map(async (row) => {
+      try {
+        if (!env("META_WRITE_TOKEN")) throw new Error("META_WRITE_TOKEN 미설정");
+        await metaSetBudget(String(row.object_id), num(row.new_budget));
+        await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString() });
+        ok++;
+      } catch (e) {
+        await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "failed", applied_at: new Date().toISOString(), error: String(e).slice(0, 300) }).catch(() => {});
+        fail++;
+      }
+    }));
   }
   if (ok) await clearMetaCaches();
   return { due: due.length, applied: ok, failed: fail };
@@ -246,7 +256,7 @@ Deno.serve(async (req) => {
       // 최근 23:55 실행분(원복·예약·승인 행) — 화면의 "23:55 반영 결과" 알림창용 (2026-09-08 사용자 요청). 창: 가장 최근 23:55 KST(=14:55Z) 이후
       const hmNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
       const runDay = hmNow >= "23:55" ? seoulToday() : addDays(seoulToday(), -1);
-      const lastrun = await pg(`budget_writes?mode=in.(reset,midnight,reset_approve)&status=neq.pending&applied_at=gte.${runDay}T14:55:00Z&order=applied_at.asc&limit=500&select=id,mode,status,object_id,object_name,old_budget,new_budget,applied_at,error`, "GET");
+      const lastrun = await pg(`budget_writes?mode=in.(reset,midnight,reset_approve)&status=in.(applied,failed)&applied_at=gte.${runDay}T14:55:00Z&applied_at=lt.${runDay}T15:45:00Z&order=applied_at.asc&limit=500&select=id,mode,status,object_id,object_name,old_budget,new_budget,applied_at,error`, "GET");   // 23:55~00:45 실행 창만 — 낮에 승인 취소한 행(canceled)이 "실패"로 뜨던 오탐 제거 (2026-09-12)
       return json({ pending, recent, daystart, lastrun, run_day: runDay });
     }
 

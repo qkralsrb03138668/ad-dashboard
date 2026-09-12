@@ -390,6 +390,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
   #menu-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 290; }
   body.menu-open #menu-backdrop { display: block; }
 }
+.mnav { display: none; }   /* 폰 규칙보다 앞에 둬야 미디어쿼리의 display:flex가 이긴다 */
 @media (max-width: 768px) {
   .mnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; display: flex; background: rgba(255,255,255,.96); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     border-top: 1px solid #e7e8ee; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
@@ -429,7 +430,6 @@ textarea.inp { resize: vertical; min-height: 64px; }
   .cre-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 }
 /* ── 폰(≤768px): 광고관리자 표 → 카드 (2026-09-08. 맥북 화면은 이 블록이 안 켜져 그대로) ── */
-.mnav { display: none; }
 #sec-admgr .mcards { display: none; }
 @media (max-width: 768px) {
   #sec-admgr .table-wrap { display: none; }
