@@ -25,7 +25,7 @@ const admgr = {
   write: { st: null, pin: lsGet('adc_admgr_pin', null), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
   /* 오늘의 판정(광고세트 탭, 오늘 칩): round r1(11시경)/r2(14시경) 수동 전환, judgeFilter = all/cut/warn/up/manual/reup,
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
-  judgeFilter: 'all', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products', null), productsLoading: false,
+  judgeFilter: 'all', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
@@ -561,8 +561,8 @@ async function admgrLoadProducts() {
   admgr.productsLoading = true;
   try {
     const rows = (await perfApi({ action: 'products' })).rows || [];
-    admgr.products = rows.filter(p => p.name && p.price > 0).map(p => ({ name: p.name, price: p.price, supply: p.supply_price || 0 }));
-    lsSet('adc_admgr_products', admgr.products);
+    admgr.products = rows.filter(p => p.name && p.price > 0).map(p => ({ no: p.product_no, name: p.name, price: p.price, supply: p.supply_price || 0 }));
+    lsSet('adc_admgr_products2', admgr.products);
   } catch (e) { toast('카페24 상품 가격 조회 실패: ' + e.message); }
   admgr.productsLoading = false; renderAdmgr(true);
 }

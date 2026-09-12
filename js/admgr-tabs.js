@@ -983,6 +983,41 @@ async function admgrBestRemove(setId) {
     renderAdmgr();
   } catch (e) { toast('삭제 실패: ' + e.message); }
 }
+/* ═══ 순이익 기준 베스트 (2026-09-12) — ROAS가 아니라 "광고비 대비 순이익"으로 등급.
+   순이익 = 전환값 × 마진율(판매가−공급가×1.1 ÷ 판매가) × (1 − 순반품률) − 지출. 순반품률은 판매 성과의 netreturns(최근 60일, 배송완료 기준),
+   배송완료 10개 미만 상품은 몰 평균으로. 판매 성과 권한(관리자)이 있어야 반품률을 받는다 — 마케터 화면엔 등급이 안 붙는다. */
+const ADMGR_GRADE = { S: ['#16a34a', '순이익이 광고비 이상'], A: ['#2563eb', '순이익이 광고비의 절반 이상'], B: ['#d97706', '순이익 0 이상'], C: ['#dc2626', '광고비를 못 건짐'] };
+async function admgrProfitEnsure() {
+  const b = admgr.best, today = todayStr(0);
+  if (admgr.demo || b.nrLoading || (b.nrDay === today && b.nr) || !admgrCfg()) return;
+  if (typeof authIsAdmin === 'function' && !authIsAdmin()) return;
+  b.nrLoading = true;
+  try {
+    const r = await perfApi({ action: 'netreturns', start_date: admgrShiftDay(today, -60), end_date: today });
+    b.nr = new Map((r.rows || []).map(x => [x.product_no, x])); b.nrTotal = r.totals ? r.totals.net_return_rate : null; b.nrDay = today;
+    renderAdmgr(true);
+  } catch (e) { b.nr = new Map(); b.nrTotal = null; b.nrDay = today; }   // 권한 없음·카페24 오류 → 반품 0으로 계산하지 않고 등급 생략
+  b.nrLoading = false;
+}
+function admgrProfit(setName, m) {   // null = 상품 못 찾음·반품률 아직 없음. { net, roi, grade, mr, rr, rrSrc, beRoas, product }
+  const b = admgr.best;
+  if (!b.nrDay || !b.nr || !m) return null;
+  const n = admgrNorm(setName), p = admgrProdIdx().find(p => n.includes(p.n));
+  if (!p || !(p.price > 0)) return null;
+  const margin = p.price - (p.supply || 0) * 1.1; if (!(margin > 0)) return null;
+  const mr = margin / p.price;
+  const row = p.no != null ? b.nr.get(p.no) : null, own = row && row.total_qty >= 10;
+  const rr = own ? row.net_return_rate / 100 : b.nrTotal != null ? b.nrTotal / 100 : null;
+  if (rr == null) return null;
+  const net = m.value * mr * (1 - rr) - m.spend, roi = m.spend > 0 ? net / m.spend : 0;
+  return { net, roi, grade: m.spend > 0 ? (roi >= 1 ? 'S' : roi >= 0.5 ? 'A' : roi >= 0 ? 'B' : 'C') : null, mr, rr, rrSrc: own ? `상품 반품률 (배송완료 ${comma(row.total_qty)}개)` : '몰 평균 반품률 (이 상품 배송완료 10개 미만)', beRoas: 1 / (mr * (1 - rr)), product: p.name };
+}
+function admgrGradeBadge(pf, size) {
+  if (!pf || !pf.grade) return '';
+  const [c, why] = ADMGR_GRADE[pf.grade];
+  return `<span title="${esc(why)} — 순이익 ${won(Math.round(pf.net))} (마진율 ${(pf.mr * 100).toFixed(0)}% · 반품 ${(pf.rr * 100).toFixed(1)}% ${esc(pf.rrSrc)} · 손익 ROAS ${pf.beRoas.toFixed(2)})" style="display:inline-block;min-width:${size || 18}px;text-align:center;font-size:${size ? size * .6 : 11}px;font-weight:800;padding:1px 5px;border-radius:6px;background:${c};color:#fff;cursor:help;">${pf.grade}</span>`;
+}
+
 /* ── 베스트 소재: 성과 숫자(테스트 소재 누적 데이터) · 상품별 묶기 · 정렬/필터 · 타일 버튼(모델 광고·문구 복사·소재 등록) ── */
 function admgrBestMetric(a) {   // 누적 성과: 테스트 소재 데이터(광고 id) → 없으면 광고관리자 기간 데이터(세트 id)
   const t = admgr.test;
@@ -1025,13 +1060,17 @@ function renderAdmgrBest() {
   const cre = admgr.test.creatives || new Map();
   const testAds = admgr.test.loaded ? ((admgr.test.data || {}).ads || []) : [];
   if (admgr.test.loaded) setTimeout(() => admgrTrendEnsure(), 0);
-  let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; const ta = testAds.find(x => x.id === a.id); return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)), tr: ta ? admgrTrend(ta) : null }; });
+  if (!admgr.products && !admgr.productsLoading) admgrLoadProducts();
+  setTimeout(() => admgrProfitEnsure(), 0);
+  let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; const ta = testAds.find(x => x.id === a.id); return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)), tr: ta ? admgrTrend(ta) : null, pf: admgrProfit(nameOf.get(a.adset_id) || a.name, m) }; });
   if (admgr.q) ads = ads.filter(a => (a.setNm + ' ' + a.name).toLowerCase().includes(admgr.q));
   const allAds = ads;
   const prods = [...new Set(ads.map(a => a.prod))];
   if (b.hideOff) ads = ads.filter(a => a.effective_status === 'ACTIVE');
   if (b.prod && b.prod !== 'all') ads = ads.filter(a => a.prod === b.prod);
-  ads.sort((x, y) => b.sort === 'spend' ? y.m.spend - x.m.spend : b.sort === 'recent' ? String(y.m.reg).localeCompare(String(x.m.reg)) : y.roas - x.roas);
+  ads.sort((x, y) => b.sort === 'spend' ? y.m.spend - x.m.spend : b.sort === 'recent' ? String(y.m.reg).localeCompare(String(x.m.reg)) : b.sort === 'profit' ? ((y.pf ? y.pf.net : -Infinity) - (x.pf ? x.pf.net : -Infinity)) : y.roas - x.roas);
+  const pfAds = allAds.filter(a => a.pf), pfSum = pfAds.reduce((s0, a) => s0 + a.pf.net, 0);
+  const pfNote = b.nrDay ? (pfAds.length ? '' : ' (상품 매칭 없음)') : (typeof authIsAdmin === 'function' && !authIsAdmin()) ? ' (관리자만)' : ' (반품률 불러오는 중…)';
   const rank = new Map([...allAds].sort((x, y) => y.roas - x.roas).map((a, k) => [a.id, k + 1]));
   const sum = list => list.reduce((o, a) => ({ spend: o.spend + a.m.spend, purchases: o.purchases + a.m.purchases, value: o.value + a.m.value }), { spend: 0, purchases: 0, value: 0 });
   const tot = sum(allAds), off = allAds.filter(a => a.effective_status !== 'ACTIVE').length;
@@ -1040,7 +1079,7 @@ function renderAdmgrBest() {
   const chip = (on, label, onclick) => `<button class="filter-tab ${on ? 'active' : ''}" onclick="${onclick}">${label}</button>`;
   const sw = (on, label, onclick, title) => `<button class="filter-tab" style="display:inline-flex;align-items:center;gap:6px;${on ? 'color:#3730a3;border-color:#a5b4fc;' : ''}" onclick="${onclick}" title="${title || ''}"><span style="width:26px;height:14px;border-radius:999px;background:${on ? '#4f46e5' : '#d1d5db'};position:relative;display:inline-block;"><span style="position:absolute;top:2px;${on ? 'right:2px' : 'left:2px'};width:10px;height:10px;border-radius:50%;background:#fff;"></span></span>${label}</button>`;
   const ctrl = `<div class="filter-tabs m-wrap" style="margin-bottom:10px;">
-    ${chip(b.sort === 'roas', 'ROAS순', "admgrBestSet('sort','roas')")}${chip(b.sort === 'spend', '지출순', "admgrBestSet('sort','spend')")}${chip(b.sort === 'recent', '최근순', "admgrBestSet('sort','recent')")}
+    ${chip(b.sort === 'roas', 'ROAS순', "admgrBestSet('sort','roas')")}${chip(b.sort === 'profit', '순이익순', "admgrBestSet('sort','profit')")}${chip(b.sort === 'spend', '지출순', "admgrBestSet('sort','spend')")}${chip(b.sort === 'recent', '최근순', "admgrBestSet('sort','recent')")}
     <span style="width:1px;height:22px;background:#e5e7eb;margin:0 4px;"></span>
     ${chip(b.prod === 'all', `전체 ${allAds.length}`, "admgrBestSet('prod','all')")}${prods.map(pn => chip(b.prod === pn, `${esc(pn)} ${allAds.filter(a => a.prod === pn).length}`, `admgrBestSet('prod','${esc(pn)}')`)).join('')}
     <span style="flex:1;"></span>
@@ -1053,6 +1092,7 @@ function renderAdmgrBest() {
     <div class="kpi-tile kt-hero"><div class="kt-label"><i class="fa-solid fa-star"></i> 베스트 소재</div><div class="kt-value" style="font-size:1.15rem;">${allAds.length}개</div><div class="kt-sub">상품 ${prods.length}개</div></div>
     ${admgrTile('누적 지출', metricsReady ? won(tot.spend) : '…')}${admgrTile('구매', metricsReady ? comma(tot.purchases) + '건' : '…')}
     ${admgrTile('평균 ROAS', metricsReady ? `<span style="color:#15803d;">${tot.spend ? (tot.value / tot.spend).toFixed(2) : '—'}</span>` : '…')}
+    ${admgrTile('순이익 합 <span title="전환값 × 마진율 × (1 − 순반품률) − 지출. 반품률은 판매 성과 최근 60일 배송완료 기준, 등급 S=순이익≥광고비 · A=≥50% · B=≥0 · C=손실" style="color:#c4c9d4;cursor:help;">?</span>', pfAds.length ? `<span style="color:${pfSum >= 0 ? '#15803d' : '#dc2626'};">${pfSum >= 0 ? '+' : ''}${won(Math.round(pfSum))}</span>` : `<span style="font-size:.8rem;color:#9ca3af;">—${pfNote}</span>`)}
     ${admgrTile('꺼진 소재', `<span style="color:${off ? '#dc2626' : '#374151'};">${off}개</span>`)}
     ${admgrTile('식은 소재 <span title="최근 7일 ROAS가 누적의 절반 미만 (일별 스냅샷 3일치부터 판정)" style="color:#c4c9d4;cursor:help;">?</span>', `<span style="color:${allAds.filter(a => a.tr && a.tr.tired).length ? '#dc2626' : '#374151'};">${allAds.filter(a => a.tr && a.tr.tired).length}개</span>`)}
   </div>`;
@@ -1064,6 +1104,7 @@ function renderAdmgrBest() {
         ${src ? `<img src="${esc(src)}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />` : `<div class="ct-ph"><i class="fa-regular fa-image"></i></div>`}
         <span class="status-badge ${offed ? 'badge-red' : 'badge-green'}" style="position:absolute;top:8px;left:8px;font-size:.62rem;">${offed ? '꺼짐' : '우수'}</span>
         ${r ? `<span style="position:absolute;top:8px;right:8px;font-size:.62rem;font-weight:800;padding:2px 7px;border-radius:999px;background:#111827cc;color:#fff;">#${r}</span>` : ''}
+        ${a.pf && a.pf.grade ? `<span style="position:absolute;bottom:8px;right:8px;">${admgrGradeBadge(a.pf, 22)}</span>` : ''}
         ${a.is_video ? '<div class="ct-play"><i class="fa-solid fa-play"></i></div>' : ''}
       </div>
       <div style="padding:8px 10px;">
@@ -1074,6 +1115,7 @@ function renderAdmgrBest() {
           <span>구매<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? comma(a.m.purchases) : '…'}</b></span>
           <span>ROAS<b style="display:block;font-size:.8rem;color:#15803d;">${metricsReady ? (a.m.spend ? a.roas.toFixed(2) : '—') : '…'}</b></span></div>
         ${a.tr ? `<div style="margin-top:4px;">${admgrSparkHtml(a.tr, null)}</div>` : ''}
+        ${a.pf ? `<div style="margin-top:4px;font-size:.64rem;color:#6b7280;white-space:nowrap;" title="${esc(a.pf.rrSrc)} · 손익분기 ROAS ${a.pf.beRoas.toFixed(2)}">순이익 <b style="color:${a.pf.net >= 0 ? '#15803d' : '#dc2626'};">${a.pf.net >= 0 ? '+' : ''}${won(Math.round(a.pf.net))}</b> · 마진 ${(a.pf.mr * 100).toFixed(0)}% · 반품 ${(a.pf.rr * 100).toFixed(1)}%</div>` : ''}
         <div style="display:flex;gap:4px;margin-top:8px;">
           <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;background:#eef2ff;border-color:#c7d2fe;color:#3730a3;font-weight:700;" onclick="admgrBestUseModel('${a.id}')" title="광고 업로드 ①에 이 소재를 모델 광고로">모델 광고로</button>
           <button class="btn-ghost" style="flex:1;padding:4px 4px;font-size:.64rem;" onclick="admgrBestCopyText('${a.id}')" title="이 광고의 본문 문구를 복사">문구 복사</button>
@@ -1087,7 +1129,7 @@ function renderAdmgrBest() {
     return `<div style="margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;margin-bottom:10px;font-size:.8rem;flex-wrap:wrap;">
         <b style="color:#1e1b4b;">${esc(pn)}</b>
-        <span style="color:#6b7280;font-size:.72rem;">소재 ${list.length}개${metricsReady ? ` · 지출 ${won(g.spend)} · 구매 ${comma(g.purchases)} · ROAS <b style="color:#15803d;">${g.spend ? (g.value / g.spend).toFixed(2) : '—'}</b>` : ''}</span>
+        <span style="color:#6b7280;font-size:.72rem;">소재 ${list.length}개${metricsReady ? ` · 지출 ${won(g.spend)} · 구매 ${comma(g.purchases)} · ROAS <b style="color:#15803d;">${g.spend ? (g.value / g.spend).toFixed(2) : '—'}</b>` : ''}${list.some(a => a.pf) ? ` · 순이익 <b style="color:${list.reduce((s0, a) => s0 + (a.pf ? a.pf.net : 0), 0) >= 0 ? '#15803d' : '#dc2626'};">${won(Math.round(list.reduce((s0, a) => s0 + (a.pf ? a.pf.net : 0), 0)))}</b>` : ''}</span>
         <span style="flex:1;"></span>
         <a href="#" style="font-size:.72rem;" onclick="admgrTestGoRegister('${esc(pn)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 같은 상품 소재 등록</a>
         ${sets.map(id => `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.64rem;" onclick="admgrBestRemove('${id}')" title="${esc(nameOf.get(id) || '')} 세트를 베스트에서 빼기"><i class="fa-solid fa-xmark"></i></button>`).join('')}</div>

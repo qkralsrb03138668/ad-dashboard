@@ -294,6 +294,19 @@ test('admgrTrend: 스냅샷 기준 최근 7일·일별 증분·식음 판정', (
   assert.ok(g('admgrSparkHtml')(young, 2).includes('추세 1일'));
 });
 
+test('admgrProfit: 마진율 × (1−순반품률) 순이익과 S/A/B/C 등급', () => {
+  vm.runInContext("admgr.products = [{ no: 10, name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.best.nrDay = '2026-09-12'; admgr.best.nrTotal = 12; admgr.best.nr = new Map([[10, { product_no: 10, total_qty: 40, return_qty: 8, net_return_rate: 20 }]]);", ctx);
+  const f = g('admgrProfit');
+  const pf = f('루즈핏 니트_R1_28_260901_test', { spend: 100000, purchases: 10, value: 500000 });   // 마진율 56% · 반품 20% → 500000×.56×.8 − 100000 = 124,000
+  assert.equal(Math.round(pf.net), 124000); assert.equal(pf.grade, 'S'); assert.ok(pf.rrSrc.startsWith('상품'));
+  assert.equal(f('루즈핏 니트_R1', { spend: 100000, purchases: 3, value: 150000 }).grade, 'C');     // 67,200 − 100,000 < 0
+  assert.equal(f('루즈핏 니트_R1', { spend: 100000, purchases: 5, value: 300000 }).grade, 'B');     // 134,400 − 100,000 = 34,400 → ROI 0.34
+  assert.equal(f('없는 상품_R1', { spend: 1, value: 1 }), null);
+  vm.runInContext("admgr.best.nr = new Map();", ctx);
+  assert.equal(f('루즈핏 니트_R1', { spend: 100000, purchases: 10, value: 500000 }).rrSrc.slice(0, 2), '몰 ');   // 상품 행 없음 → 몰 평균 12%
+  assert.ok(g('admgrGradeBadge')(pf).includes('>S<'));
+});
+
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
   const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-08-01', gone: false,
     effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', spend: m.spend, purchases: m.pur, value: m.val, meta: m.meta || {} });
