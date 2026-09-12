@@ -920,7 +920,7 @@ function renderAdmgrBest() {
 
   const chip = (on, label, onclick) => `<button class="filter-tab ${on ? 'active' : ''}" onclick="${onclick}">${label}</button>`;
   const sw = (on, label, onclick, title) => `<button class="filter-tab" style="display:inline-flex;align-items:center;gap:6px;${on ? 'color:#3730a3;border-color:#a5b4fc;' : ''}" onclick="${onclick}" title="${title || ''}"><span style="width:26px;height:14px;border-radius:999px;background:${on ? '#4f46e5' : '#d1d5db'};position:relative;display:inline-block;"><span style="position:absolute;top:2px;${on ? 'right:2px' : 'left:2px'};width:10px;height:10px;border-radius:50%;background:#fff;"></span></span>${label}</button>`;
-  const ctrl = `<div class="filter-tabs" style="margin-bottom:10px;">
+  const ctrl = `<div class="filter-tabs m-wrap" style="margin-bottom:10px;">
     ${chip(b.sort === 'roas', 'ROAS순', "admgrBestSet('sort','roas')")}${chip(b.sort === 'spend', '지출순', "admgrBestSet('sort','spend')")}${chip(b.sort === 'recent', '최근순', "admgrBestSet('sort','recent')")}
     <span style="width:1px;height:22px;background:#e5e7eb;margin:0 4px;"></span>
     ${chip(b.prod === 'all', `전체 ${allAds.length}`, "admgrBestSet('prod','all')")}${prods.map(pn => chip(b.prod === pn, `${esc(pn)} ${allAds.filter(a => a.prod === pn).length}`, `admgrBestSet('prod','${esc(pn)}')`)).join('')}

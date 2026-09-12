@@ -327,6 +327,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr .kpi-tile { border: 1px solid #dadde1; border-radius: 8px; box-shadow: none; padding: 10px 14px; }
 #sec-admgr .kpi-tile::before { display: none; }
 #sec-admgr .kpi-tile .kt-label { color: #65676b; font-size: 12px; }
+#sec-admgr .kpi-tile.kt-hero .kt-label { color: rgba(255,255,255,.85); }   /* 위 ID 규칙이 히어로 타일(보라 배경)의 흰 라벨을 회색으로 덮던 것 복구 */
 #sec-admgr .kpi-tile .kt-value { font-size: 1.05rem !important; color: #1c1e21; }
 #sec-admgr .table-wrap { border-color: #dadde1; border-radius: 8px; }
 #sec-admgr table { font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -437,6 +438,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
   #sec-admgr .mtab { flex: none; padding: 9px 12px; font-size: .78rem; }
   #sec-admgr .filter-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
   #sec-admgr .filter-tabs > * { flex: none; }
+  #sec-admgr .filter-tabs.m-wrap { flex-wrap: wrap; overflow: visible; }   /* 베스트 탭: 정렬·상품 칩·스위치·리포트 버튼을 폰에서 줄바꿈 (가로 스크롤에 숨지 않게) */
   #sec-admgr .control-bar { gap: 6px; }
   #sec-admgr .control-bar #admgr-q { max-width: none !important; flex: 1 1 140px; }
   #sec-admgr .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
