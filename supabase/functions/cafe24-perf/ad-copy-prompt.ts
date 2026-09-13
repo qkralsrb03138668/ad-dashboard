@@ -341,8 +341,10 @@ export function tidyCopy(text: string, max = COPY_MAX_LINE): string {
     let line = raw.trimEnd();
     while ([...line].length > max) {
       const chars = [...line];
-      let cut = -1;
-      for (let i = Math.min(max, chars.length - 1); i > 0; i--) if (chars[i] === " ") { cut = i; break; }
+      let cut = -1, last = -1;
+      // 마지막 공백에서 끊되, 남는 꼬리가 4자 이하("가는데,", ":)")면 한 칸 앞 공백에서 끊어 두 줄이 고르게 (2026-09-13 가독성)
+      for (let i = Math.min(max, chars.length - 1); i > 0; i--) if (chars[i] === " ") { if (last < 0) last = i; if (chars.length - i - 1 >= 5) { cut = i; break; } }
+      if (cut <= 0) cut = last;
       if (cut <= 0) break;                       // 공백이 없으면 그대로 둔다
       out.push(chars.slice(0, cut).join("").trimEnd());
       line = chars.slice(cut + 1).join("").trimStart();

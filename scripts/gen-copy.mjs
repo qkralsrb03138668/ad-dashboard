@@ -22,10 +22,40 @@ async function api(fn, params, body) {
 }
 const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n${P.COPY_EXAMPLES_HUMAN}\n\n${P.COPY_EXAMPLE_LONG}`;
 
+/* 출력 검증 — 영어 서술·과정 설명·도구 언급이 섞이면 실패 처리 (2026-09-13 실사례: WebFetch 외 도구가 거부되자 "the browser and curl tools were declined, so I'm writing from…" 영어 설명을 카피에 넣었다) */
+function badCopy(text) {
+  const t = String(text || '').trim();
+  if (!t) return '빈 출력';
+  const latin = (t.match(/[A-Za-z]/g) || []).length, hangul = (t.match(/[가-힣]/g) || []).length;
+  if (latin > hangul * 0.3) return '영어 문장 섞임';
+  if (/\b(I'm|I am|tools?|declined|WebFetch|curl|fetch|http)\b/i.test(t)) return '과정 설명·도구 언급';
+  if (/확인해보니|작성했습니다|다음과 같이|페이지를 열|불러올 수 없|접근할 수 없/.test(t)) return '서론·과정 설명';
+  const lines = t.split('\n').length;
+  if (lines < 10 || lines > 30) return `줄 수 ${lines} (10~30 밖)`;
+  if (!/♡\s*$/.test(t)) return '마지막 ♡ 없음';
+  return '';
+}
 function generate(facts, url) {
-  const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력하고 다른 말은 하지 마.\n\n[카페24 상품 정보]\n${facts}`;
-  const out = execFileSync('claude', ['-p', prompt, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--allowedTools', 'WebFetch', '--append-system-prompt', SYSTEM], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });   // 모델: 사용자 지정 Fable 5.1 · 중간
-  return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
+  const ask = (extra) => {
+    const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써.
+쓸 수 있는 도구는 WebFetch 하나뿐이다. 페이지가 이미지 위주라 정보가 적어도 다른 도구를 찾지 말고, 있는 정보(상품명·옵션·가격·후기)만으로 쓴다.
+출력은 한국어 카피 본문만. 영어·과정 설명·도구 언급·"정보가 부족해서" 같은 사족은 단 한 줄도 넣지 마.${extra}
+
+[카페24 상품 정보]
+${facts}`;
+    // --restricted --tools WebFetch: Bash·브라우저 MCP 등이 아예 없어서 모델이 시도하거나 거부당할 일이 없다. --strict-mcp-config: 이 맥의 MCP 서버 제외
+    const out = execFileSync('claude', ['-p', prompt, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });   // 모델: 사용자 지정 Fable 5.1 · 중간
+    return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
+  };
+  let text = ask('');
+  let why = badCopy(text);
+  if (why) {   // 한 번만 다시 — 그래도 안 되면 저장하지 않고 실패로 보고
+    process.stdout.write(` (재시도: ${why})`);
+    text = ask('\n\n[주의] 직전 출력이 규칙을 어겼다(' + why + '). 규칙대로 한국어 카피 본문만 다시 써라.');
+    why = badCopy(text);
+    if (why) throw new Error('문구 검증 실패 — ' + why + '\n' + text.slice(0, 200));
+  }
+  return text;
 }
 
 const dry = process.argv.includes('--dry');
