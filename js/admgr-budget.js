@@ -37,6 +37,7 @@ function admgrRunNotify(d) {
   $('abm-body').innerHTML = `<div style="font-size:.8rem;line-height:1.6;color:#374151;">${body}</div>
     <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="lsSet('adc_admgr_runseen','${key}');closeModal('admgr-budget-modal')">확인</button></div>`;
   $('admgr-budget-modal').classList.add('show');
+  lsSet('adc_admgr_runseen', key);   // 띄운 순간 '봤음' 처리 — ✕로 닫아도 다시 안 뜨게 (2026-09-13 사용자 제보: 확인 버튼을 안 누르면 계속 떴다)
 }
 setInterval(() => {   // 23:55 실행 창 동안 화면이 열려 있으면 결과를 바로 알림 (우리 서버만 조회)
   if (!admgr.data || admgr.demo || !admgrCfg()) return;
