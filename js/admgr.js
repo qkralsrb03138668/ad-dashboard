@@ -410,13 +410,14 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     judgeChips = `<div class="filter-tabs" style="margin-bottom:12px;">
       <span class="ag-lbl">판정</span>
       ${chip('all', '전체', all.length, admgr.judgeFilter === 'all', "admgrJudgeSet('all')")}
-      ${chip('cut', '<span class="ag-dot red"></span>감액 ÷10', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}
-      ${chip('nomargin', '마진 없음', cnt('nomargin'), admgr.judgeFilter === 'nomargin', "admgrJudgeSet('nomargin')")}
+      ${chip('cut', '<span class="ag-dot red"></span>감액 ÷10 <small class="ag-muted">구매 0</small>', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}
+      ${bb.byObj ? `<span class="ag-vsep"></span>${chip('nochg', '<i class="fa-solid fa-pen-slash" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 미변경', vis.filter(r => !(bb.byObj.get(r.id) || []).length).length, admgr.judgeFilter === 'nochg', "admgrJudgeSet('nochg')")}` : ''}
       <span style="flex:1;"></span>
-      ${cnt('cut') && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="감액 후보 전체를 현재 예산 ÷10으로 즉시 적용 (PIN·확인창)">감액 후보 전체 ÷10 (${cnt('cut')})</button>` : ''}
+      ${cnt('cut') && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="구매 0 + 지출 있는 세트 전체를 현재 예산 ÷10으로 즉시 적용 (오늘 이미 감액한 세트 제외 · PIN·확인창)">감액 후보 전체 ÷10 (${cnt('cut')})</button>` : ''}
       ${admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
     </div>`;
-    if (admgr.judgeFilter !== 'all') vis = all.filter(x => x.j.key === admgr.judgeFilter).map(x => x.r);
+    if (admgr.judgeFilter === 'nochg') vis = bb.byObj ? vis.filter(r => !(bb.byObj.get(r.id) || []).length) : vis;   // 오늘 예산 변경 이력 없는 세트 (Meta 활동 로그 기준)
+    else if (admgr.judgeFilter !== 'all') vis = all.filter(x => x.j.key === admgr.judgeFilter).map(x => x.r);
   }
   let chgChips = '';
   if (showChg && bb.byObj) {
@@ -459,7 +460,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 지출 vs 마진(판매가−공급가×1.1)·구매 기준 — 감액 ÷10 / 곧 도달 / 증액 검토">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:55 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:55에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:55 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 구매 수 기준 — 0건(지출 있음)=감액 ÷10 · 1~2건=곧 도달 · 3건+=증액 검토. 아래 줄의 마진·지출%는 참고">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:55 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:55에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:55 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
         <tr>
@@ -591,31 +592,29 @@ function admgrMarginOf(r) {
   if (!p.supply) return { m: null, src: p.name + ' (공급가 없음)' };
   return { m: Math.round(p.price - p.supply * 1.1), src: `${p.name} · 판매가 ${comma(p.price)} − 공급가 ${comma(p.supply)}×1.1` };
 }
-function admgrJudge(r) {
+function admgrJudge(r) {   // 2026-09-15 사용자 규칙: 구매 수로만 판정 (마진·지출%는 참고 표시). 지출 0원인 세트는 감액 후보에서 제외
   const { m, src } = admgrMarginOf(r);
   const spend = r.spend || 0, pur = r.purchases || 0;
-  if (!(m > 0)) return { key: 'nomargin', m, src };
-  const ratio = spend / m;
+  const ratio = m > 0 ? spend / m : null;
   const evs = (admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || [];
   const cutToday = evs.some(e => e.new_value < e.old_value);
-  if (cutToday)                  return { key: 'done', m, src, ratio };   // 오늘 이미 감액한 세트 — 두 번 깎지 않게
-  if (pur === 0 && ratio >= 1)   return { key: 'cut',  m, src, ratio };   // 구매 0인데 지출이 마진 이상 → 감액 ÷10
-  if (pur === 0 && ratio >= 0.8) return { key: 'warn', m, src, ratio };   // 구매 0, 지출이 마진의 80% 이상 → 곧 도달
   if (pur >= 3)                  return { key: 'up',   m, src, ratio };   // 구매 3건 이상 → 증액 검토
-  return { key: '', m, src, ratio };
+  if (pur >= 1)                  return { key: 'warn', m, src, ratio };   // 구매 1~2건 → 곧 도달
+  if (cutToday)                  return { key: 'done', m, src, ratio };   // 구매 0이지만 오늘 이미 감액한 세트 — 두 번 깎지 않게
+  if (spend > 0)                 return { key: 'cut',  m, src, ratio };   // 구매 0 + 지출 있음 → 감액 ÷10
+  return { key: '', m, src, ratio };                                       // 아직 지출 0원 → 판정 보류
 }
 const ADMGR_JUDGE = {
   cut:      { cls: 'badge-red',    t: '🔴 감액 ÷10' },
   warn:     { cls: 'badge-yellow', t: '🟡 곧 도달' },
   up:       { cls: 'badge-green',  t: '🟢 증액 검토' },
   done:     { cls: 'badge-gray',   t: '✓ 오늘 감액됨' },
-  nomargin: { cls: 'badge-gray',   t: '마진 없음' },
 };
 function admgrJudgeCell(r) {
   const j = admgrJudge(r);
   const b = ADMGR_JUDGE[j.key];
   const pen = `<i class="fa-solid fa-pen" title="마진 직접 입력${j.src ? ' — 현재: ' + esc(j.src) : ''}" style="font-size:.55rem;color:#a5b4fc;cursor:pointer;margin-left:4px;" onclick="event.stopPropagation();admgrMarginEdit('${r.id}')"></i>`;
-  const sub = j.m > 0 ? `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;">마진 ${comma(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%${pen}</div>` : `<div style="font-size:.62rem;color:#9ca3af;">${j.src ? esc(j.src.slice(0, 18)) : '상품 매칭 안 됨'}${pen}</div>`;
+  const sub = j.m > 0 ? `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;">구매 ${comma(r.purchases || 0)} · 마진 ${comma(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%${pen}</div>` : `<div style="font-size:.62rem;color:#9ca3af;">구매 ${comma(r.purchases || 0)} · ${j.src ? esc(j.src.slice(0, 18)) : '마진 정보 없음'}${pen}</div>`;
   const act = j.key === 'cut' && admgr.write.st && dnrbCan('budget') && r.budget > 0
     ? ` <button class="filter-tab" style="padding:2px 8px;font-size:.66rem;color:#dc2626;border-color:#fca5a5;" title="${comma(r.budget)} → ${comma(Math.max(1000, Math.round(r.budget / 10)))}원 즉시 적용" onclick="event.stopPropagation();admgrCut10('${r.id}')">÷10</button>` : '';
   return `${b ? `<span class="status-badge ${b.cls}" style="white-space:nowrap;">${b.t}</span>${act}` : '<span style="color:#d1d5db;">—</span>'}${sub}`;
