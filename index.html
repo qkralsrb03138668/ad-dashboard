@@ -102,19 +102,7 @@
         <button class="btn-ghost" style="padding:4px 10px;font-size:.74rem;" onclick="workLogOpen('reg')" title="누가 언제 어떤 소재를 등록·문구 저장했는지"><i class="fa-solid fa-clock-rotate-left"></i> 작업 내역</button>
         <span class="hdr-note">칸 클릭: — → <b style="color:#1d4ed8;">제작완료</b> → <b style="color:#15803d;">진행중</b> → 해제 · <span id="pt-sync" title="체크보드는 서버에 저장돼 관리자·마케터 모든 계정이 같은 보드를 봅니다"></span></span></div>
       <div class="section-body">
-        <!-- 상품·유형 관리 도구 — 기본 접힘, 화살표로 펼침 (상태 기억) -->
-        <button class="btn-ghost" id="pt-tools-toggle" onclick="ptToolsToggle()" style="padding:4px 10px;font-size:.76rem;margin-bottom:8px;"><i class="fa-solid fa-chevron-right"></i> 상품·유형 관리</button>
-        <div class="control-bar" id="pt-tools" style="margin-bottom:18px;display:none;">
-          <input class="inp" id="pt-new-name" placeholder="상품명 입력" style="max-width:240px;background:#fff;"
-                 onkeydown="if(event.key==='Enter')ptAddProduct()" />
-          <button class="btn-analyze" onclick="ptAddProduct()"><i class="fa-solid fa-plus"></i> 상품 추가</button>
-          <button class="btn-ghost" id="pt-import-btn" onclick="ptImportCafe24()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24에서 불러오기</button>
-          <span class="divider" style="width:1px;height:28px;background:#e5e7eb;"></span>
-          <button class="btn-ghost" onclick="ptAddType()"><i class="fa-solid fa-table-columns"></i> 소재 유형 추가</button>
-          <button class="btn-ghost" onclick="ptUnhideAll()" title="행 삭제로 숨긴 상품 중 소재가 등록된 것을 다시 표시"><i class="fa-solid fa-eye"></i> 숨긴 상품 다시 표시</button>
-          <button class="btn-ghost btn-danger-ghost" style="margin-left:auto;" id="pt-del-sel" onclick="ptDelSel()" disabled><i class="fa-solid fa-square-check"></i> 선택 삭제</button>
-          <button class="btn-ghost btn-danger-ghost" onclick="ptDelAll()"><i class="fa-solid fa-trash"></i> 상품 전체 삭제</button>
-        </div>
+        <!-- 상품·유형 관리 도구 막대(상품 추가·카페24 불러오기·유형 추가·숨김 해제·삭제)는 2026-09-14 사용자 요청으로 제거 — 상품은 소재 등록 시 자동으로 보드에 추가된다 -->
         <!-- ═══ 소재 등록 (마케터·관리자) — 파일명→상품 매칭, Meta 보관함 업로드, 등록 기록 ═══ -->
         <div style="border:1px solid #e7e8ee;border-radius:12px;padding:16px;background:#fff;margin-bottom:22px;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -566,7 +554,7 @@
 <script src="./js/auth.js?v=202609111942"></script>
 <script src="./js/home.js?v=202609111942"></script>
 <script src="./js/creatives.js?v=202609111942"></script>
-<script src="./js/checkboard.js?v=202609111942"></script>
+<script src="./js/checkboard.js?v=202609141812"></script>
 <script src="./js/register.js?v=202609111942"></script>
 <script src="./js/upload.js?v=202609141000"></script>
 <script src="./js/admgr.js?v=202609141200"></script>
