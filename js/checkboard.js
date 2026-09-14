@@ -198,7 +198,8 @@ function ptSelPage(on) {   // 현재 페이지 행 전체 선택/해제
   ptSelBtn();
 }
 function ptSelBtn() {
-  const b = $('pt-del-sel'); if (b) b.disabled = !ptSel.size;   // 도구 막대는 2026-09-14 제거 — 요소가 없을 수 있다
+  const b = $('pt-del-sel'); if (!b) return;   // 도구 막대는 2026-09-14 제거 — 버튼이 없으면 할 일 없음
+  b.disabled = !ptSel.size;
   b.innerHTML = `<i class="fa-solid fa-square-check"></i> 선택 삭제${ptSel.size ? ` (${ptSel.size})` : ''}`;
 }
 function ptDelSel() {
