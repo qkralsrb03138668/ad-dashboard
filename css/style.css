@@ -484,3 +484,65 @@ textarea.inp { resize: vertical; min-height: 64px; }
 .tt-compact .vbtn { padding: 2px 7px; font-size: .64rem; }
 .tt-compact .status-badge { font-size: .62rem; padding: 1px 6px; }
 .tt-compact .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ══ 광고관리자 리디자인 A+B (2026-09-14) — 이 섹션에만 적용. 원복 = 이 블록과 관련 JS 커밋 revert ══ */
+#sec-admgr .section-header { padding-bottom: 10px; }
+#sec-admgr .ag-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+#sec-admgr .ag-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; font-size: .74rem; font-weight: 700; background: #f3f4f6; color: #4b5563; cursor: help; }
+#sec-admgr .ag-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #9ca3af; }
+#sec-admgr .ag-pill.ok { background: #f0fdf4; color: #15803d; } #sec-admgr .ag-pill.ok .dot { background: #22c55e; }
+#sec-admgr .ag-pill.warn { background: #fff7ed; color: #c2410c; } #sec-admgr .ag-pill.warn .dot { background: #f97316; }
+#sec-admgr .ag-btn { padding: 8px 13px; font-size: .8rem; border-radius: 10px; min-height: 36px; }
+#sec-admgr .ag-more { width: 36px; padding: 8px 0; justify-content: center; }
+#sec-admgr .ag-tag { margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: .66rem; font-weight: 800; background: #eef2ff; color: #4338ca; }
+#sec-admgr .ag-tag.green { background: #dcfce7; color: #15803d; } #sec-admgr .ag-tag.amber { background: #fef3c7; color: #b45309; }
+#sec-admgr .ag-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+#sec-admgr .ag-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: #ececf4; }
+#sec-admgr .ag-seg button { border: none; background: transparent; padding: 6px 12px; border-radius: 8px; font-size: .78rem; font-weight: 700; color: #6b7280; cursor: pointer; font-family: inherit; min-height: 30px; }
+#sec-admgr .ag-seg button.on { background: #fff; color: #1e1b4b; box-shadow: 0 1px 2px rgba(17,24,39,.08); }
+#sec-admgr .ag-check { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; font-weight: 700; color: #4b5563; cursor: pointer; }
+#sec-admgr .ag-search { position: relative; display: inline-flex; align-items: center; }
+#sec-admgr .ag-search i { position: absolute; left: 11px; color: #9ca3af; font-size: .72rem; pointer-events: none; }
+#sec-admgr .ag-search .inp { padding-left: 30px; width: 230px; max-width: 100%; background: #fff; }
+#sec-admgr .ag-lbl { font-size: .72rem; font-weight: 800; color: #9ca3af; letter-spacing: .04em; margin-right: 2px; }
+#sec-admgr .ag-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+#sec-admgr .ag-dot.red { background: #ef4444; } #sec-admgr .ag-dot.amber { background: #f59e0b; } #sec-admgr .ag-dot.green { background: #22c55e; }
+#sec-admgr .filter-tabs { gap: 6px; margin-bottom: 10px; }
+#sec-admgr .filter-tab { padding: 6px 12px; border-radius: 999px; font-size: .76rem; }
+#sec-admgr .filter-tab.active { background: #1e1b4b; }
+/* 탭: 밑줄형 */
+#sec-admgr .mtabs { background: transparent; border: none; border-bottom: 1px solid #e7e8ee; border-radius: 0; gap: 2px; margin-bottom: 14px; align-items: flex-end; }
+#sec-admgr .mtab { flex: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 12px 10px; background: transparent; color: #6b7280; font-weight: 700; font-size: .84rem; gap: 6px; }
+#sec-admgr .mtab.on { background: transparent; color: #4f46e5; border-bottom-color: #4f46e5; font-weight: 800; }
+#sec-admgr .mtab .n { color: #9ca3af; font-weight: 600; font-size: .76rem; } #sec-admgr .mtab.on .n { color: #818cf8; }
+#sec-admgr .mtab-sep { width: 1px; background: #e7e8ee; margin: 8px 8px 10px; align-self: stretch; }
+/* 표: 이름 왼쪽·숫자 오른쪽, 이름 아래 보조줄, 행 끝 ∨ 상세 */
+#sec-admgr thead tr { background: #fafafe; }
+#sec-admgr thead th { font-size: .74rem; color: #6b7280; border-bottom: 1px solid #e7e8ee; padding: 10px 12px; }
+#sec-admgr tbody td { padding: 10px 12px; }
+#sec-admgr thead th:not(.l):not(.cb):not(.tg):not(.xp), #sec-admgr tbody td:not(.l):not(.name-cell):not(.cb):not(.tg):not(.xp), #sec-admgr tfoot td:not(.xp) { text-align: right; font-variant-numeric: tabular-nums; }
+#sec-admgr tfoot td:first-child { text-align: left; }
+#sec-admgr td.name-cell b { color: #1e1b4b; }
+#sec-admgr .ag-sub { font-size: .7rem; color: #9ca3af; margin-top: 2px; font-weight: 600; white-space: nowrap; }
+#sec-admgr .ag-sub .mdot { width: 6px; height: 6px; margin-right: 4px; }
+#sec-admgr th.xp, #sec-admgr td.xp { width: 36px; padding: 4px; text-align: center; }
+#sec-admgr .ag-chev { border: none; background: transparent; color: #9ca3af; cursor: pointer; width: 28px; height: 28px; border-radius: 8px; font-family: inherit; }
+#sec-admgr .ag-chev:hover { background: #eef2ff; color: #4f46e5; } #sec-admgr .ag-chev.on i { transform: rotate(180deg); }
+#sec-admgr tr.ag-detail { display: none; } #sec-admgr tr.ag-detail.open { display: table-row; }
+#sec-admgr tr.ag-detail td { background: #fafaff; text-align: left !important; padding: 8px 14px 10px 56px; white-space: normal; }
+#sec-admgr .ag-detail-grid { display: flex; gap: 22px; flex-wrap: wrap; font-size: .78rem; color: #374151; }
+#sec-admgr .ag-detail-grid i { font-style: normal; color: #9ca3af; font-weight: 700; font-size: .68rem; margin-right: 6px; }
+/* 선택 시 하단 동작 바 */
+#sec-admgr .ag-actbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 22px; width: min(760px, calc(100vw - 40px)); z-index: 150; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; background: #1e1b4b; color: #fff; font-size: .8rem; box-shadow: 0 8px 24px rgba(30,27,75,.28); }   /* .section-card overflow:hidden 탓에 sticky가 안 먹어 fixed */
+#sec-admgr .ag-actbar .sep { width: 1px; height: 18px; background: rgba(255,255,255,.2); }
+#sec-admgr .ag-actbar button { border: none; background: rgba(255,255,255,.12); color: #fff; padding: 7px 12px; border-radius: 8px; font-weight: 700; font-family: inherit; cursor: pointer; font-size: .78rem; display: inline-flex; align-items: center; gap: 6px; }
+#sec-admgr .ag-actbar button:hover { background: rgba(255,255,255,.2); } #sec-admgr .ag-actbar button.ghost { background: transparent; color: rgba(255,255,255,.65); }
+/* ⋯ 메뉴 · 23:55 세팅 팝오버 */
+#admgr-bpop .ag-menu { display: flex; flex-direction: column; gap: 2px; margin: -4px; }
+#admgr-bpop .ag-item { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: none; background: transparent; padding: 9px 10px; border-radius: 8px; text-align: left; font-family: inherit; font-size: .8rem; font-weight: 700; color: #1e1b4b; cursor: pointer; }
+#admgr-bpop .ag-item:hover { background: #f3f4ff; } #admgr-bpop .ag-item i { width: 16px; color: #4f46e5; margin-top: 2px; font-size: .8rem; }
+#admgr-bpop .ag-item small { display: block; font-weight: 600; color: #9ca3af; font-size: .68rem; margin-top: 2px; line-height: 1.4; }
+@media (max-width: 768px) {
+  #sec-admgr .ag-search .inp { width: 100%; } #sec-admgr .ag-search { flex: 1; min-width: 160px; }
+  #sec-admgr .ag-filters { gap: 8px; }
+}

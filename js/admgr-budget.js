@@ -170,27 +170,35 @@ function admgrApplyNow(id, level, val) {
     } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('반영 실패: ' + e.message); }
   });
 }
-/* 메뉴 컨트롤: 'PIN 인증'(한 번 인증하면 세션 동안 유효) + '자정 반영 세팅' 3단계 버튼 */
-function admgrWriteCtrlHtml() {
-  const w = admgr.write;
-  const pinBtn = w.pin
-    ? `<button class="filter-tab" style="color:#15803d;border-color:#86efac;background:#f0fdf4;" onclick="admgrPinClear()" title="지금은 풀려 있어요 — 클릭하면 잠김 (다시 PIN 필요)"><i class="fa-solid fa-lock-open"></i> 인증됨 · 잠그기</button>`
-    : `<button class="filter-tab" style="color:#4338ca;border-color:#c7d2fe;background:#eef2ff;" onclick="admgrPinPrompt()"><i class="fa-solid fa-lock"></i> PIN 인증</button>`;
-  const n = w.pendingByObj ? w.pendingByObj.size : 0;
-  const mid = w.midMode === 'setting'
-    ? `<button class="filter-tab" style="background:#f59e0b;color:#fff;border-color:transparent;" onclick="admgrMidBtn()"><i class="fa-regular fa-clock"></i> 23:55 반영 세팅중${n ? ` · ${n}건` : ''} — 완료하기</button>`
-    : w.midMode === 'done'
-      ? `<button class="filter-tab" style="background:#16a34a;color:#fff;border-color:transparent;" onclick="admgrMidBtn()"><i class="fa-solid fa-check"></i> 23:55 반영 세팅 완료 · ${n}건 보기</button>`
-      : `<button class="filter-tab" style="color:#b45309;border-color:#fcd34d;background:#fffbeb;" onclick="admgrMidBtn()"><i class="fa-regular fa-clock"></i> 23:55 반영 세팅 시작${n ? ` (예약 ${n}건)` : ''}</button>`;
-  /* 23:55 시작 예산 원복 — 오늘 승인 여부 토글 (2026-09-07 사용자 운영 규칙: 승인한 날만 23:55에 하루 시작 예산으로 되돌림) */
-  const rr = w.resetRow;
-  const reset = rr
-    ? `<button class="filter-tab" style="color:#15803d;border-color:#86efac;background:#f0fdf4;" onclick="admgrResetApprove()" title="오늘 23:55에 모든 광고세트를 하루 시작 예산으로 되돌려요 — 클릭하면 승인 취소"><i class="fa-solid fa-check"></i> 23:55 원복 승인됨</button>`
-    : `<button class="filter-tab" style="color:#0f766e;border-color:#99f6e4;background:#f0fdfa;" onclick="admgrResetApprove()" title="누르면 오늘 23:55에 모든 광고세트 예산이 하루 시작 예산(00:10 기록)으로 자동 원복돼요. 23:55 전에만 유효"><i class="fa-regular fa-clock"></i> 23:55 원복 승인</button>`;
-  const nd = admgrDraftTargets().length;
-  const pub = nd ? `<button class="filter-tab" style="background:#0a7c3f;color:#fff;border-color:transparent;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산을 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 임시 저장 전체 게시 (${nd})</button>
-    <button class="filter-tab" style="color:#dc2626;border-color:#fecaca;" onclick="admgrClearDrafts()" title="임시 저장을 전부 지움 (Meta에는 아무 변화 없음)">임시 저장 전체 취소</button>` : '';
-  return pinBtn + mid + reset + pub;
+/* ⋯ 메뉴 · 23:55 세팅 메뉴 — 상단 버튼 난립 대신 팝오버 (2026-09-14 리디자인). #admgr-bpop 재사용 */
+function admgrPopAt(ev, html, w) {
+  const r0 = ev.currentTarget.getBoundingClientRect();
+  const pop = $('admgr-bpop'); pop.innerHTML = html; pop.style.display = 'block';
+  pop.style.left = Math.max(8, Math.min(r0.right - (w || 270), window.innerWidth - (w || 270) - 12)) + 'px';
+  pop.style.top = (r0.bottom + 6) + 'px';
+}
+const agItem = (icon, label, onclick, sub) => `<button class="ag-item" onclick="document.getElementById('admgr-bpop').style.display='none';${onclick}"><i class="fa-solid ${icon}"></i><span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
+function admgrMoreMenu(ev) {
+  const w = admgr.write, nd = admgrDraftTargets().length, npend = w.pendingByObj ? w.pendingByObj.size : 0;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  admgrPopAt(ev, `<div class="ag-menu">
+    ${w.st && dnrbCan('budget') ? (w.pin ? agItem('fa-lock-open', '잠그기', 'admgrPinClear()', '다음 예산 변경부터 PIN을 다시 물어요') : agItem('fa-lock', 'PIN 인증', 'admgrPinPrompt()', '한 번 인증하면 이 화면을 열어두는 동안 유효')) : ''}
+    ${agItem('fa-table-columns', '열 표시·순서', `admgrColsAnchor={left:${Math.round(rect.left)},bottom:${Math.round(rect.bottom)}};admgrColsMenuRender()`)}
+    ${npend ? agItem('fa-list', `23:55 예약 목록 (${npend})`, 'admgrMidList()') : ''}
+    ${nd ? agItem('fa-eraser', `임시 저장 전체 취소 (${nd})`, 'admgrClearDrafts()', 'Meta에는 아무 변화 없어요') : ''}
+    ${!admgrCfg() || admgr.demo ? '' : agItem('fa-wand-magic-sparkles', '데모 데이터로 보기', 'admgrDemo()')}
+  </div>`);
+}
+function admgrMidMenu(ev) {
+  const w = admgr.write, npend = w.pendingByObj ? w.pendingByObj.size : 0;
+  const mid = w.midMode === 'setting' ? agItem('fa-check', '반영 세팅 완료하기', 'admgrMidBtn()', `예산을 클릭해 23:55 금액을 넣는 중${npend ? ` · 예약 ${npend}건` : ''}`)
+    : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:55 반영 세팅 시작 — 예산을 클릭해 23:55에 반영될 금액을 입력하세요')")
+    : agItem('fa-clock', '23:55 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:55 반영으로 저장돼요');
+  admgrPopAt(ev, `<div class="ag-menu">
+    ${mid}
+    ${w.resetRow ? agItem('fa-xmark', '원복 승인 취소', 'admgrResetApprove()', '오늘 23:55에 시작 예산으로 돌아가지 않아요') : agItem('fa-arrow-rotate-left', '23:55 원복 승인', 'admgrResetApprove()', '오늘 23:55에 모든 세트를 하루 시작 예산(00:10 기록)으로')}
+    ${agItem('fa-list', `예약 목록${npend ? ` (${npend})` : ''}`, 'admgrMidList()')}
+  </div>`, 300);
 }
 async function admgrResetApprove() {
   const w = admgr.write;
@@ -446,17 +454,20 @@ async function admgrBudgetCancel(pid) {
 /* ═══ 열 표시/순서 (Meta 광고관리자의 '열' 메뉴처럼) — 탭별 localStorage { hidden:[라벨], order:[라벨] } (2026-09-07 사용자 요청) ═══
    렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리) */
 function admgrColsKey() { return 'adc_admgr_cols_' + admgr.view; }
-function admgrColsCfg() { const c = lsGet(admgrColsKey(), null); return c && Array.isArray(c.hidden) && Array.isArray(c.order) ? c : { hidden: [], order: [] }; }
+const ADMGR_COLS_DEFAULT_HIDDEN = { camp: ['구매당 비용', '전환값', 'CPC', '최근 변경'], set: ['구매당 비용', '전환값', 'CPC', '최근 변경'], ad: ['클릭', '구매당 비용', '전환값', 'CPC'] };   // 기본은 핵심 열만 — 나머지는 행 끝 ∨ (2026-09-14)
+function admgrColsCfg() { const c = lsGet(admgrColsKey(), null); return c && Array.isArray(c.hidden) && Array.isArray(c.order) ? c : { hidden: [...(ADMGR_COLS_DEFAULT_HIDDEN[admgr.view] || [])], order: [] }; }
 function admgrColsSave(c) { lsSet(admgrColsKey(), c); }
 function admgrColsApply() {
   const table = $('admgr-body').querySelector('table'); if (!table) return;
   const labels = [...table.querySelectorAll('thead th')].map(admgrColLabel);
   admgr._colLabels = labels;
   const cfg = admgrColsCfg();
-  const fixed = labels.map((l, i) => ({ l, i })).filter(p => !p.l);
+  const ths = [...table.querySelectorAll('thead th')];
+  const fixed = labels.map((l, i) => ({ l, i })).filter(p => !p.l && !ths[p.i].classList.contains('xp'));
+  const tail = labels.map((l, i) => ({ l, i })).filter(p => !p.l && ths[p.i].classList.contains('xp'));   // ∨ 열은 항상 맨 뒤
   const movable = labels.map((l, i) => ({ l, i })).filter(p => p.l);
   const ordered = [...cfg.order.map(l => movable.find(p => p.l === l)).filter(Boolean), ...movable.filter(p => !cfg.order.includes(p.l))];
-  const idx = [...fixed, ...ordered].map(p => p.i);
+  const idx = [...fixed, ...ordered, ...tail].map(p => p.i);
   const identity = idx.every((v, k) => v === k);
   const hidden = new Set(cfg.hidden);
   if (identity && !hidden.size) return;
@@ -483,7 +494,7 @@ function admgrColsMenuRender() {
            style="display:flex;align-items:center;gap:8px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;background:#fff;cursor:grab;font-size:.78rem;">
         <span style="color:#c4c8d4;">⋮⋮</span><input type="checkbox" ${cfg.hidden.includes(l) ? '' : 'checked'} onchange="admgrColToggle('${esc(l)}',this.checked)" style="margin:0;" /><span>${esc(l)}</span></div>`).join('')}</div>
     <div style="display:flex;gap:6px;margin-top:8px;">
-      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" title="표시·순서·저장된 열 너비를 모두 초기화" onclick="admgrColsSave({hidden:[],order:[]});try{localStorage.removeItem(admgrColKey())}catch{};renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
+      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" title="표시·순서·저장된 열 너비를 모두 초기화" onclick="try{localStorage.removeItem(admgrColsKey())}catch{};try{localStorage.removeItem(admgrColKey())}catch{};renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
       <button class="btn-analyze" style="flex:1;justify-content:center;font-size:.72rem;" onclick="document.getElementById('admgr-bpop').style.display='none'">닫기</button></div>`;
   const r0 = admgrColsAnchor || { left: 100, bottom: 100 };
   pop.style.display = 'block';
