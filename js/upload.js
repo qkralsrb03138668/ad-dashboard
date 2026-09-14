@@ -334,3 +334,63 @@ async function uplRun() {
   uplBadgeRefresh();
   toast(`광고 생성 ${ok}/${pending.length} 완료${ok < pending.length ? ` · 실패 ${pending.length - ok}개 (아래 로그 확인)` : ''}`);
 }
+
+/* ═══ 작업 내역 (2026-09-14 사용자 요청) — 새 저장소 없이 creatives(등록·광고 생성) + product_copy(문구 저장) 기록을 시간순으로.
+   소재 업로드 탭 = 전체 종류, 광고 업로드 탭 = 광고 생성만 기본. 삭제는 기록이 안 남아 표시 불가(컬럼 추가 시 확장) ═══ */
+const workLog = { ev: null, period: 7, kind: 'all', who: 'all', loading: false };
+const WL_KIND = { reg: '등록', ad: '광고 생성', copy: '문구 저장', ai: '문구 AI 생성' };
+const wlWho = w => !w ? '—' : w === 'dash-key' ? '대표(접근키)' : String(w).replace(/^dnrb:/, '');
+const wlWhen = iso => { const d = new Date(iso); if (isNaN(d)) return ''; const k = new Date(d.getTime() + 9 * 3600e3); return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, '0')}:${String(k.getUTCMinutes()).padStart(2, '0')}`; };
+async function workLogOpen(tab) {
+  workLog.kind = tab === 'ad' ? 'ad' : 'all'; workLog.who = 'all';
+  $('worklog-modal').classList.add('show');
+  if (!workLog.ev) {
+    workLog.loading = true; workLogRender();
+    try {
+      const { rows } = await sbCall('meta-upload', { action: 'creatives_list', status: 'all', limit: 500 });
+      const ev = [];
+      for (const r of rows) {
+        const base = { name: r.file_name || r.core_name || '', prod: r.product_name || '', no: r.product_no };
+        ev.push({ ...base, t: r.created_at, who: r.created_by_email, kind: 'reg' });
+        if (r.ad_created_at) ev.push({ ...base, t: r.ad_created_at, who: r.ad_created_by, kind: 'ad', adId: r.ad_id });
+      }
+      const nos = [...new Set(rows.map(r => r.product_no).filter(Boolean))];
+      if (nos.length) {   // 문구 저장 기록 — 상품별 최신 1건(product_copy는 상품당 1행)
+        try {
+          const { rows: copies } = await sbCall('cafe24-perf', { action: 'copy_get', product_nos: nos.join(',') });
+          for (const c of copies || []) if (c.updated_at) ev.push({ t: c.updated_at, who: c.updated_by, kind: c.source === 'ai' ? 'ai' : 'copy', name: '', prod: c.product_name || '', no: c.product_no });
+        } catch { /* 문구 권한 없으면 생략 */ }
+      }
+      ev.sort((a, b) => (a.t < b.t ? 1 : -1));
+      workLog.ev = ev;
+    } catch (e) { workLog.ev = []; toast('작업 내역 불러오기 실패: ' + e.message); }
+    workLog.loading = false;
+  }
+  workLogRender();
+}
+function workLogSet(k, v) { workLog[k] = v; workLogRender(); }
+function workLogRender() {
+  const ctl = $('worklog-ctl'), body = $('worklog-body');
+  if (workLog.loading) { ctl.innerHTML = ''; body.innerHTML = '<div class="empty-state" style="padding:24px;"><p>불러오는 중…</p></div>'; return; }
+  const all = workLog.ev || [];
+  const since = workLog.period ? new Date(Date.now() - workLog.period * 86400e3).toISOString() : '';
+  const whos = [...new Set(all.map(e => e.who).filter(Boolean))];
+  const chip = (on, label, on_click) => `<button class="filter-tab ${on ? 'active' : ''}" style="${on ? 'background:#4f46e5;color:#fff;border-color:transparent;' : ''}" onclick="${on_click}">${label}</button>`;
+  ctl.innerHTML = [[1, '오늘'], [7, '7일'], [30, '30일'], [0, '전체']].map(([d, l]) => chip(workLog.period === d, l, `workLogSet('period',${d})`)).join('')
+    + `<span style="width:1px;height:22px;background:#e7e8ee;margin:0 2px;"></span>`
+    + [['all', '전체 종류'], ['reg', '등록'], ['ad', '광고 생성'], ['copy', '문구']].map(([k, l]) => chip(workLog.kind === k, l, `workLogSet('kind','${k}')`)).join('')
+    + (whos.length > 1 ? `<select class="inp" style="max-width:150px;padding:4px 8px;font-size:.76rem;" onchange="workLogSet('who',this.value)"><option value="all">모든 사람</option>${whos.map(w => `<option value="${esc(w)}" ${workLog.who === w ? 'selected' : ''}>${esc(wlWho(w))}</option>`).join('')}</select>` : '');
+  const rows = all.filter(e => (!since || e.t >= since) && (workLog.kind === 'all' || (workLog.kind === 'copy' ? (e.kind === 'copy' || e.kind === 'ai') : e.kind === workLog.kind)) && (workLog.who === 'all' || e.who === workLog.who));
+  if (!rows.length) { body.innerHTML = '<div class="empty-state" style="padding:24px;"><p>이 조건의 작업이 없어요</p></div>'; return; }
+  const color = { reg: '#2563eb', ad: '#15803d', copy: '#b45309', ai: '#7c3aed' };
+  let day = '';
+  body.innerHTML = rows.map(e => {
+    const d = wlWhen(e.t).split(' ')[0];
+    const head = d !== day ? `<div style="font-size:.7rem;font-weight:800;color:#6b7280;margin:10px 0 4px;">${(day = d)}</div>` : '';
+    return head + `<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;">
+      <span style="flex:none;color:#9ca3af;font-variant-numeric:tabular-nums;">${wlWhen(e.t).split(' ')[1]}</span>
+      <span style="flex:none;font-weight:700;color:#374151;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(String(e.who || ''))}">${esc(wlWho(e.who))}</span>
+      <span class="status-badge" style="flex:none;background:${color[e.kind]}1a;color:${color[e.kind]};white-space:nowrap;">${WL_KIND[e.kind]}</span>
+      <span style="min-width:0;word-break:break-all;">${e.name ? `<b>${esc(e.name)}</b>` : ''}${e.prod ? `<div style="font-size:.7rem;color:#6b7280;">${esc(e.prod)}${e.no ? ` · #${e.no}` : ''}</div>` : ''}${e.adId ? `<div style="font-size:.68rem;color:#9ca3af;">광고 ${esc(e.adId)}</div>` : ''}</span></div>`;
+  }).join('') + `<div style="font-size:.68rem;color:#9ca3af;margin-top:8px;">최근 등록 소재 500개 기준 · 한국 시간 · 삭제한 소재는 기록이 남지 않아 표시되지 않아요</div>`;
+}

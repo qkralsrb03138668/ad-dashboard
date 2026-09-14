@@ -99,6 +99,7 @@
     <!-- ═══ 소재 업로드 (소재 등록 + 상품별 소재 체크보드) — 메뉴명 2026-09-11 변경(구 광고소재 대시보드) ═══ -->
     <div class="section-card page-sec" id="sec-ptest">
       <div class="section-header"><h2><i class="fa-solid fa-upload" style="color:#4f46e5;font-size:.9em;"></i> 소재 업로드</h2>
+        <button class="btn-ghost" style="padding:4px 10px;font-size:.74rem;" onclick="workLogOpen('reg')" title="누가 언제 어떤 소재를 등록·문구 저장했는지"><i class="fa-solid fa-clock-rotate-left"></i> 작업 내역</button>
         <span class="hdr-note">칸 클릭: — → <b style="color:#1d4ed8;">제작완료</b> → <b style="color:#15803d;">진행중</b> → 해제 · <span id="pt-sync" title="체크보드는 서버에 저장돼 관리자·마케터 모든 계정이 같은 보드를 봅니다"></span></span></div>
       <div class="section-body">
         <!-- 상품·유형 관리 도구 — 기본 접힘, 화살표로 펼침 (상태 기억) -->
@@ -189,6 +190,7 @@
     <!-- ═══ 광고 업로드 (Meta) — Ads Uploader 대체 v1 ═══ -->
     <div class="section-card page-sec" id="sec-upload">
       <div class="section-header"><h2><i class="fa-solid fa-cloud-arrow-up" style="color:#4f46e5;font-size:.9em;"></i> 광고 업로드</h2>
+        <button class="btn-ghost" style="padding:4px 10px;font-size:.74rem;" onclick="workLogOpen('ad')" title="누가 언제 어떤 소재로 광고를 만들었는지"><i class="fa-solid fa-clock-rotate-left"></i> 작업 내역</button>
         <span class="hdr-note">파일 1개 = 광고세트 1개 + 광고 1개 · 세트 설정·강화옵션·페이지는 모델 광고와 동일, 예산만 입력</span></div>
       <div class="section-body">
         <!-- ① 모델 광고 -->
@@ -522,6 +524,16 @@
   </div>
 </div>
 
+<!-- 작업 내역 (소재 업로드·광고 업로드 공용 — 2026-09-14) -->
+<div class="modal" id="worklog-modal" onclick="if(event.target===this)closeModal('worklog-modal')">
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-head"><b><i class="fa-solid fa-clock-rotate-left" style="color:#4f46e5;"></i> 작업 내역</b>
+      <button class="modal-x" onclick="closeModal('worklog-modal')">✕</button></div>
+    <div id="worklog-ctl" class="filter-tabs" style="margin:0 0 10px;gap:6px;"></div>
+    <div id="worklog-body" style="max-height:60vh;overflow:auto;"></div>
+  </div>
+</div>
+
 <!-- 예산 변경 팝오버 (body 직속 — fixed 기준 보장) -->
 <div id="admgr-bpop" style="display:none;position:fixed;z-index:260;width:270px;background:#fff;border:1px solid #e7e8ee;border-radius:12px;padding:12px;box-shadow:0 10px 30px rgba(15,23,42,.18);"></div>
 
@@ -556,7 +568,7 @@
 <script src="./js/creatives.js?v=202609111942"></script>
 <script src="./js/checkboard.js?v=202609111942"></script>
 <script src="./js/register.js?v=202609111942"></script>
-<script src="./js/upload.js?v=202609111942"></script>
+<script src="./js/upload.js?v=202609141000"></script>
 <script src="./js/admgr.js?v=202609130010"></script>
 <script src="./js/admgr-budget.js?v=202609130040"></script>
 <script src="./js/admgr-tabs.js?v=202609121901"></script>
