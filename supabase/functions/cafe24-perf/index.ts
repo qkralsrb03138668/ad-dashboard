@@ -353,7 +353,7 @@ Deno.serve(async (req) => {
     if (action === "copy_get") {
       const nos = (url.searchParams.get("product_nos") ?? "").split(",").map((x) => Number(x)).filter((n) => n > 0).slice(0, 200);
       if (!nos.length) return json({ rows: [] });
-      const r = await dbRest(`product_copy?product_no=in.(${nos.join(",")})&select=product_no,product_name,text,source,updated_at,updated_by`);
+      const r = await dbRest(`product_copy?product_no=in.(${nos.join(",")})&select=product_no,product_name,text,source,updated_at,updated_by,updated_by_name`);
       return json({ rows: r.ok ? await r.json() : [] });
     }
     if (action === "copy_generate" || action === "copy_save") {
@@ -369,7 +369,7 @@ Deno.serve(async (req) => {
         if (!String(text.message ?? "").trim()) return json({ error: "본문 필요" }, 400);
         source = "manual";
       }
-      const row = { product_no: no, product_name: b.product_name ? String(b.product_name).slice(0, 300) : null, text, source, updated_at: new Date().toISOString(), updated_by: me.email };
+      const row = { product_no: no, product_name: b.product_name ? String(b.product_name).slice(0, 300) : null, text, source, updated_at: new Date().toISOString(), updated_by: me.email, updated_by_name: me.name || null };
       const r = await dbRest("product_copy?on_conflict=product_no", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(row) });
       if (!r.ok) return json({ error: `저장 실패: ${await r.text()}` }, 500);
       return json({ row: (await r.json())[0], usage });

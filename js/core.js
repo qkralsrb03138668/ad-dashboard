@@ -4,6 +4,7 @@
 
 /* ═══════════ 유틸 ═══════════ */
 const $ = id => document.getElementById(id);
+const whoName = (name, id) => name || (id === 'dash-key' ? '관리자' : String(id || '').replace(/^dnrb:/, '').split('@')[0]);   // 등록자 표시: 이름 우선 (2026-09-14)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';   // href엔 http(s)만 (javascript: 차단)
 const comma = n => (Math.round(n) || 0).toLocaleString('ko-KR');

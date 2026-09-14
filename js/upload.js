@@ -339,7 +339,7 @@ async function uplRun() {
    소재 업로드 탭 = 전체 종류, 광고 업로드 탭 = 광고 생성만 기본. 삭제는 기록이 안 남아 표시 불가(컬럼 추가 시 확장) ═══ */
 const workLog = { ev: null, period: 7, kind: 'all', who: 'all', loading: false };
 const WL_KIND = { reg: '등록', ad: '광고 생성', copy: '문구 저장', ai: '문구 AI 생성' };
-const wlWho = w => !w ? '—' : w === 'dash-key' ? '대표(접근키)' : String(w).replace(/^dnrb:/, '');
+const wlWho = w => w || '—';   // who는 이미 whoName으로 이름/아이디 정리됨
 const wlWhen = iso => { const d = new Date(iso); if (isNaN(d)) return ''; const k = new Date(d.getTime() + 9 * 3600e3); return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, '0')}:${String(k.getUTCMinutes()).padStart(2, '0')}`; };
 async function workLogOpen(tab) {
   workLog.kind = tab === 'ad' ? 'ad' : 'all'; workLog.who = 'all';
@@ -351,14 +351,14 @@ async function workLogOpen(tab) {
       const ev = [];
       for (const r of rows) {
         const base = { name: r.file_name || r.core_name || '', prod: r.product_name || '', no: r.product_no };
-        ev.push({ ...base, t: r.created_at, who: r.created_by_email, kind: 'reg' });
-        if (r.ad_created_at) ev.push({ ...base, t: r.ad_created_at, who: r.ad_created_by, kind: 'ad', adId: r.ad_id });
+        ev.push({ ...base, t: r.created_at, who: whoName(r.created_by_name, r.created_by_email), kind: 'reg' });
+        if (r.ad_created_at) ev.push({ ...base, t: r.ad_created_at, who: whoName(r.ad_created_by_name, r.ad_created_by), kind: 'ad', adId: r.ad_id });
       }
       const nos = [...new Set(rows.map(r => r.product_no).filter(Boolean))];
       if (nos.length) {   // 문구 저장 기록 — 상품별 최신 1건(product_copy는 상품당 1행)
         try {
           const { rows: copies } = await sbCall('cafe24-perf', { action: 'copy_get', product_nos: nos.join(',') });
-          for (const c of copies || []) if (c.updated_at) ev.push({ t: c.updated_at, who: c.updated_by, kind: c.source === 'ai' ? 'ai' : 'copy', name: '', prod: c.product_name || '', no: c.product_no });
+          for (const c of copies || []) if (c.updated_at) ev.push({ t: c.updated_at, who: whoName(c.updated_by_name, c.updated_by), kind: c.source === 'ai' ? 'ai' : 'copy', name: '', prod: c.product_name || '', no: c.product_no });
         } catch { /* 문구 권한 없으면 생략 */ }
       }
       ev.sort((a, b) => (a.t < b.t ? 1 : -1));

@@ -416,7 +416,7 @@ function admgrBestReportBuild(inp, days, today) {
   const good = T.filter(a => a.meta.verdict === 'good' && inWin(vAt(a))).length, meh = T.filter(a => a.meta.verdict === 'meh' && inWin(vAt(a))).length;   // 판정 뒤 꺼져도 판정은 판정 (st 아닌 verdict)
   const off = reg.filter(a => ['off', 'ended', 'rejected'].includes(a.st)).length;
   const who = new Map();
-  reg.forEach(a => { if (!a.c) return; const k = { 'dash-key': '관리자' }[a.c.created_by_email] || String(a.c.created_by_email || '').split('@')[0] || '?'; const w = who.get(k) || who.set(k, { who: k, n: 0, good: 0 }).get(k); w.n++; if (a.meta.verdict === 'good') w.good++; });
+  reg.forEach(a => { if (!a.c) return; const k = whoName(a.c.created_by_name, a.c.created_by_email) || '?'; const w = who.get(k) || who.set(k, { who: k, n: 0, good: 0 }).get(k); w.n++; if (a.meta.verdict === 'good') w.good++; });
   const eff = { reg: reg.length, good, meh, off, rate: good + meh + off ? good / (good + meh + off) : null, by: [...who.values()].sort((x, y) => y.good - x.good || y.n - x.n) };
   // 다음 주 액션 — 규칙으로. 해석·우선순위는 AI 해석(scripts/weekly-insight.mjs)에서
   const names = v => prods.filter(p => p.v === v).map(p => p.name);
@@ -776,7 +776,7 @@ function renderAdmgrTest() {
           <div style="min-width:0;flex:1;">
             <div class="ell" onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="${esc(a.adset_name)} — 클릭하면 미리보기" style="font-weight:700;color:#4338ca;cursor:pointer;">${esc(a.adset_name)}</div>
             <div class="ell" style="font-size:.66rem;color:#9ca3af;" title="${esc(a.name)}">${esc(a.name)}</div>
-            ${c ? `<div class="ell" style="font-size:.64rem;color:#6b7280;"><i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc((c.created_by_email || '').split('@')[0])} · <a href="#" onclick="event.stopPropagation();admgrTestCopy('${a.id}');return false;">문구</a></div>` : ''}
+            ${c ? `<div class="ell" style="font-size:.64rem;color:#6b7280;"><i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc(whoName(c.created_by_name, c.created_by_email))} · <a href="#" onclick="event.stopPropagation();admgrTestCopy('${a.id}');return false;">문구</a></div>` : ''}
           </div></div></td>
         <td class="ctr" style="white-space:nowrap;">${a.reg_date ? fmtMD(a.reg_date) : '—'}<div style="font-size:.62rem;color:#9ca3af;">${dp == null ? '' : 'D+' + dp}</div></td>
         <td class="ctr" style="white-space:nowrap;">
@@ -831,7 +831,7 @@ function renderAdmgrTest() {
       return `<div class="mcard ${checked ? 'sel' : ''}">
         <div class="mc-top" onclick="showMetaPreview('${a.id}')" style="cursor:pointer;">
           <span style="flex:none;">${mediaThumbHtml(thSrc, 'image', 44)}</span>
-          <div class="mc-name" style="flex:1;"><b>${esc(a.adset_name)}</b><div class="mc-sub">${a.reg_date ? fmtMD(a.reg_date) + (dp == null ? '' : ` · D+${dp}`) : ''}${c ? ` · <i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc((c.created_by_email || '').split('@')[0])}` : ''}</div></div>
+          <div class="mc-name" style="flex:1;"><b>${esc(a.adset_name)}</b><div class="mc-sub">${a.reg_date ? fmtMD(a.reg_date) + (dp == null ? '' : ` · D+${dp}`) : ''}${c ? ` · <i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc(whoName(c.created_by_name, c.created_by_email))}` : ''}</div></div>
           <div class="mc-tg" onclick="event.stopPropagation()"><label style="display:inline-flex;padding:4px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="admgrTestSel('${a.id}')" title="선택 (일괄 제거용)" /></label></div></div>
         <div class="mc-judge" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${judge}</div>
         <div class="mc-nums"><div><i>지출</i>${won(a.spend)}</div><div><i>구매 · CPA</i>${comma(a.purchases)}<span style="font-size:.64rem;color:#9ca3af;font-weight:600;"> ${a.purchases ? won(Math.round(a.spend / a.purchases)) : ''}</span></div><div><i>ROAS</i>${admgrRoasTd(a)}</div></div>
@@ -1109,7 +1109,7 @@ function renderAdmgrBest() {
       </div>
       <div style="padding:8px 10px;">
         <div class="ell" style="font-size:.76rem;font-weight:700;color:#1e1b4b;" title="${esc(a.setNm)}">${esc(a.setNm)}</div>
-        <div class="ell" style="font-size:.64rem;color:#6b7280;">${a.c ? `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(a.c.file_name) || '소재')} · ${esc((a.c.created_by_email || '').split('@')[0])} · ` : ''}${a.m.reg ? fmtMD(a.m.reg) + (admgrDPlus({ reg_date: a.m.reg }) != null ? ` (D+${admgrDPlus({ reg_date: a.m.reg })})` : '') : ''}</div>
+        <div class="ell" style="font-size:.64rem;color:#6b7280;">${a.c ? `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(a.c.file_name) || '소재')} · ${esc(whoName(a.c.created_by_name, a.c.created_by_email))} · ` : ''}${a.m.reg ? fmtMD(a.m.reg) + (admgrDPlus({ reg_date: a.m.reg }) != null ? ` (D+${admgrDPlus({ reg_date: a.m.reg })})` : '') : ''}</div>
         <div style="display:flex;gap:10px;margin-top:6px;font-size:.66rem;color:#6b7280;">
           <span>지출<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? won(a.m.spend) : '…'}</b></span>
           <span>구매<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? comma(a.m.purchases) : '…'}</b></span>

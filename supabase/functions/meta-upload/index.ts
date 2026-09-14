@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
       const media = (body.media ?? {}) as Rec;
       if (!(media.type === "video" ? media.video_id : media.image_hash)) return json({ error: "미디어 정보 부족" }, 400);
       const row = {
-        created_by: /^[0-9a-f-]{36}$/i.test(me.id) ? me.id : null, created_by_email: me.email,   // UUID가 아닌 로그인 id(접근키·dnrb:… 계정)는 이메일만 기록
+        created_by: /^[0-9a-f-]{36}$/i.test(me.id) ? me.id : null, created_by_email: me.email, created_by_name: me.name || null,   // UUID가 아닌 로그인 id(접근키·dnrb:… 계정)는 이메일만 기록
         file_name: String(body.file_name ?? "").slice(0, 200), kind: media.type === "video" ? "video" : "image",
         core_name: body.core_name ? String(body.core_name).slice(0, 200) : null,
         product_no: body.product_no ? Number(body.product_no) : null, product_name: body.product_name ? String(body.product_name).slice(0, 300) : null,
@@ -349,7 +349,7 @@ Deno.serve(async (req) => {
       const cid = String(body.creative_id ?? "");
       if (/^[0-9a-f-]{36}$/.test(cid)) {   // 등록된 소재로 만든 경우 → 기록 갱신 (체크보드 '진행중' 근거)
         await dbRest(`creatives?id=eq.${cid}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ status: "ad_created", ad_id: ad.id, adset_id, ad_created_at: new Date().toISOString(), ad_created_by: me.email, model_ad_id: String(body.model_ad_id ?? ""), text }) }).catch(() => {});
+          body: JSON.stringify({ status: "ad_created", ad_id: ad.id, adset_id, ad_created_at: new Date().toISOString(), ad_created_by: me.email, ad_created_by_name: me.name || null, model_ad_id: String(body.model_ad_id ?? ""), text }) }).catch(() => {});
       }
       return json({ adset_id, creative_id, ad_id: ad.id });
     }

@@ -360,8 +360,8 @@ function ptCellPopup(pid, ti) {
       <td>${mediaThumbHtml(mediaThumbSrc(r.media), r.kind, 48)}</td>
       <td style="font-size:.78rem;">${esc(r.file_name)}</td>
       <td style="text-align:center;font-size:.74rem;">${esc(tagOf(r.file_name) || '-')}</td>
-      <td style="font-size:.76rem;white-space:nowrap;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span><div style="font-size:.66rem;color:#9ca3af;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}${r.ad_id && act ? ` · <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${r.ad_id}" target="_blank" rel="noopener">광고관리자 ↗</a>` : ''}</div>` : '<span class="status-badge badge-blue">대기</span>'}</td>
-      <td style="text-align:center;font-size:.7rem;color:#6b7280;white-space:nowrap;">${(r.created_at || '').slice(5, 10)}<div>${esc((r.created_by_email || '').split('@')[0])}</div></td>
+      <td style="font-size:.76rem;white-space:nowrap;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span><div style="font-size:.66rem;color:#9ca3af;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(whoName(r.ad_created_by_name, r.ad_created_by))}${r.ad_id && act ? ` · <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${r.ad_id}" target="_blank" rel="noopener">광고관리자 ↗</a>` : ''}</div>` : '<span class="status-badge badge-blue">대기</span>'}</td>
+      <td style="text-align:center;font-size:.7rem;color:#6b7280;white-space:nowrap;">${(r.created_at || '').slice(5, 10)}<div>${esc(whoName(r.created_by_name, r.created_by_email))}</div></td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="closeModal('pt-cell-modal');regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i> 보기' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
     </tr>`).join('')}</tbody></table></div>` : '<div style="padding:16px;color:#9ca3af;">등록된 소재가 없어요</div>';
   $('pt-cell-modal').classList.add('show');

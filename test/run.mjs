@@ -34,6 +34,10 @@ let n = 0;
 const test = (name, fn) => { try { fn(); n++; console.log('  ✓', name); } catch (e) { console.error('  ✗', name); throw e; } };
 
 console.log('유틸');
+test('whoName: 이름 우선, 없으면 접근키→관리자 / 이메일 앞 / dnrb: 제거', () => {
+  const f = g('whoName'); assert.equal(f('박민규', 'dnrb:pmk'), '박민규'); assert.equal(f(null, 'dash-key'), '관리자');
+  assert.equal(f('', 'kim@x.com'), 'kim'); assert.equal(f(undefined, 'dnrb:5637ehgml'), '5637ehgml'); assert.equal(f(null, null), '');
+});
 test('dnrbCan: SSO 아니면 전부 허용, perms 있으면 actions만', () => {
   const f = g('dnrbCan'); localStorage.removeItem('dnrb_sso'); assert.equal(f('budget'), true);
   localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', exp: Date.now() + 60000, perms: { menus: ['home'], actions: ['creative'] } }));

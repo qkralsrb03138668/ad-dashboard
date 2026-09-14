@@ -335,8 +335,8 @@ function regRenderList() {
       <td style="font-size:.78rem;" id="reg-prod-${r.id}">${esc(r.product_name || '-')}${safeUrl(r.url) ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:.7rem;">↗</a>` : ''}${r.status === 'registered' ? ` <button class="btn-ghost" style="padding:1px 7px;font-size:.66rem;margin-left:4px;" title="상품을 잘못 골랐을 때 바꾸기 (URL·파일명도 같이)" onclick="regListProduct('${r.id}')">변경</button>` : ''}</td>
       <td style="text-align:center;font-size:.74rem;">${REG_KIND_TYPE[r.kind] || r.kind}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
-      <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(r.ad_created_by || '')}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
-      <td class="m-hide" style="text-align:center;font-size:.72rem;color:#6b7280;">${esc((r.created_by_email || '').split('@')[0])}</td>
+      <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(whoName(r.ad_created_by_name, r.ad_created_by))}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
+      <td class="m-hide" style="text-align:center;font-size:.72rem;color:#6b7280;">${esc(whoName(r.created_by_name, r.created_by_email))}</td>
       <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" data-act="delete" style="padding:2px 8px;font-size:.7rem;${dnrbCan('delete') ? '' : 'display:none;'}" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
