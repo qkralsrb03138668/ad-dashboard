@@ -133,7 +133,7 @@ function showMenu(key) {
   $('sec-' + sec).style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   // 광고관리자는 Meta 프리셋 기간을 따로 쓰므로 공통 기간 바를 숨긴다
-  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload') ? 'none' : 'flex';
+  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload' || key === 'ptest') ? 'none' : 'flex';   // 소재 업로드도 기간을 안 쓴다 (2026-09-14 사용자 요청: PC·모바일 모두 숨김)
   rerender();
 }
 function rerender() {
