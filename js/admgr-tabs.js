@@ -63,11 +63,7 @@ async function admgrTestVerdict(adId, v) {
   const nv = cur.verdict === v ? null : v;
   try {
     await admgrTestSave(adId, { verdict: nv, verdict_at: nv ? new Date().toISOString() : null }); renderAdmgr(true);
-    const ui = lsGet('adc_admgr_best_ui', null) || {};
-    if (nv === 'good' && ui.autoAdd !== false && !admgr.demo) {   // 우수 → 베스트 소재에 자동 담기 (베스트 탭 스위치로 끌 수 있음)
-      const a = ((admgr.test.data || {}).ads || []).find(x => x.id === adId);
-      if (a && a.adset_id) { await metaPost({ action: 'best_add' }, [{ adset_id: a.adset_id, adset_name: a.adset_name || '', added_by: ADMGR_USER }]); admgr.best.loaded = false; toast('우수 판정 — 베스트 소재에 담았어요'); }
-    }
+    // 우수 판정은 판정일 뿐 — 베스트 소재 담기는 광고세트 탭에서 직접 (2026-09-14 사용자 요청으로 자동 담기 제거)
   }
   catch (e) { toast('저장 실패: ' + e.message); }
 }
@@ -1027,7 +1023,7 @@ function admgrBestMetric(a) {   // 누적 성과: 테스트 소재 데이터(광
   if (st) return { spend: st.spend || 0, purchases: st.purchases || 0, value: st.value || 0, reg: (st.created || '').slice(0, 10), src: '기간' };
   return null;
 }
-function admgrBestSet(k, v) { admgr.best[k] = v; lsSet('adc_admgr_best_ui', { sort: admgr.best.sort, hideOff: admgr.best.hideOff, autoAdd: admgr.best.autoAdd }); renderAdmgr(true); }
+function admgrBestSet(k, v) { admgr.best[k] = v; lsSet('adc_admgr_best_ui', { sort: admgr.best.sort, hideOff: admgr.best.hideOff }); renderAdmgr(true); }
 async function admgrBestCopyText(adId) {
   const c = admgr.test.creatives && admgr.test.creatives.get(String(adId));
   let msg = c && c.text && c.text.message;
@@ -1042,15 +1038,15 @@ function admgrBestUseModel(adId) {   // 광고 업로드 ① 모델 광고로
 }
 function renderAdmgrBest() {
   const b = admgr.best;
-  if (b.sort === undefined) { const ui = lsGet('adc_admgr_best_ui', null) || {}; b.sort = ui.sort || 'roas'; b.hideOff = !!ui.hideOff; b.autoAdd = ui.autoAdd !== false; b.prod = 'all'; }
+  if (b.sort === undefined) { const ui = lsGet('adc_admgr_best_ui', null) || {}; b.sort = ui.sort || 'roas'; b.hideOff = !!ui.hideOff; b.prod = 'all'; }
   if (!admgrCfg() || admgr.demo) {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-star"></i></div>
-      <p>실제 Meta 연동 후, 테스트 소재에서 <b>우수</b>로 판정하면 자동으로 여기에 모여요 (광고세트 탭에서 직접 담을 수도 있어요).</p></div>`;
+      <p>실제 Meta 연동 후, <b>광고세트</b> 탭에서 세트를 체크해 <b>베스트소재로</b>를 누르면 여기에 모여요.</p></div>`;
   }
   if (!b.loaded) return `<div class="empty-state"><p>${b.loading ? '베스트소재를 불러오는 중…' : '<b>새로고침</b>을 누르면 베스트소재를 불러와요.'}</p></div>`;
   if (!(b.rows || []).length) {
     return `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div>
-      <p>아직 담은 소재가 없어요.<br/>테스트 소재에서 <b>우수</b>를 누르면 자동으로 담기고, <b>광고세트</b> 탭에서 세트를 체크해 <b>베스트소재로</b>를 눌러도 돼요.</p>
+      <p>아직 담은 소재가 없어요.<br/><b>광고세트</b> 탭에서 세트를 체크해 <b>베스트소재로</b>를 누르면 담겨요.</p>
       <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;margin-top:8px;" onclick="admgrBestReport()"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트 (테스트 효율만)</button></div>`;
   }
   // 성과·등록 기록은 테스트 소재 데이터에서 — 아직 없으면 조용히 불러온다
@@ -1084,7 +1080,6 @@ function renderAdmgrBest() {
     ${chip(b.prod === 'all', `전체 ${allAds.length}`, "admgrBestSet('prod','all')")}${prods.map(pn => chip(b.prod === pn, `${esc(pn)} ${allAds.filter(a => a.prod === pn).length}`, `admgrBestSet('prod','${esc(pn)}')`)).join('')}
     <span style="flex:1;"></span>
     ${sw(b.hideOff, '꺼진 소재 숨기기', `admgrBestSet('hideOff',${!b.hideOff})`)}
-    ${sw(b.autoAdd, '우수 판정 시 자동 담기', `admgrBestSet('autoAdd',${!b.autoAdd})`, '테스트 소재에서 [우수]를 누르면 그 세트를 여기에 자동으로 담아요')}
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrBestReport()" title="회의용 — 이번 기간 베스트 성과·전주 대비·패턴(릴스/이미지·소구점·가격대)·상품 판단·테스트 효율·다음 주 액션 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트</button>
   </div>
   <div class="info-bar"><i class="fa-solid fa-star"></i> 담은 세트 ${b.rows.length}개 · 소재 ${allAds.length}개 · 성과는 <b>등록 이후 누적</b>${metricsReady ? '' : ' (불러오는 중…)'} · 타일 클릭 = 큰 미리보기 · 상품 제목의 ✕ = 세트 빼기</div>`;
