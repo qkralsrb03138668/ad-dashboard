@@ -542,7 +542,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       <b>${nc ? `캠페인 ${nc}` : ''}${nc && ns ? ' · ' : ''}${ns ? `세트 ${ns}` : ''} 선택</b><span class="sep"></span>
       ${isCamp && nc ? `<button onclick="admgrSetView('set')">선택한 캠페인의 세트 보기 →</button>` : ''}
       ${isSet && ns ? `<button onclick="admgrSetView('ad')">선택한 세트의 광고 보기 →</button>` : ''}
-      ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산을 ÷10으로 즉시 적용 (PIN·확인창)"><i class="fa-solid fa-arrow-down"></i> ÷10 감액</button>` : ''}
+      ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
       <span style="flex:1;"></span><button class="ghost" onclick="admgrClearSel()">선택 해제 ✕</button></div>` : '';
   return chgChips + judgeChips + tiles + table + cards + actbar;
@@ -646,10 +646,15 @@ function admgrCut10(id) {
 async function admgrCutAll() {   // 판정 '감액' 후보 전체
   admgrCutRun(admgrRows().sets.filter(r => r.budget > 0 && admgrJudge(r).key === 'cut'), '감액 후보', admgrCutAll);
 }
-function admgrCutSel() {   // 체크한 광고세트만 ÷10 (2026-09-15 사용자 요청) — 판정과 무관하게 선택한 것 전부
+function admgrCutSel() {   // 체크한 광고세트 ÷10 → 임시 저장만 (바로 적용 X, 상단 '게시'로 반영 — 2026-09-15 사용자 요청)
   const sel = admgrRows().sets.filter(r => admgr.selSets.has(r.id));
-  const skip = sel.filter(r => !(r.budget > 0)).length;   // 일예산 없는 세트(캠페인 예산 CBO 등)는 세트에서 못 바꿈
-  admgrCutRun(sel.filter(r => r.budget > 0), '선택한 세트', admgrCutSel, skip);
+  const ok = sel.filter(r => r.budget > 0), skip = sel.length - ok.length;   // 일예산 없는 세트(캠페인 예산 CBO 등)는 세트에서 못 바꿈
+  if (!ok.length) { toast(skip ? `일예산이 있는 세트가 없어요 (캠페인 예산 세트 ${skip}개는 캠페인에서 바꿔야 해요)` : '감액할 세트가 없어요'); return; }
+  for (const r of ok) admgrDraft[r.id] = Math.max(1000, Math.round(r.budget / 10));   // 기준 = 현재 Meta 예산 (기존 임시 저장값은 덮어씀)
+  lsSet('adc_admgr_draft', admgrDraft);
+  admgr.selSets.clear();
+  toast(`${ok.length}개 ÷10 임시 저장${skip ? ` · 캠페인 예산 세트 ${skip}개 제외` : ''} — Meta엔 아직 반영 안 됐어요. 상단 '게시'로 반영`);
+  renderAdmgr(true);
 }
 async function admgrCutRun(targets, label, retry, skip = 0) {
   const w = admgr.write;
@@ -663,7 +668,6 @@ async function admgrCutRun(targets, label, retry, skip = 0) {
       catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
     }
     toast(`감액 완료 ${ok}개${fail ? ` · 실패 ${fail}개` : ''}`);
-    if (ok && retry === admgrCutSel) admgr.selSets.clear();
     admgrFetch();
   });
 }
