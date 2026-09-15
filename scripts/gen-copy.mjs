@@ -4,7 +4,7 @@
 // 인증: 이 폴더의 config.js(SUPABASE_URL·anon key·DASH_KEY). 지시문: supabase/functions/cafe24-perf/ad-copy-prompt.ts (서버와 동일)
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { runClaude } from './claude.mjs';   // Fable 5.1 → 한도 시 Opus 5 자동 전환, 실패 이유 한국어
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -44,7 +44,7 @@ function generate(facts, url) {
 [카페24 상품 정보]
 ${facts}`;
     // --restricted --tools WebFetch: Bash·브라우저 MCP 등이 아예 없어서 모델이 시도하거나 거부당할 일이 없다. --strict-mcp-config: 이 맥의 MCP 서버 제외
-    const out = execFileSync('claude', ['-p', prompt, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });   // 모델: 사용자 지정 Fable 5.1 · 중간
+    const out = runClaude(prompt, ['--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM]);   // 모델: 사용자 지정 Fable 5.1 · 중간 (한도면 Opus 5)
     return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
   };
   let text = ask('');
@@ -103,6 +103,6 @@ for (const t of targets) {
     await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });
     for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url }, regen: false });
     ok++; console.log(`✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
-  } catch (e) { const m = String(e.message).split('\n')[0].replace(/^Command failed: claude .*$/, 'Claude Code 실행 실패 — 이 맥에서 claude 로그인 상태인지 확인하세요 (터미널에서 `claude` 한 번 실행)'); console.log(`\n✗ #${t.product_no}: ${m}`); }
+  } catch (e) { const m = String(e.message).split('\n')[0]; console.log(`\n✗ #${t.product_no}: ${m}`); }   // 이유는 claude.mjs가 한국어로 정리
 }
 console.log(`끝 — ${ok}/${targets.length}`);

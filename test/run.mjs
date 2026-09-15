@@ -361,6 +361,31 @@ test('showMenu(atest): 광고관리자 섹션을 test 탭만으로, admgr 복귀
   g('showMenu')('admgr'); assert.equal(g('admgr').solo, null); assert.equal(g('admgr').view, 'camp'); assert.ok(els['admgr-body'].innerHTML.includes('class="mtabs"'));
 });
 
+console.log('⑥ 로컬 Claude 실행기 (문구생성·주간 해석)');
+{
+  const C = await import(new URL('scripts/claude.mjs', root));
+  test('claudeError: 한도·로그인·미설치·기타를 한국어 한 문장으로', () => {
+    assert.ok(C.claudeError("You've reached your Fable limit. Switch to another model").startsWith('Claude 사용량 한도 초과'));
+    assert.ok(C.claudeError('Not logged in · Please run /login').startsWith('로그인이 필요'));
+    assert.ok(C.claudeError('', { code: 'ENOENT', message: 'spawn claude ENOENT' }).startsWith('claude 명령을 찾을 수 없'));
+    assert.equal(C.claudeError('\n  Something broke\nmore', null), 'Claude Code 실행 실패: Something broke');
+  });
+  const calls = [];
+  const fail = (stdout, status = 1) => Object.assign(new Error('Command failed: claude'), { stdout, stderr: '', status });
+  const fake = (_c, args) => { const m = args[args.indexOf('--model') + 1]; calls.push(m); if (m === 'claude-fable-5-1') throw fail("You've reached your Fable limit."); return '카피 본문'; };
+  const log = process.stdout.write; process.stdout.write = () => true;
+  let out; try { out = C.runClaude('p', ['--x'], fake); out += '|' + C.runClaude('p2', [], fake); } finally { process.stdout.write = log; }
+  test('runClaude: Fable 한도면 Opus 5로 넘어가고 이후 호출도 Opus 5', () => {
+    assert.equal(out, '카피 본문|카피 본문');
+    assert.equal(calls.join(), 'claude-fable-5-1,claude-opus-5,claude-opus-5');
+    assert.equal(C.claudeModel(), 'Opus 5');
+  });
+  test('runClaude: 마지막 모델도 한도면 한국어 오류로 멈춤', () => {
+    const allLimit = () => { throw fail("You've reached your Opus limit."); };
+    assert.throws(() => C.runClaude('p', [], allLimit), /사용량 한도 초과/);
+  });
+}
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {

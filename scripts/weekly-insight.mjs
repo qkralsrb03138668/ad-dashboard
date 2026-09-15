@@ -5,7 +5,7 @@
 // 인증: 이 폴더의 config.js(SUPABASE_URL·anon key·DASH_KEY). 옵션: --dry = 저장 안 하고 화면에만
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { runClaude } from './claude.mjs';   // Fable 5.1 → 한도 시 Opus 5 자동 전환, 실패 이유 한국어
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -42,8 +42,9 @@ const cur = await api('client-log', { action: 'state_get', key: 'best_report' })
 if (!cur.data || !cur.data.text) { console.error('❌ 저장된 리포트가 없어요 — 대시보드 베스트 소재 탭에서 [주간 리포트]를 먼저 열어 주세요'); process.exit(1); }
 const r = cur.data;
 console.log(`📊 리포트 ${r.from}~${r.to} (${r.days}일, ${String(r.at).slice(0, 16).replace('T', ' ')} 저장) 읽음 → 해석 생성 중…`);
-const out = execFileSync('claude', ['-p', `아래 주간 리포트를 해석해 줘.\n\n${r.text}`, '--model', 'claude-fable-5-1', '--effort', 'medium', '--output-format', 'text', '--append-system-prompt', SYSTEM],
-  { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }).trim();   // 도구 없이 — 숫자만 해석
+let out;
+try { out = runClaude(`아래 주간 리포트를 해석해 줘.\n\n${r.text}`, ['--append-system-prompt', SYSTEM]).trim(); }   // 도구 없이 — 숫자만 해석
+catch (e) { console.error('❌ ' + e.message); process.exit(1); }
 console.log('\n' + out + '\n');
 if (dry) { console.log('(--dry: 저장 안 함)'); process.exit(0); }
 const prev = await api('client-log', { action: 'state_get', key: 'best_report_ai' });
