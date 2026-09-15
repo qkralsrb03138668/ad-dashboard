@@ -318,7 +318,7 @@ function renderAdmgr(keepScroll) {
     const pct = u.usage_pct != null ? u.usage_pct : m.usage_pct;
     const range = admgr.data.range ? admgr.data.range.start + ' ~ ' + admgr.data.range.end : '';
     status = until
-      ? `<span class="ag-pill warn" title="Meta 조회 한도 대기 중 — ${admgrKstLabel(until)} 이후 자동 재시도 · 마지막으로 받은 데이터를 보여주고 있어요"><span class="dot"></span>한도 대기 · ${admgrKstLabel(until)}까지</span>`
+      ? `<span class="ag-pill warn" title="Meta 조회 한도 대기 중 — ${admgrKstLabel(until)} 이후 자동 재시도 · 마지막으로 받은 데이터를 보여주고 있어요${u.cooldown_error ? '\n원인: ' + esc(u.cooldown_error) : ''}"><span class="dot"></span>한도 대기 · ${admgrKstLabel(until)}까지</span>`
       : `<span class="ag-pill ok" title="${esc(range)} 기준 · ${m.sync_at ? '서버가 5분마다 Meta에서 받아 저장해 두고, 화면은 저장된 것만 읽어요 (새로고침해도 Meta 호출이 늘지 않아요)' : '서버 5분 캐시'}${pct != null ? ' · Meta 사용량 ' + Math.round(pct) + '%' : ''}"><span class="dot"></span>${m.sync_at ? '자동 수집' : '캐시'} · ${admgrAgo(admgr.data.fetched_at)}</span>`;
     if (admgr.data.truncated) status += `<span class="ag-pill warn" title="500개 한도로 일부가 잘렸어요">일부 잘림</span>`;
   }

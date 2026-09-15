@@ -66,10 +66,15 @@ async function cooldownUntil(): Promise<string | null> {
   const cd = await cacheGetAny("meta:cooldown") as { until?: string } | null;
   return cd?.until && new Date(cd.until).getTime() > Date.now() ? cd.until : null;
 }
-async function setCooldown(): Promise<string> {
+async function cooldownInfo(): Promise<{ until: string | null; error: string | null; at: string | null; key: string | null }> {   // 마지막 한도 오류 원인 (2026-09-15: 원인 없이 "한도 대기"만 떠서 추가)
+  const cd = await cacheGetAny("meta:cooldown") as { until?: string; set_at?: string; error?: string; key?: string } | null;
+  return { until: cd?.until && new Date(cd.until).getTime() > Date.now() ? cd.until : null, error: cd?.error ?? null, at: cd?.set_at ?? null, key: cd?.key ?? null };
+}
+async function setCooldown(e?: unknown): Promise<string> {
   const mins = Math.max(5, Math.min(60, lastUsage?.regain || 10));
   const until = new Date(Date.now() + mins * 60_000).toISOString();
-  await cacheSet("meta:cooldown", { until, set_at: new Date().toISOString() });
+  const err = e ? `${(e as { code?: number })?.code ?? ""} ${String((e as Error)?.message ?? e)}`.trim().slice(0, 300) : "";
+  await cacheSet("meta:cooldown", { until, set_at: new Date().toISOString(), error: err, key: curKey, usage_pct: lastUsage?.pct ?? null });
   return until;
 }
 function withMeta(body: unknown, meta: Record<string, unknown>): Response {
@@ -447,7 +452,8 @@ Deno.serve(async (req) => {
   // Meta 사용량·쿨다운 상태 (우리 서버만 조회 — Meta 호출 없음)
   if (action === "usage") {
     if (!lastUsage) lastUsage = (await cacheGetAny("meta:usage")) as Usage | null;
-    return json({ usage_pct: lastUsage?.pct ?? null, usage_at: lastUsage?.at ?? null, cooldown_until: await cooldownUntil() });
+    const cd = await cooldownInfo();
+    return json({ usage_pct: lastUsage?.pct ?? null, usage_at: lastUsage?.at ?? null, cooldown_until: cd.until, cooldown_error: cd.error, cooldown_at: cd.at, cooldown_key: cd.key });
   }
 
   const c = creds();
@@ -825,7 +831,7 @@ Deno.serve(async (req) => {
     return json({ error: "unknown action" }, 400);
   } catch (e) {
     if (isRateLimit(e)) {
-      const until = await setCooldown();
+      const until = await setCooldown(e);
       const stale = curKey ? await cacheGetAny(curKey) : null;
       if (stale) return withMeta(stale, { stale: true, cooldown_until: until, error: String((e as Error).message).slice(0, 200) });
       return json({ error: "Meta 조회 한도 초과 — 잠시 후 자동 재시도", rate_limited: true, cooldown_until: until }, 429);
