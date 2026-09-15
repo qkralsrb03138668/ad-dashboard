@@ -549,3 +549,6 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr .ag-muted { font-weight: 600; color: #9ca3af; font-size: .68rem; margin-left: 2px; }
 #sec-admgr .filter-tab.active .ag-muted { color: rgba(255,255,255,.7); }
 #sec-admgr .ag-vsep { width: 1px; height: 20px; background: #e7e8ee; margin: 0 4px; }
+#sec-admgr tbody tr.ag-row { cursor: pointer; }
+#sec-admgr tbody tr.ag-row.sel td { background: #eef2ff; }
+#sec-admgr tbody tr.ag-row.sel:hover td { background: #e5e9ff; }
