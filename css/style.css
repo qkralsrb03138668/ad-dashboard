@@ -552,3 +552,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr tbody tr.ag-row { cursor: pointer; }
 #sec-admgr tbody tr.ag-row.sel td { background: #eef2ff; }
 #sec-admgr tbody tr.ag-row.sel:hover td { background: #e5e9ff; }
+#sec-admgr .ag-actbar button.cut { background: #dc2626; } #sec-admgr .ag-actbar button.cut:hover { background: #b91c1c; }
+@media (max-width: 768px) {   /* 폰: 하단 탭바 위에 동작 바, 버튼 줄바꿈 */
+  #sec-admgr .ag-actbar { bottom: calc(80px + env(safe-area-inset-bottom)); flex-wrap: wrap; width: calc(100vw - 20px); }
+}

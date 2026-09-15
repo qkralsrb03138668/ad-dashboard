@@ -538,10 +538,11 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   }
   /* 체크 선택 시 하단 동작 바 (상단 '선택: …' 표시줄 대체) */
   const nc = admgr.selCamps.size, ns = admgr.selSets.size;
-  const actbar = (nc || ns) && !admgrMobile() ? `<div class="ag-actbar">
+  const actbar = (nc || ns) ? `<div class="ag-actbar">
       <b>${nc ? `캠페인 ${nc}` : ''}${nc && ns ? ' · ' : ''}${ns ? `세트 ${ns}` : ''} 선택</b><span class="sep"></span>
       ${isCamp && nc ? `<button onclick="admgrSetView('set')">선택한 캠페인의 세트 보기 →</button>` : ''}
       ${isSet && ns ? `<button onclick="admgrSetView('ad')">선택한 세트의 광고 보기 →</button>` : ''}
+      ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산을 ÷10으로 즉시 적용 (PIN·확인창)"><i class="fa-solid fa-arrow-down"></i> ÷10 감액</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
       <span style="flex:1;"></span><button class="ghost" onclick="admgrClearSel()">선택 해제 ✕</button></div>` : '';
   return chgChips + judgeChips + tiles + table + cards + actbar;
@@ -642,19 +643,27 @@ function admgrCut10(id) {
   const r = admgrRows().sets.find(x => x.id === id); if (!r || !(r.budget > 0)) return;
   admgrApplyNow(id, 'adset', Math.max(1000, Math.round(r.budget / 10)));
 }
-async function admgrCutAll() {
+async function admgrCutAll() {   // 판정 '감액' 후보 전체
+  admgrCutRun(admgrRows().sets.filter(r => r.budget > 0 && admgrJudge(r).key === 'cut'), '감액 후보', admgrCutAll);
+}
+function admgrCutSel() {   // 체크한 광고세트만 ÷10 (2026-09-15 사용자 요청) — 판정과 무관하게 선택한 것 전부
+  const sel = admgrRows().sets.filter(r => admgr.selSets.has(r.id));
+  const skip = sel.filter(r => !(r.budget > 0)).length;   // 일예산 없는 세트(캠페인 예산 CBO 등)는 세트에서 못 바꿈
+  admgrCutRun(sel.filter(r => r.budget > 0), '선택한 세트', admgrCutSel, skip);
+}
+async function admgrCutRun(targets, label, retry, skip = 0) {
   const w = admgr.write;
-  if (!w.pin) { admgrPinPrompt(admgrCutAll); return; }
-  const targets = admgrRows().sets.filter(r => r.budget > 0 && admgrJudge(r).key === 'cut');
-  if (!targets.length) { toast('감액 후보가 없어요'); return; }
-  const lines = targets.map(r => `· ${esc(r.name)}: ${comma(r.budget)} → <b>${comma(Math.max(1000, Math.round(r.budget / 10)))}</b>`).join('<br/>');
-  admgrConfirmModal(`감액 후보 ${targets.length}개 ÷10`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리</span>`, `${targets.length}개 감액`, async () => {
+  if (!w.pin) { admgrPinPrompt(retry); return; }
+  if (!targets.length) { toast(skip ? `일예산이 있는 세트가 없어요 (캠페인 예산 세트 ${skip}개는 캠페인에서 바꿔야 해요)` : '감액할 세트가 없어요'); return; }
+  const lines = targets.map(r => `· ${esc(r.name)}: ${comma(r.budget)} → <b>${comma(Math.max(1000, Math.round(r.budget / 10)))}</b>${admgrJudge(r).key === 'done' ? ' <span style="color:#b45309;">(오늘 이미 감액)</span>' : ''}`).join('<br/>');
+  admgrConfirmModal(`${label} ${targets.length}개 ÷10`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리${skip ? ` · 캠페인 예산 세트 ${skip}개는 제외` : ''}</span>`, `${targets.length}개 감액`, async () => {
     let ok = 0, fail = 0;
     for (const r of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려) — 수십 개면 수십 초
       try { await metaBudgetCall({ action: 'apply' }, { object_id: r.id, object_name: r.name, level: 'adset', new_budget: Math.max(1000, Math.round(r.budget / 10)), pin: w.pin }); ok++; }
       catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
     }
     toast(`감액 완료 ${ok}개${fail ? ` · 실패 ${fail}개` : ''}`);
+    if (ok && retry === admgrCutSel) admgr.selSets.clear();
     admgrFetch();
   });
 }
