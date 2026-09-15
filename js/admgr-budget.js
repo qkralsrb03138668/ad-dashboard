@@ -140,7 +140,7 @@ async function admgrMidQuick(id, level, amountStr) {
 /* 임시저장 = 브라우저에만 보관하는 예산 메모 (id → 금액). 즉각반영하면 지워진다 */
 const admgrDraft = lsGet('adc_admgr_draft', {});
 function admgrDraftSave(id, val) {
-  const n = Math.round(Number(val));
+  const n = Math.round(Number(String(val).replace(/[^0-9]/g, '')));
   if (!(n >= 1000)) { toast('1,000원 이상 입력하세요'); return; }
   admgrDraft[id] = n; lsSet('adc_admgr_draft', admgrDraft);
   toast(`임시저장 ${comma(n)}원 — Meta엔 아직 반영 안 됐어요`); renderAdmgr(true);
@@ -393,7 +393,7 @@ function admgrBudgetPop(ev, id, level) {
       <span style="font-size:.8rem;font-weight:700;color:#1e1b4b;white-space:nowrap;">일일</span>
       <span style="flex:1;display:flex;align-items:center;border:1.5px solid #4f46e5;border-radius:8px;padding:0 10px;background:#fff;">
         <span style="color:#6b7280;font-size:.82rem;">₩</span>
-        <input id="bpop-amount" type="number" min="1000" max="${w.st.max_budget}" step="1000" value="${draft || cur}" style="flex:1;min-width:0;border:none;outline:none;padding:8px 6px;font-size:.88rem;font-weight:700;font-family:inherit;" onkeydown="if(event.key==='Enter')document.getElementById('${setting ? 'bpop-sched' : 'bpop-apply'}').click()" />
+        <input id="bpop-amount" type="text" inputmode="numeric" autocomplete="off" value="${comma(Math.round(Number(draft || cur) || 0))}" oninput="admgrNumInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('${setting ? 'bpop-sched' : 'bpop-apply'}').click()}" style="flex:1;min-width:0;border:none;outline:none;padding:8px 6px;font-size:.88rem;font-weight:700;font-family:inherit;color:#1e1b4b;background:transparent;" />
         <span style="color:#9ca3af;font-size:.72rem;">KRW</span>
       </span>
     </div>
@@ -410,16 +410,26 @@ function admgrBudgetPop(ev, id, level) {
   const pw = 270, ph = pop.offsetHeight || 230;
   pop.style.left = Math.max(8, Math.min(r0.left, window.innerWidth - pw - 12)) + 'px';
   pop.style.top = (r0.bottom + 6 + ph > window.innerHeight - 10 ? Math.max(10, r0.top - ph - 6) : r0.bottom + 6) + 'px';
-  setTimeout(() => { const a = $('bpop-amount'); if (a) { a.focus(); a.select(); } }, 0);
+  setTimeout(() => { const a = $('bpop-amount'); if (a) { a.focus(); const n = a.value.length; a.setSelectionRange(n, n); } }, 0);   // 메타 광고관리자처럼: 전체 선택 없이 커서 맨 뒤 (2026-09-15)
 }
 document.addEventListener('click', e => {   // 팝업 바깥 클릭 닫기 (여는 클릭은 표시 전이라 무해)
   const pop = document.getElementById('admgr-bpop');
   if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) pop.style.display = 'none';
 }, true);
+/* 숫자 입력칸: 타이핑 중 천 단위 쉼표 자동, 커서는 같은 자리 유지 (2026-09-15) */
+function admgrNumInput(el) {
+  const raw = el.value, pos = el.selectionStart || 0;
+  const after = raw.slice(pos).replace(/[^0-9]/g, '').length;   // 커서 뒤 숫자 개수 — 포맷 뒤에도 같은 위치로
+  const digits = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  el.value = digits ? comma(Number(digits)) : '';
+  let i = el.value.length, seen = 0;
+  while (i > 0 && seen < after) { i--; if (/[0-9]/.test(el.value[i])) seen++; }
+  el.setSelectionRange(i, i);
+}
 function admgrBpopErr(m) { const el = $('bpop-err'); if (el) { el.textContent = m; el.style.display = 'block'; } }
 async function admgrBudgetWrite(mode) {
   const w = admgr.write;
-  const amount = Math.round(Number(($('bpop-amount') || {}).value || 0));
+  const amount = Math.round(Number(String(($('bpop-amount') || {}).value || '').replace(/[^0-9]/g, '')));
   if (!(amount >= 1000 && amount <= w.st.max_budget)) { admgrBpopErr(`1,000원 ~ ${comma(w.st.max_budget)}원 사이로 입력하세요`); return; }
   if (!w.pin) { admgrBpopErr('먼저 PIN 인증을 해주세요 (메뉴의 PIN 인증 버튼)'); return; }
   if (mode === 'apply' && !confirm(`'${admgrBP.name}'의 일예산을 ${comma(amount)}원으로 지금 바로 바꿀까요?\n(Meta에 즉시 반영되는 실제 예산 변경이에요)`)) return;
