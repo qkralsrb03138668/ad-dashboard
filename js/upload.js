@@ -38,7 +38,7 @@ async function uplLoadRegistered() {
     let added = 0;
     for (const r of rows) {
       if (upl.files.some(f => f.creative_id === r.id)) continue;
-      upl.files.push({ id: newId(), creative_id: r.id, file: null, kind: r.kind, name: r.file_name.replace(/\.[^.]+$/, ''), product_name: r.product_name || '', product_no: r.product_no || null, url: r.url || '',
+      upl.files.push({ id: newId(), creative_id: r.id, file: null, kind: r.kind, name: r.file_name.replace(/\.[^.]+$/, '').normalize('NFC'), product_name: r.product_name || '', product_no: r.product_no || null, url: r.url || '',
         text: r.text && r.text.message ? { ...r.text, link: r.text.link || r.url } : null, status: '등록됨 (전송 불필요)', media: r.media, result: null, sel: false, registered_at: r.created_at, regen: !!r.regen });
       added++;
     }

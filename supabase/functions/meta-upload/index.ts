@@ -252,9 +252,9 @@ Deno.serve(async (req) => {
       if (!(media.type === "video" ? media.video_id : media.image_hash)) return json({ error: "미디어 정보 부족" }, 400);
       const row = {
         created_by: /^[0-9a-f-]{36}$/i.test(me.id) ? me.id : null, created_by_email: me.email, created_by_name: me.name || null,   // UUID가 아닌 로그인 id(접근키·dnrb:… 계정)는 이메일만 기록
-        file_name: String(body.file_name ?? "").slice(0, 200), kind: media.type === "video" ? "video" : "image",
-        core_name: body.core_name ? String(body.core_name).slice(0, 200) : null,
-        product_no: body.product_no ? Number(body.product_no) : null, product_name: body.product_name ? String(body.product_name).slice(0, 300) : null,
+        file_name: String(body.file_name ?? "").normalize("NFC").slice(0, 200), kind: media.type === "video" ? "video" : "image",
+        core_name: body.core_name ? String(body.core_name).normalize("NFC").slice(0, 200) : null,
+        product_no: body.product_no ? Number(body.product_no) : null, product_name: body.product_name ? String(body.product_name).normalize("NFC").slice(0, 300) : null,
         url: body.url ? String(body.url).slice(0, 1000) : null, text: body.text ?? null, media,
       };
       if (!row.file_name) return json({ error: "file_name 필요" }, 400);
@@ -269,7 +269,7 @@ Deno.serve(async (req) => {
     if (action === "creative_save") {
       const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);
       const patch: Rec = {};
-      for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name", "regen"]) if (k in body) patch[k] = body[k];
+      for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name", "regen"]) if (k in body) patch[k] = typeof body[k] === "string" ? String(body[k]).normalize("NFC") : body[k];
       const r = await dbRest(`creatives?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) });
       if (!r.ok) return json({ error: `수정 실패: ${await r.text()}` }, 500);
       const row = (await r.json())[0];
@@ -332,7 +332,7 @@ Deno.serve(async (req) => {
 
     if (action === "create") {
       const model = await readModel(String(body.model_ad_id ?? ""));
-      const name = String(body.name ?? "").trim().slice(0, 200);
+      const name = String(body.name ?? "").normalize("NFC").trim().slice(0, 200);   // 맥 파일명 자모 분리(NFD) → 정상 한글. 소재 등록 경로에서 깨진 채 들어오던 것 차단 (2026-09-15)
       const budget = Math.round(Number(body.budget ?? 0));
       const status = body.status === "ACTIVE" ? "ACTIVE" : "PAUSED";
       const media = (body.media ?? {}) as Rec, text = (body.text ?? {}) as Rec;

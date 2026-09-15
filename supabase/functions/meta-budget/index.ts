@@ -212,22 +212,22 @@ Deno.serve(async (req) => {
       if (action === "snapshot") return json(await snapshotDayStart(url.searchParams.get("backfill") === "1"));
       // 광고명 일괄 변경 (2026-09-09 사용자 요청: 광고명을 광고세트명과 동일하게) — 이름만 바꾸는 쓰기라 cron 비밀키로. budget_writes에 mode=rename으로 기록(error 칸에 이전 이름)
       if (action === "rename_ads") {
-        const items = ((await req.json().catch(() => ({}))).items ?? []) as { id: string; name: string; old?: string }[];
+        const items = ((await req.json().catch(() => ({}))).items ?? []) as { id: string; name: string; old?: string; level?: string }[];
         if (!Array.isArray(items) || !items.length || items.length > 300) return json({ error: "items 1~300개" }, 400);
         let ok = 0; const failed: { id: string; name: string; error: string }[] = [];
         for (const it of items) {
-          const id = String(it.id ?? ""), name = String(it.name ?? "").trim();
+          const id = String(it.id ?? ""), name = String(it.name ?? "").trim(), level = ["campaign", "adset", "ad"].includes(String(it.level)) ? String(it.level) : "ad";   // 세트·캠페인 이름도 (2026-09-15 한글 자모 분리 정리)
           if (!/^\d{5,25}$/.test(id) || !name) { failed.push({ id, name, error: "잘못된 항목" }); continue; }
           try {
             const res = await fetch(`${GRAPH}/${id}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
               body: new URLSearchParams({ name, access_token: env("META_WRITE_TOKEN") }) });
             const body = await res.json().catch(() => ({}));
             if (!res.ok || body?.success === false) throw new Error(String(body?.error?.message ?? JSON.stringify(body)).slice(0, 250));
-            await pg("budget_writes", "POST", { object_id: id, object_name: name, level: "ad", old_budget: null, new_budget: 0, mode: "rename", status: "applied", requested_by: "cron", applied_at: new Date().toISOString(), error: `이전 이름: ${String(it.old ?? "").slice(0, 200)}` }).catch(() => {});
+            await pg("budget_writes", "POST", { object_id: id, object_name: name, level, old_budget: null, new_budget: 0, mode: "rename", status: "applied", requested_by: "cron", applied_at: new Date().toISOString(), error: `이전 이름: ${String(it.old ?? "").slice(0, 200)}` }).catch(() => {});
             ok++;
           } catch (e) {
             failed.push({ id, name, error: String((e as Error).message).slice(0, 250) });
-            await pg("budget_writes", "POST", { object_id: id, object_name: name, level: "ad", old_budget: null, new_budget: 0, mode: "rename", status: "failed", requested_by: "cron", applied_at: new Date().toISOString(), error: String((e as Error).message).slice(0, 300) }).catch(() => {});
+            await pg("budget_writes", "POST", { object_id: id, object_name: name, level, old_budget: null, new_budget: 0, mode: "rename", status: "failed", requested_by: "cron", applied_at: new Date().toISOString(), error: String((e as Error).message).slice(0, 300) }).catch(() => {});
             if (/limit|throttl/i.test(String((e as Error).message))) await new Promise((r) => setTimeout(r, 15000));
           }
           await new Promise((r) => setTimeout(r, 250));
