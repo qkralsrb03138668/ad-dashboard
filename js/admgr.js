@@ -410,7 +410,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     judgeChips = `<div class="filter-tabs" style="margin-bottom:12px;">
       <span class="ag-lbl">판정</span>
       ${chip('all', '전체', all.length, admgr.judgeFilter === 'all', "admgrJudgeSet('all')")}
-      ${chip('cut', '<span class="ag-dot red"></span>감액 ÷10 <small class="ag-muted">구매 0</small>', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}
+      ${chip('cut', '<span class="ag-dot red"></span>감액 ÷10 <small class="ag-muted">구매 0</small>', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}${cnt('rebound') ? chip('rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 5+</small>', cnt('rebound'), admgr.judgeFilter === 'rebound', "admgrJudgeSet('rebound')") : ''}
       ${bb.byObj ? `<span class="ag-vsep"></span>${chip('nochg', '<i class="fa-solid fa-pen-slash" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 미변경', vis.filter(r => !(bb.byObj.get(r.id) || []).length).length, admgr.judgeFilter === 'nochg', "admgrJudgeSet('nochg')")}` : ''}
       <span style="flex:1;"></span>
       ${admgr.write.st && dnrbCan('budget') && all.filter(x => x.j.key === 'cut' && x.r.budget > 0).length ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="구매 0 + 지출 있는 세트 전체를 현재 예산 ÷10으로 임시 저장 (오늘 이미 감액한 세트 제외 · 캠페인 예산 세트 제외) — 상단 \'게시\'를 눌러야 Meta에 반영돼요">감액 후보 ÷10 임시 저장 (${all.filter(x => x.j.key === 'cut' && x.r.budget > 0).length})</button>` : ''}
@@ -605,6 +605,8 @@ function admgrJudge(r) {   // 2026-09-15 사용자 규칙: 구매 수로만 판�
   const ratio = m > 0 ? spend / m : null;
   const evs = (admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || [];
   const cutToday = evs.some(e => e.new_value < e.old_value);
+  const roas = spend > 0 ? (r.value || 0) / spend : 0;
+  if (cutToday && pur >= 2 && roas >= 5)  return { key: 'rebound', m, src, ratio, roas };   // 감액 후 성과가 붙은 세트 — 되돌릴지 검토 (2026-09-16 사용자 규칙: 구매 2건 이상 + ROAS 500% 이상)
   if (pur >= 3)                  return { key: 'up',   m, src, ratio };   // 구매 3건 이상 → 증액 검토
   if (pur >= 1)                  return { key: 'warn', m, src, ratio };   // 구매 1~2건 → 곧 도달
   if (cutToday)                  return { key: 'done', m, src, ratio };   // 구매 0이지만 오늘 이미 감액한 세트 — 두 번 깎지 않게
@@ -616,6 +618,7 @@ const ADMGR_JUDGE = {
   warn:     { cls: 'badge-yellow', t: '🟡 곧 도달' },
   up:       { cls: 'badge-green',  t: '🟢 증액 검토' },
   done:     { cls: 'badge-gray',   t: '✓ 오늘 감액됨' },
+  rebound:  { cls: 'badge-blue',   t: '↗ 감액 후 반등' },
 };
 function admgrJudgeCell(r) {
   const j = admgrJudge(r);
