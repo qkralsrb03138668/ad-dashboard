@@ -629,9 +629,9 @@ function admgrCopyResult(d, campName, setName, marked) {
     <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
-async function admgrMarkerSync() {   // 표시 정리 — 복사본이 꺼졌거나 사라졌으면 세트 이름의 표시를 뗀다 (10분에 한 번)
+async function admgrMarkerSync() {   // 표시 정리 — 복사본이 꺼졌거나 사라졌으면 세트 이름의 표시를 뗀다. 새로고침할 때마다(연타는 30초 막음 — 2026-09-16 사용자 지정)
   if (admgr.demo || !admgrCfg()) return;
-  if (Date.now() - Number(lsGet('adc_admgr_marksync', 0)) < 10 * 60 * 1000) return;
+  if (Date.now() - Number(lsGet('adc_admgr_marksync', 0)) < 30 * 1000) return;
   lsSet('adc_admgr_marksync', Date.now());
   try { const d = await sbCall('meta-upload', { action: 'marker_sync' }, {}); if (d && d.cleared) admgrFetch(); } catch { /* 권한 없음 등 무시 */ }
 }
