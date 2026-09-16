@@ -413,7 +413,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${chip('cut', '<span class="ag-dot red"></span>감액 ÷10 <small class="ag-muted">구매 0</small>', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}
       ${bb.byObj ? `<span class="ag-vsep"></span>${chip('nochg', '<i class="fa-solid fa-pen-slash" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 미변경', vis.filter(r => !(bb.byObj.get(r.id) || []).length).length, admgr.judgeFilter === 'nochg', "admgrJudgeSet('nochg')")}` : ''}
       <span style="flex:1;"></span>
-      ${cnt('cut') && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="구매 0 + 지출 있는 세트 전체를 현재 예산 ÷10으로 즉시 적용 (오늘 이미 감액한 세트 제외 · PIN·확인창)">감액 후보 전체 ÷10 (${cnt('cut')})</button>` : ''}
+      ${admgr.write.st && dnrbCan('budget') && all.filter(x => x.j.key === 'cut' && x.r.budget > 0).length ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="구매 0 + 지출 있는 세트 전체를 현재 예산 ÷10으로 임시 저장 (오늘 이미 감액한 세트 제외 · 캠페인 예산 세트 제외) — 상단 \'게시\'를 눌러야 Meta에 반영돼요">감액 후보 ÷10 임시 저장 (${all.filter(x => x.j.key === 'cut' && x.r.budget > 0).length})</button>` : ''}
       ${admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
     </div>`;
     if (admgr.judgeFilter === 'nochg') vis = bb.byObj ? vis.filter(r => !(bb.byObj.get(r.id) || []).length) : vis;   // 오늘 예산 변경 이력 없는 세트 (Meta 활동 로그 기준)
@@ -623,7 +623,7 @@ function admgrJudgeCell(r) {
   const pen = `<i class="fa-solid fa-pen" title="마진 직접 입력${j.src ? ' — 현재: ' + esc(j.src) : ''}" style="font-size:.55rem;color:#a5b4fc;cursor:pointer;margin-left:4px;" onclick="event.stopPropagation();admgrMarginEdit('${r.id}')"></i>`;
   const sub = j.m > 0 ? `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;">구매 ${comma(r.purchases || 0)} · 마진 ${comma(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%${pen}</div>` : `<div style="font-size:.62rem;color:#9ca3af;">구매 ${comma(r.purchases || 0)} · ${j.src ? esc(j.src.slice(0, 18)) : '마진 정보 없음'}${pen}</div>`;
   const act = j.key === 'cut' && admgr.write.st && dnrbCan('budget') && r.budget > 0
-    ? ` <button class="filter-tab" style="padding:2px 8px;font-size:.66rem;color:#dc2626;border-color:#fca5a5;" title="${comma(r.budget)} → ${comma(Math.max(1000, Math.round(r.budget / 10)))}원 즉시 적용" onclick="event.stopPropagation();admgrCut10('${r.id}')">÷10</button>` : '';
+    ? ` <button class="filter-tab" style="padding:2px 8px;font-size:.66rem;color:#dc2626;border-color:#fca5a5;" title="${comma(r.budget)} → ${comma(Math.max(1000, Math.round(r.budget / 10)))}원으로 임시 저장 — 상단 \'게시\'로 반영" onclick="event.stopPropagation();admgrCut10('${r.id}')">÷10</button>` : '';
   return `${b ? `<span class="status-badge ${b.cls}" style="white-space:nowrap;">${b.t}</span>${act}` : '<span style="color:#d1d5db;">—</span>'}${sub}`;
 }
 function admgrJudgeSet(k) { admgr.judgeFilter = k; renderAdmgr(true); }
@@ -639,35 +639,23 @@ function admgrMarginEdit(id) {   // 브라우저 prompt() 대신 모달 (2026-09
   });
   setTimeout(() => { const i = $('ag-margin-inp'); if (i) i.focus(); }, 0);
 }
-function admgrCut10(id) {
-  const r = admgrRows().sets.find(x => x.id === id); if (!r || !(r.budget > 0)) return;
-  admgrApplyNow(id, 'adset', Math.max(1000, Math.round(r.budget / 10)));
-}
-async function admgrCutAll() {   // 판정 '감액' 후보 전체
-  admgrCutRun(admgrRows().sets.filter(r => r.budget > 0 && admgrJudge(r).key === 'cut'), '감액 후보', admgrCutAll);
-}
-function admgrCutSel() {   // 체크한 광고세트 ÷10 → 임시 저장만 (바로 적용 X, 상단 '게시'로 반영 — 2026-09-15 사용자 요청)
-  const sel = admgrRows().sets.filter(r => admgr.selSets.has(r.id));
-  const ok = sel.filter(r => r.budget > 0), skip = sel.length - ok.length;   // 일예산 없는 세트(캠페인 예산 CBO 등)는 세트에서 못 바꿈
-  if (!ok.length) { toast(skip ? `일예산이 있는 세트가 없어요 (캠페인 예산 세트 ${skip}개는 캠페인에서 바꿔야 해요)` : '감액할 세트가 없어요'); return; }
+/* ÷10 감액은 모두 '임시 저장'까지만 — Meta 반영은 상단 '게시'에서 (2026-09-16 사용자 요청: 행별·감액 후보 전체도 즉시 적용 금지) */
+function admgrCutDraft(rows, label) {
+  const ok = rows.filter(r => r.budget > 0), skip = rows.length - ok.length;   // 일예산 없는 세트(캠페인 예산 CBO 등)는 세트에서 못 바꿈
+  if (!ok.length) { toast(skip ? `일예산이 있는 세트가 없어요 (캠페인 예산 세트 ${skip}개는 캠페인에서 바꿔야 해요)` : '감액할 세트가 없어요'); return 0; }
   for (const r of ok) admgrDraft[r.id] = Math.max(1000, Math.round(r.budget / 10));   // 기준 = 현재 Meta 예산 (기존 임시 저장값은 덮어씀)
   lsSet('adc_admgr_draft', admgrDraft);
-  admgr.selSets.clear();
-  toast(`${ok.length}개 ÷10 임시 저장${skip ? ` · 캠페인 예산 세트 ${skip}개 제외` : ''} — Meta엔 아직 반영 안 됐어요. 상단 '게시'로 반영`);
+  toast(`${label} ${ok.length}개 ÷10 임시 저장${skip ? ` · 캠페인 예산 세트 ${skip}개 제외` : ''} — Meta엔 아직 반영 안 됐어요. 상단 '게시'로 반영`);
   renderAdmgr(true);
+  return ok.length;
 }
-async function admgrCutRun(targets, label, retry, skip = 0) {
-  const w = admgr.write;
-  if (!w.pin) { admgrPinPrompt(retry); return; }
-  if (!targets.length) { toast(skip ? `일예산이 있는 세트가 없어요 (캠페인 예산 세트 ${skip}개는 캠페인에서 바꿔야 해요)` : '감액할 세트가 없어요'); return; }
-  const lines = targets.map(r => `· ${esc(r.name)}: ${comma(r.budget)} → <b>${comma(Math.max(1000, Math.round(r.budget / 10)))}</b>${admgrJudge(r).key === 'done' ? ' <span style="color:#b45309;">(오늘 이미 감액)</span>' : ''}`).join('<br/>');
-  admgrConfirmModal(`${label} ${targets.length}개 ÷10`, `${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리${skip ? ` · 캠페인 예산 세트 ${skip}개는 제외` : ''}</span>`, `${targets.length}개 감액`, async () => {
-    let ok = 0, fail = 0;
-    for (const r of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려) — 수십 개면 수십 초
-      try { await metaBudgetCall({ action: 'apply' }, { object_id: r.id, object_name: r.name, level: 'adset', new_budget: Math.max(1000, Math.round(r.budget / 10)), pin: w.pin }); ok++; }
-      catch (e) { fail++; if (String(e.message).includes('PIN')) { admgrPinInvalidate(); toast('PIN 오류로 중단: ' + e.message); break; } }
-    }
-    toast(`감액 완료 ${ok}개${fail ? ` · 실패 ${fail}개` : ''}`);
-    admgrFetch();
-  });
+function admgrCut10(id) {   // 판정 셀의 ÷10 (행 하나)
+  const r = admgrRows().sets.find(x => x.id === id); if (!r) return;
+  admgrCutDraft([r], '이 세트');
+}
+function admgrCutAll() {   // 판정 '감액' 후보 전체
+  admgrCutDraft(admgrRows().sets.filter(r => admgrJudge(r).key === 'cut'), '감액 후보');
+}
+function admgrCutSel() {   // 체크한 광고세트
+  if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); renderAdmgr(true); }
 }
