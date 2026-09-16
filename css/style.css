@@ -557,3 +557,6 @@ textarea.inp { resize: vertical; min-height: 64px; }
 @media (max-width: 768px) {   /* 폰: 하단 탭바 위에 동작 바, 버튼 줄바꿈 */
   #sec-admgr .ag-actbar { bottom: calc(80px + env(safe-area-inset-bottom)); flex-wrap: wrap; width: calc(100vw - 20px); }
 }
+#sec-admgr .ag-mark { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: .66rem; font-weight: 800; white-space: nowrap; cursor: help; }
+#sec-admgr .mc-sub .ag-mark { margin-left: 4px; }
+#sec-admgr tbody tr.sel td { background: #eef2ff; }

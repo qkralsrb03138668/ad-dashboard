@@ -25,6 +25,7 @@ const admgr = {
   write: { st: null, pin: lsGet('adc_admgr_pin', null), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
   /* 오늘의 판정(광고세트 탭, 오늘 칩): round r1(11시경)/r2(14시경) 수동 전환, judgeFilter = all/cut/warn/up/manual/reup,
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
+  selAds: new Set(),   // 광고 탭 선택 (복사용 — 2026-09-16)
   judgeFilter: 'all', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
@@ -81,7 +82,8 @@ async function admgrFetch() {
     admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
     if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
     admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
-    metaGet({ action: 'usage' }).then(u => { admgr.usage = u; renderAdmgr(true); }).catch(() => {});   // Meta 사용량·쿨다운 표시 (우리 서버만 조회)
+    metaGet({ action: 'usage' }).then(u => { admgr.usage = u; renderAdmgr(true); }).catch(() => {});
+    admgrMarkerSync();   // 소재가 들어간 캠페인 표시 정리 (우리 서버 → Meta 이름만, 10분에 한 번)   // Meta 사용량·쿨다운 표시 (우리 서버만 조회)
   } catch (e) {
     toast('Meta 불러오기 실패: ' + e.message);   // 실패해도 보고 있던 데이터는 유지
   }
@@ -232,11 +234,15 @@ function admgrDrill(kind, id) {
   else { admgr.selSets = new Set([id]); admgr.view = 'ad'; }
   renderAdmgr();
 }
-function admgrClearSel() { admgr.selCamps.clear(); admgr.selSets.clear(); renderAdmgr(true); }
+function admgrToggleAd(id) {
+  if (admgr.selAds.has(id)) admgr.selAds.delete(id); else admgr.selAds.add(id);
+  renderAdmgr(true);
+}
+function admgrClearSel() { admgr.selCamps.clear(); admgr.selSets.clear(); admgr.selAds.clear(); renderAdmgr(true); }
 /* 헤더 체크박스 — 지금 표에 보이는 행(검색·활성만·필터 반영) 전체 선택/해제 */
 function admgrSelAllDisp() {
   const isCamp = admgr.view === 'camp';
-  const set = isCamp ? admgr.selCamps : admgr.selSets;
+  const set = isCamp ? admgr.selCamps : admgr.view === 'ad' ? admgr.selAds : admgr.selSets;
   const ids = admgr._dispIds || [];
   const all = ids.length && ids.every(id => set.has(id));
   ids.forEach(id => all ? set.delete(id) : set.add(id));
@@ -468,7 +474,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
           <td class="l tg">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
           <td class="name-cell" title="${esc(r.name || '')}${!isCamp ? ' · ' + esc(r._campName || '') : ''}">
-            <b>${esc(r.name || '(이름 없음)')}</b><button class="btn-ghost row-act"
+            <b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}<button class="btn-ghost row-act"
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button>
             <div class="ag-sub">${admgrStBadge(r.status)}${!isCamp && r._campName ? ` · ${esc(r._campName)}` : ''}</div></td>
           ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td>` : ''}
@@ -487,13 +493,14 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     </table></div>`;
   } else {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', '광고', 'l')}${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => admgr.selAds.has(r.id)) ? 'checked' : ''} onclick="event.stopPropagation();admgrSelAllDisp()" title="표시된 광고 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', '광고', 'l')}${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
         ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
-        <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기">
+        <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기" class="${admgr.selAds.has(r.id) ? 'sel' : ''}">
+          <td class="cb" onclick="event.stopPropagation()"><input type="checkbox" ${admgr.selAds.has(r.id) ? 'checked' : ''} onclick="admgrToggleAd('${r.id}')" title="복사할 광고 선택" /></td>
           <td class="l tg" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
           <td class="name-cell" title="${esc(r.name || '')} · ${esc(r._setName || '')}">
-            <b>${esc(r.name || '(이름 없음)')}</b><div class="ag-sub">${admgrStBadge(r.status)}${r._setName ? ` · ${esc(r._setName)}` : ''}</div></td>
+            <b>${esc(r.name || '(이름 없음)')}</b><div class="ag-sub">${admgrStBadge(r.status)}${r._setName ? ` · ${esc(admgrBase(r._setName))}` : ''}${admgrMarkBadges(r._setName)}</div></td>
           <td>${admgrMoney(r.spend)}</td>
           <td class="m-hide">${comma(r.clicks || 0)}</td>
           <td>${comma(r.purchases || 0)}</td>
@@ -503,7 +510,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${cpcTd(r)}</td>
           <td class="xp" onclick="event.stopPropagation()">${chev}</td>
         </tr>${detail(r)}`).join('')}</tbody>
-      ${totalRow(2, '')}
+      ${totalRow(3, '')}
     </table></div>`;
   }
   /* 폰(≤768px): 표 대신 카드 (같은 vis 행·같은 셀 렌더러 재사용 — 표는 CSS로 숨김) */
@@ -525,7 +532,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         ${admgr.view !== 'ad' ? `<div class="row"><span>선택</span><span><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" ${sel.has(r.id) ? 'checked' : ''} onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /> ${isCamp ? '이 캠페인의 세트만 보기' : '베스트소재 담기용 선택'}</label></span></div>
         <div class="row"><span></span><span><a class="drill" onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</a></span></div>` : ''}`;
       return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''}" ${admgr.view === 'ad' ? `onclick="showMetaPreview('${r.id}')"` : ''}>
-        <div class="mc-top"><div class="mc-name"><b>${esc(r.name || '(이름 없음)')}</b><div class="mc-sub">${admgrStBadge(r.status)}${sub ? ' · ' + esc(sub) : ''}</div></div>
+        <div class="mc-top"><div class="mc-name"><b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}<div class="mc-sub">${admgrStBadge(r.status)}${sub ? ' · ' + esc(admgrBase(sub)) : ''}${admgrMarkBadges(sub)}</div></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
         ${showJudge ? `<div class="mc-judge">${admgrJudgeCell(r)}</div>` : ''}
         <div class="mc-nums"><div><i>지출</i>${admgrMoney(r.spend)}</div><div><i>구매</i>${comma(r.purchases || 0)}</div><div><i>ROAS</i><span style="color:${roasColor(r)};">${roas(r)}</span></div></div>
@@ -537,9 +544,10 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       </div>`; }).join('')}</div>`;
   }
   /* 체크 선택 시 하단 동작 바 (상단 '선택: …' 표시줄 대체) */
-  const nc = admgr.selCamps.size, ns = admgr.selSets.size;
-  const actbar = (nc || ns) ? `<div class="ag-actbar">
-      <b>${nc ? `캠페인 ${nc}` : ''}${nc && ns ? ' · ' : ''}${ns ? `세트 ${ns}` : ''} 선택</b><span class="sep"></span>
+  const nc = admgr.selCamps.size, ns = admgr.selSets.size, na = admgr.view === 'ad' ? admgr.selAds.size : 0;
+  const actbar = (nc || ns || na) ? `<div class="ag-actbar">
+      <b>${nc ? `캠페인 ${nc}` : ''}${nc && ns ? ' · ' : ''}${ns ? `세트 ${ns}` : ''}${na ? `광고 ${na}` : ''} 선택</b><span class="sep"></span>
+      ${na && cfg && !admgr.demo ? `<button onclick="admgrCopyModal()" title="고른 광고의 소재를 다른 캠페인·광고세트에 복사 (꺼진 상태로 만들어요)"><i class="fa-regular fa-copy"></i> 광고 복사</button>` : ''}
       ${isCamp && nc ? `<button onclick="admgrSetView('set')">선택한 캠페인의 세트 보기 →</button>` : ''}
       ${isSet && ns ? `<button onclick="admgrSetView('ad')">선택한 세트의 광고 보기 →</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo && admgr.write.daystart && admgr.write.daystart.size ? `<button onclick="admgrRestoreSel()" title="체크한 세트를 오늘 시작 예산(00:10 기록)으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-rotate-left"></i> 시작 예산 복구</button>` : ''}
@@ -549,6 +557,84 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   return chgChips + judgeChips + tiles + table + cards + actbar;
 }
 /* 행 여백 클릭 = 체크박스 토글 (2026-09-15 사용자 요청). 버튼·링크·입력칸·토글·연필 등 조작 요소 위 클릭은 제외 */
+/* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고를 다른 캠페인·광고세트에 꺼진 상태로 복사하고,
+   원본 광고가 있는 세트 이름 뒤에 " [→캠페인명]" 표시를 붙인다. 표시는 marker_sync가 자동으로 정리 ═══ */
+function admgrCopyModal() {
+  const { camps, ads } = admgrRows();
+  const picked = ads.filter(a => admgr.selAds.has(a.id));
+  if (!picked.length) { toast('복사할 광고를 먼저 체크하세요'); return; }
+  const cid = admgr.copyCamp && camps.some(c => c.id === admgr.copyCamp) ? admgr.copyCamp : (camps[0] || {}).id;
+  admgr.copyCamp = cid;
+  const camp = camps.find(c => c.id === cid) || { adsets: [] };
+  const sets = camp.adsets || [];
+  $('abm-title').textContent = `광고 복사 — ${picked.length}개`;
+  $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `
+    <div style="font-size:.78rem;color:#374151;line-height:1.7;max-height:24vh;overflow:auto;margin-bottom:12px;">
+      ${picked.map(a => `· ${esc(admgrBase(a.name))} <span style="color:#9ca3af;">(${esc(admgrBase(a._setName))})</span>`).join('<br/>')}</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <label style="font-size:.76rem;font-weight:700;color:#4b5563;">캠페인
+        <select class="inp" id="ag-copy-camp" style="width:100%;margin-top:4px;" onchange="admgr.copyCamp=this.value;admgrCopyModal()">
+          ${camps.map(c => `<option value="${c.id}" ${c.id === cid ? 'selected' : ''}>${esc(admgrBase(c.name))}${c.status === 'ACTIVE' ? '' : ' (꺼짐)'}</option>`).join('')}</select></label>
+      <label style="font-size:.76rem;font-weight:700;color:#4b5563;">광고세트
+        <select class="inp" id="ag-copy-set" style="width:100%;margin-top:4px;">
+          ${sets.length ? sets.map(x => `<option value="${x.id}">${esc(admgrBase(x.name))}</option>`).join('') : '<option value="">(이 캠페인에 활성 광고세트가 없어요)</option>'}</select></label>
+    </div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;">복사한 광고는 <b>꺼진 상태</b>로 만들어져요 · 같은 소재가 이미 있으면 건너뛰고 알려드려요<br/>원본 세트 이름 뒤에 <b>[→${esc(admgrBase(camp.name || ''))}]</b> 표시가 붙어요 (메타 광고관리자에도 보여요)</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
+      <button class="btn-analyze" id="ag-copy-go" onclick="admgrCopyRun()" ${sets.length ? '' : 'disabled'}>복사</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+async function admgrCopyRun() {
+  const setId = ($('ag-copy-set') || {}).value || '';
+  const camps = admgrRows().camps, ads = admgrRows().ads.filter(a => admgr.selAds.has(a.id));
+  const camp = camps.find(c => c.id === admgr.copyCamp);
+  if (!setId || !ads.length || !camp) return;
+  const btn = $('ag-copy-go'); btn.disabled = true; btn.textContent = '복사 중…';
+  try {
+    const d = await sbCall('meta-upload', { action: 'ad_copy' }, { ads: ads.map(a => a.id), adset_id: setId });
+    let marked = 0;
+    const campName = admgrBase(camp.name);
+    const bySet = new Map();   // 원본 세트 → 이름 (복사 성공분만 표시)
+    for (const c of (d.created || [])) { const a = ads.find(x => x.id === c.id); if (a) bySet.set(a._setId, a._setName); }
+    const items = [];
+    for (const [sid, sname] of bySet) {
+      const { camps: has } = admgrMarkParse(sname);
+      if (has.includes(campName)) continue;
+      items.push({ id: sid, name: admgrMarkName(sname, [...has, campName]) });
+    }
+    if (items.length) { const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items }); marked = r.ok || 0; }
+    admgr.selAds.clear();
+    admgrCopyResult(d, campName, admgrBase((admgrRows().sets.find(x => x.id === setId) || {}).name || ''), marked);
+    admgrFetch();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '복사';
+    toast('복사 실패: ' + e.message);
+  }
+}
+function admgrCopyResult(d, campName, setName, marked) {
+  const ok = (d.created || []), skip = (d.skipped || []), bad = (d.failed || []);
+  const line = (t, c) => `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;"><span style="flex:none;color:${c};font-weight:800;">${c === '#15803d' ? '✓' : c === '#b45309' ? '!' : '✗'}</span><span style="min-width:0;">${t}</span></div>`;
+  $('abm-title').textContent = '광고 복사 결과';
+  $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `
+    <div style="font-size:.82rem;font-weight:800;color:#1e1b4b;margin-bottom:8px;">${esc(campName)} · ${esc(setName)}</div>
+    <div style="font-size:.8rem;color:#374151;margin-bottom:10px;">복사 <b style="color:#15803d;">${ok.length}</b>개${skip.length ? ` · 건너뜀 <b style="color:#b45309;">${skip.length}</b>개` : ''}${bad.length ? ` · 실패 <b style="color:#dc2626;">${bad.length}</b>개` : ''}${marked ? ` · 원본 세트 ${marked}개에 표시` : ''}</div>
+    <div style="max-height:40vh;overflow:auto;">
+      ${ok.map(x => line(`${esc(x.name)} <span style="color:#9ca3af;">— 꺼진 상태로 만들었어요</span>`, '#15803d')).join('')}
+      ${skip.map(x => line(`${esc(x.name)} <span style="color:#b45309;">— 이미 같은 소재가 있어요${x.existing ? ` (${esc(x.existing)})` : ''}</span>`, '#b45309')).join('')}
+      ${bad.map(x => line(`${esc(x.id)} <span style="color:#dc2626;">— ${esc(String(x.error || '실패'))}</span>`, '#dc2626')).join('')}</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">복사본은 꺼져 있어요 — 메타나 이 화면의 켜기/끄기로 켜주세요</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+async function admgrMarkerSync() {   // 표시 정리 — 복사본이 꺼졌거나 사라졌으면 세트 이름의 표시를 뗀다 (10분에 한 번)
+  if (admgr.demo || !admgrCfg()) return;
+  if (Date.now() - Number(lsGet('adc_admgr_marksync', 0)) < 10 * 60 * 1000) return;
+  lsSet('adc_admgr_marksync', Date.now());
+  try { const d = await sbCall('meta-upload', { action: 'marker_sync' }, {}); if (d && d.cleared) admgrFetch(); } catch { /* 권한 없음 등 무시 */ }
+}
 function admgrRowClick(ev, kind, id) {
   if (ev.target.closest('button, a, input, select, label, .mtg, .ag-chev, td [onclick]')) return;   // tr 자신의 onclick은 제외 대상이 아님
   if (window.getSelection && String(window.getSelection()).length) return;   // 글자 드래그 복사 중이면 무시
@@ -558,6 +644,16 @@ function admgrRowToggle(btn) {
   const d = btn.closest('tr').nextElementSibling;
   if (d && d.classList.contains('ag-detail')) { d.classList.toggle('open'); btn.classList.toggle('on', d.classList.contains('open')); }
 }
+/* ═══ 소재가 들어간 캠페인 표시 (2026-09-16) — 광고세트 이름 뒤 " [→캠페인명]". Meta 이름에 그대로 들어가고, 화면에서는 배지로 보여준다 ═══ */
+const AG_MARK = /\s*\[→([^\]]+)\]/g;
+function admgrMarkParse(name) {
+  const camps = [];
+  const base = String(name || '').normalize('NFC').replace(AG_MARK, (m, c) => { camps.push(c.trim()); return ''; }).trim();
+  return { base, camps };
+}
+const admgrMarkName = (name, camps) => admgrMarkParse(name).base + camps.map(c => ` [→${c}]`).join('');
+const admgrMarkBadges = name => admgrMarkParse(name).camps.map(c => `<span class="ag-mark" title="이 소재가 들어간 캠페인 — 그 캠페인에서 꺼지면 표시도 사라져요">⧉ ${esc(c)}</span>`).join('');
+const admgrBase = name => admgrMarkParse(name).base || '(이름 없음)';
 const admgrMobile = () => window.innerWidth <= 768;
 let admgrMobileWas = null;
 window.addEventListener('resize', () => {   // 폰↔데스크톱 경계를 넘을 때만 다시 그림 (데스크톱 표는 이 이벤트로 안 건드림)

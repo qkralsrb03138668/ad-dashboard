@@ -34,6 +34,9 @@ const env = (k: string) => Deno.env.get(k) ?? "";
 const ACCOUNT = (() => { const a = env("META_AD_ACCOUNT_ID"); return a.startsWith("act_") ? a : `act_${a}`; })();
 type Rec = Record<string, unknown>;
 
+async function clearMetaCaches(): Promise<void> {   // 예산·광고 변경 후 화면이 바로 새 값을 보도록 (meta-budget과 같은 규칙)
+  await dbRest(`api_cache?cache_key=like.${encodeURIComponent("meta:hierarchy")}*`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => {});
+}
 async function graph(path: string, init: { method?: string; params?: Record<string, string>; form?: FormData } = {}): Promise<Rec> {
   const token = env("META_WRITE_TOKEN");
   if (!token) throw new Error("META_WRITE_TOKEN 미설정");
@@ -172,10 +175,10 @@ Deno.serve(async (req) => {
     const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (me.perms) {   // SSO 사용자: 워크스페이스 세부 권한. 미디어 업로드(image/video_*)는 소재 등록에도 필요하므로 creative 권한으로도 허용
       const media = ["image", "video_start", "video_chunk", "video_finish"].includes(action);
-      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
+      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
       if (media && !canAct(me, "upload") && !canAct(me, "creative")) return denyAct("upload");
       if (need && !canAct(me, need)) return denyAct(need);
-    } else if (["create", "validate", "diagnose", "verify"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
+    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
 
     if (action === "status") return json({ token_set: !!env("META_WRITE_TOKEN"), pin_set: !!env("WRITE_PIN"), account: ACCOUNT });
     if (action === "model") return json(await readModel(url.searchParams.get("ad_id") ?? ""));
@@ -241,12 +244,98 @@ Deno.serve(async (req) => {
     const body: Rec = form ? Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === "string")) : await req.json();
     const MEDIA_ACTIONS = ["image", "video_start", "video_chunk", "video_finish"];
     const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
+    const COPY_ACTIONS = ["ad_copy", "adset_rename", "marker_sync"];   // 광고 복사·세트 이름 표시 (2026-09-16) — 예산 변경이 아니라 PIN 없이 로그인 역할로
     // 미디어 업로드·소재 기록은 로그인 역할(마케터/관리자)만으로 허용 — 등록 PIN 폐지(2026-09-11 사용자 요청). PIN은 광고 생성(create/verify)에만.
-    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action)) {
+    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action)) {
       const pinErr = await checkPin(body.pin);
       if (pinErr) return json({ error: pinErr }, 403);
     }
 
+    /* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고의 소재를 다른 캠페인/광고세트에 같은 이름으로 새 광고로. 항상 꺼진 상태로 만들고,
+       같은 세트에 같은 소재가 이미 있으면 건너뛰고 알려준다 ═══ */
+    if (action === "ad_copy") {
+      const adsetId = String(body.adset_id ?? "");
+      if (!/^\d{5,25}$/.test(adsetId)) return json({ error: "복사할 광고세트를 골라주세요" }, 400);
+      const ids = (body.ads ?? []) as unknown[];
+      if (!Array.isArray(ids) || !ids.length || ids.length > 50) return json({ error: "광고를 1~50개 선택하세요" }, 400);
+      const exist = await graph(`${adsetId}/ads`, { params: { fields: "name,creative{id},effective_status", limit: "200" } });
+      const have = new Map<string, string>();   // creative_id → 이미 있는 광고 이름
+      for (const a of ((exist.data ?? []) as Rec[])) {
+        const cid = String((a.creative as Rec)?.id ?? ""); if (cid) have.set(cid, String(a.name ?? ""));
+      }
+      const created: Rec[] = [], skipped: Rec[] = [], failed: Rec[] = [];
+      for (const raw of ids) {
+        const id = String(raw);
+        if (!/^\d{5,25}$/.test(id)) { failed.push({ id, error: "광고 id 형식 오류" }); continue; }
+        try {
+          const src = await graph(id, { params: { fields: "name,creative{id}" } });
+          const cid = String((src.creative as Rec)?.id ?? "");
+          const name = String(src.name ?? "").normalize("NFC").slice(0, 200);
+          if (!cid) throw new Error("이 광고의 소재를 찾지 못했어요");
+          if (have.has(cid)) { skipped.push({ id, name, existing: have.get(cid) }); continue; }
+          const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id: adsetId, creative: JSON.stringify({ creative_id: cid }), status: "PAUSED" } });
+          have.set(cid, name);
+          created.push({ id, name, new_id: String(ad.id) });
+        } catch (e) { failed.push({ id, error: String((e as Error).message).slice(0, 200) }); }
+      }
+      if (created.length) await clearMetaCaches();
+      return json({ created, skipped, failed });
+    }
+    /* 표시 정리 (2026-09-16) — 세트 이름의 " [→캠페인명]" 표시를 점검해서, 그 캠페인의 복사본이 꺼져 있거나 사라졌으면 표시를 뗀다.
+       복사 직후(48시간 안)에 아직 켜지 않은 것은 남겨 둔다 — 복사본은 항상 꺼진 상태로 만들기 때문 */
+    if (action === "marker_sync") {
+      const MARK = /\s*\[→([^\]]+)\]/g;
+      const marked = await graph(`${ACCOUNT}/adsets`, { params: { fields: "id,name", limit: "200",
+        filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: "[→" }]) } });
+      const sets = ((marked.data ?? []) as Rec[]).map((a) => ({ id: String(a.id), name: String(a.name ?? "").normalize("NFC") }));
+      if (!sets.length) return json({ checked: 0, cleared: 0 });
+      const camps = await graph(`${ACCOUNT}/campaigns`, { params: { fields: "id,name", limit: "300" } });
+      const campByName = new Map(((camps.data ?? []) as Rec[]).map((c) => [String(c.name ?? "").normalize("NFC").trim(), String(c.id)]));
+      const adsOf = new Map<string, Rec[]>();   // 캠페인/세트 id → 광고 목록 (한 번만 조회)
+      const listAds = async (id: string) => {
+        if (!adsOf.has(id)) {
+          const r = await graph(`${id}/ads`, { params: { fields: "name,effective_status,created_time", limit: "300" } }).catch(() => ({ data: [] }));
+          adsOf.set(id, ((r.data ?? []) as Rec[]));
+        }
+        return adsOf.get(id)!;
+      };
+      const base = (n: string) => n.replace(MARK, "").trim();
+      const fresh = Date.now() - 48 * 3600_000;
+      let cleared = 0; const changed: Rec[] = [];
+      for (const s of sets) {
+        const marks = [...s.name.matchAll(MARK)].map((m) => m[1].trim());
+        if (!marks.length) continue;
+        const own = new Set((await listAds(s.id)).map((a) => base(String(a.name ?? "").normalize("NFC"))));
+        const keep: string[] = [];
+        for (const cn of marks) {
+          const cid = campByName.get(cn);
+          if (!cid) continue;   // 캠페인이 없어졌으면 표시도 뗀다
+          const copies = (await listAds(cid)).filter((a) => own.has(base(String(a.name ?? "").normalize("NFC"))));
+          const alive = copies.some((a) => String(a.effective_status ?? "") === "ACTIVE") ||
+            copies.some((a) => new Date(String(a.created_time ?? "")).getTime() > fresh);   // 복사 직후(아직 켜기 전)
+          if (alive) keep.push(cn);
+        }
+        if (keep.length === marks.length) continue;
+        const name = base(s.name) + keep.map((c) => ` [→${c}]`).join("");
+        try { await graph(s.id, { method: "POST", params: { name } }); cleared++; changed.push({ id: s.id, name }); } catch { /* 무시 */ }
+      }
+      if (cleared) await clearMetaCaches();
+      return json({ checked: sets.length, cleared, changed });
+    }
+    /* 광고세트 이름 바꾸기 — 복사한 소재의 원본 세트에 "어느 캠페인에 들어갔는지" 표시를 붙이고 떼는 용도 (PIN 없음) */
+    if (action === "adset_rename") {
+      const items = (body.items ?? []) as { id?: unknown; name?: unknown }[];
+      if (!Array.isArray(items) || !items.length || items.length > 100) return json({ error: "items 1~100개" }, 400);
+      let ok = 0; const failed: Rec[] = [];
+      for (const it of items) {
+        const id = String(it.id ?? ""), name = String(it.name ?? "").normalize("NFC").trim().slice(0, 400);
+        if (!/^\d{5,25}$/.test(id) || !name) { failed.push({ id, error: "항목 오류" }); continue; }
+        try { await graph(id, { method: "POST", params: { name } }); ok++; }
+        catch (e) { failed.push({ id, error: String((e as Error).message).slice(0, 200) }); }
+      }
+      if (ok) await clearMetaCaches();
+      return json({ ok, failed });
+    }
     if (action === "creative_add") {
       const media = (body.media ?? {}) as Rec;
       if (!(media.type === "video" ? media.video_id : media.image_hash)) return json({ error: "미디어 정보 부족" }, 400);
