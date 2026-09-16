@@ -612,7 +612,17 @@ function admgrCopyModal() {
   const cid = admgr.copyCamp && camps.some(c => c.id === admgr.copyCamp) ? admgr.copyCamp : (camps[0] || {}).id;
   admgr.copyCamp = cid;
   const camp = camps.find(c => c.id === cid) || { adsets: [] };
-  const sets = camp.adsets || [];
+  /* 세트 목록은 서버에서 따로 받는다 — 꺼진 캠페인 안의 세트는 화면 데이터(활성만)에 없어서 "세트가 없어요"로 보이던 문제 (2026-09-16) */
+  admgr.copySets = admgr.copySets || {};
+  const cached = admgr.copySets[cid];
+  if (cached === undefined) {
+    admgr.copySets[cid] = null;   // 불러오는 중
+    metaGet({ action: 'adsets', campaign_id: cid })
+      .then(d => { admgr.copySets[cid] = d.rows || []; if ($('ag-copy-camp')) admgrCopyModal(); })
+      .catch(e => { admgr.copySets[cid] = []; toast('광고세트 목록 실패: ' + e.message); if ($('ag-copy-camp')) admgrCopyModal(); });
+  }
+  const sets = cached || [];
+  const loading = cached === null || cached === undefined;
   $('abm-title').textContent = `광고 복사 — ${picked.length}개`;
   $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `
@@ -624,12 +634,12 @@ function admgrCopyModal() {
           ${camps.map(c => `<option value="${c.id}" ${c.id === cid ? 'selected' : ''}>${esc(admgrBase(c.name))}${c.status === 'ACTIVE' ? '' : ' (꺼짐)'}</option>`).join('')}</select></label>
       <label style="font-size:.76rem;font-weight:700;color:#4b5563;">광고세트
         <select class="inp" id="ag-copy-set" style="width:100%;margin-top:4px;">
-          ${sets.length ? sets.map(x => `<option value="${x.id}">${esc(admgrBase(x.name))}</option>`).join('') : '<option value="">(이 캠페인에 활성 광고세트가 없어요)</option>'}</select></label>
+          ${loading ? '<option value="">불러오는 중…</option>' : sets.length ? sets.map(x => `<option value="${x.id}">${esc(admgrBase(x.name))}${x.status === 'ACTIVE' ? '' : ' (꺼짐)'}</option>`).join('') : '<option value="">(이 캠페인에 광고세트가 없어요)</option>'}</select></label>
     </div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;">복사한 광고는 <b>꺼진 상태</b>로 만들어져요 · 같은 소재가 이미 있으면 건너뛰고 알려드려요<br/>원본 세트 이름 뒤에 <b>[→${esc(admgrBase(camp.name || ''))}]</b> 표시가 붙어요 (메타 광고관리자에도 보여요)</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
       <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
-      <button class="btn-analyze" id="ag-copy-go" onclick="admgrCopyRun()" ${sets.length ? '' : 'disabled'}>복사</button></div>`;
+      <button class="btn-analyze" id="ag-copy-go" onclick="admgrCopyRun()" ${sets.length ? '' : 'disabled'}>${loading ? '불러오는 중…' : '복사'}</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
 async function admgrCopyRun() {
@@ -652,7 +662,8 @@ async function admgrCopyRun() {
     }
     if (items.length) { const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items }); marked = r.ok || 0; }
     admgr.selAds.clear();
-    admgrCopyResult(d, campName, admgrBase((admgrRows().sets.find(x => x.id === setId) || {}).name || ''), marked);
+    const tgt = (admgr.copySets && admgr.copySets[admgr.copyCamp] || []).find(x => x.id === setId) || admgrRows().sets.find(x => x.id === setId) || {};
+    admgrCopyResult(d, campName, admgrBase(tgt.name || ''), marked);
     admgrFetch();
   } catch (e) {
     btn.disabled = false; btn.textContent = '복사';

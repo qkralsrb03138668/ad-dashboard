@@ -506,6 +506,22 @@ Deno.serve(async (req) => {
       return withMeta(body, sync);
     }
 
+    // ── 한 캠페인의 광고세트 목록 (광고 복사 대상 고르기용 — 꺼진 캠페인·세트도 포함. 2026-09-16) ──
+    if (action === "adsets") {
+      const campId = url.searchParams.get("campaign_id") ?? "";
+      if (!/^\d{5,25}$/.test(campId)) return json({ error: "campaign_id 필요" }, 400);
+      const cacheKey = `meta:adsets:${campId}`;
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);
+      if (pre) return pre;
+      const r = await graphGet(`${campId}/adsets`, { fields: "id,name,effective_status,daily_budget", limit: "300" }, c.token);
+      const rows = ((r.data ?? []) as Record<string, unknown>[]).map((a) => ({
+        id: String(a.id), name: String(a.name ?? ""), status: String(a.effective_status ?? ""), budget: num(a.daily_budget),
+      }));
+      const body = { rows, count: rows.length };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     // ── 소재 기간 7종 성과 (미리보기 모달용) ──
     if (action === "adstats") {
       const adId = url.searchParams.get("ad_id");
