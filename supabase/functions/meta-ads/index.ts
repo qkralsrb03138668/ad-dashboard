@@ -189,15 +189,24 @@ function mapAdRow(r: Record<string, unknown>) {
 
 // 계층 현황 조립 (Meta 4호출) — 사용자 요청과 5분 주기 서버 수집(sync)이 같이 쓴다 (2026-09-07 2단계)
 type Creds = { token: string; account: string };
-function presetRange(preset: string) {
+function presetRange(preset: string, custom?: { since: string; until: string } | null) {
   const t = seoulToday();
-  return preset === "today" ? { start: t, end: t }
+  return preset === "custom" && custom ? { start: custom.since, end: custom.until }   // 직접 지정 기간 (2026-09-16 사용자 요청)
+    : preset === "today" ? { start: t, end: t }
     : preset === "yesterday" ? { start: addDays(t, -1), end: addDays(t, -1) }
     : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
     : { start: addDays(t, -30), end: addDays(t, -1) };
 }
-async function fetchHierarchy(c: Creds, preset: string) {
-  const range = presetRange(preset);
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+function customRange(url: URL): { since: string; until: string } | null {   // ?since=YYYY-MM-DD&until=YYYY-MM-DD
+  const since = url.searchParams.get("since") ?? "", until = url.searchParams.get("until") ?? "";
+  if (!DAY_RE.test(since) || !DAY_RE.test(until) || since > until) return null;
+  const days = (new Date(until + "T00:00:00Z").getTime() - new Date(since + "T00:00:00Z").getTime()) / 86400_000;
+  if (days > 400 || until > addDays(seoulToday(), 1)) return null;   // 400일 넘거나 미래 날짜는 거부
+  return { since, until };
+}
+async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string; until: string } | null) {
+  const range = presetRange(preset, custom);
   type Node = Record<string, unknown>;
   const [camps, adsets, adsAct, ins] = await Promise.all([
     graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,created_time,updated_time", limit: "200" }, c.token),
@@ -212,7 +221,7 @@ async function fetchHierarchy(c: Creds, preset: string) {
       limit: "500",
     }, c.token),
     graphGet(`${c.account}/insights`, {
-      date_preset: preset, level: "ad",
+      ...(preset === "custom" && custom ? { time_range: JSON.stringify({ since: custom.since, until: custom.until }) } : { date_preset: preset }), level: "ad",
       fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
       limit: "500",
     }, c.token),
@@ -483,15 +492,16 @@ Deno.serve(async (req) => {
 
     // ── 캠페인/광고세트/광고 계층 현황 (하향식 4호출 조립 — 수집분 우선, 없으면 5분 캐시) ──
     if (action === "hierarchy") {
-      const preset = ["today", "yesterday", "last_7d", "last_30d"].includes(url.searchParams.get("preset") ?? "")
-        ? url.searchParams.get("preset")! : "today";
+      const custom = url.searchParams.get("preset") === "custom" ? customRange(url) : null;
+      const preset = custom ? "custom"
+        : ["today", "yesterday", "last_7d", "last_30d"].includes(url.searchParams.get("preset") ?? "") ? url.searchParams.get("preset")! : "today";
       const t = seoulToday();
-      const cacheKey = `meta:hierarchy:${preset}:${t}`;   // 오늘 날짜 포함 — 자정 넘김 대비
+      const cacheKey = custom ? `meta:hierarchy:custom:${custom.since}:${custom.until}:${t}` : `meta:hierarchy:${preset}:${t}`;   // 오늘 날짜 포함 — 자정 넘김 대비
       // 서버 수집이 돌고 있으면(15분 내 sync) 오늘 데이터는 수집분만 읽는다 → 사용자가 몇 번 눌러도 Meta 호출 0. 수집이 멈추면 5분 캐시로 자동 복귀
       const sync = await syncInfo();
       const pre = await metaPre(cacheKey, sync.sync_at && preset === "today" ? 12 * 60 * 1000 : 5 * 60 * 1000);
       if (pre) return pre;
-      const body = await fetchHierarchy(c, preset);
+      const body = await fetchHierarchy(c, preset, custom);
       await cacheSet(cacheKey, body);
       return withMeta(body, sync);
     }

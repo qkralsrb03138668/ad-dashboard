@@ -25,7 +25,8 @@ const admgr = {
   write: { st: null, pin: lsGet('adc_admgr_pin', null), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
   /* 오늘의 판정(광고세트 탭, 오늘 칩): round r1(11시경)/r2(14시경) 수동 전환, judgeFilter = all/cut/warn/up/manual/reup,
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
-  selAds: new Set(),   // 광고 탭 선택 (복사용 — 2026-09-16)
+  selAds: new Set(),
+  customRange: lsGet('adc_admgr_range', null),   // 직접 지정 기간 {since, until} (2026-09-16)   // 광고 탭 선택 (복사용 — 2026-09-16)
   judgeFilter: 'all', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
@@ -77,8 +78,9 @@ async function admgrFetch() {
   if (!admgrCfg()) { toast('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)'); return; }
   admgr.loading = true; admgr.demo = false; renderAdmgr();
   try {
-    admgr.data = await metaGet({ action: 'hierarchy', preset: admgr.preset });
-    lsSet('adc_admgr_last', { preset: admgr.preset, data: admgr.data });   // 새로고침해도 마지막 데이터 유지 (2026-09-05 사용자 요청)
+    const cr = admgr.preset === 'custom' && admgr.customRange ? admgr.customRange : null;
+    admgr.data = await metaGet({ action: 'hierarchy', preset: admgr.preset, ...(cr ? { since: cr.since, until: cr.until } : {}) });
+    lsSet('adc_admgr_last', { preset: admgr.preset, range: admgr.customRange, data: admgr.data });   // 새로고침해도 마지막 데이터 유지 (2026-09-05 사용자 요청)
     admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
     if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
     admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
@@ -102,7 +104,7 @@ function admgrOpen() {
   if (admgr.solo) { admgr.view = admgr.prevView || 'camp'; admgr.solo = null; $('admgr-note').style.display = ''; $('admgr-title').innerHTML = '<i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)'; }
   if (!admgr.data && !admgr.demo && admgrCfg()) {
     const c = lsGet('adc_admgr_last', null);
-    if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; admgrWriteInit(); }   // 예산 편집 버튼용 상태만 (우리 서버, Meta 호출 아님)
+    if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; if (c.range) admgr.customRange = c.range; admgrWriteInit(); }   // 예산 편집 버튼용 상태만 (우리 서버, Meta 호출 아님)
   }
   renderAdmgr();
 }
@@ -343,7 +345,7 @@ function renderAdmgr(keepScroll) {
       <button class="btn-ghost ag-btn ag-more" onclick="admgrMoreMenu(event)" title="더 보기 — PIN · 열 · 임시 저장 · 예약 목록"><i class="fa-solid fa-ellipsis"></i></button>
     </div>`;
   const filters = `<div class="ag-filters">
-      ${own ? '' : `<span class="ag-seg">${Object.entries(ADMGR_PRESETS).map(([k, t]) => `<button class="${admgr.preset === k ? 'on' : ''}" onclick="admgrSetPreset('${k}')">${t.replace('최근 ', '')}</button>`).join('')}</span>
+      ${own ? '' : `<span class="ag-seg">${Object.entries(ADMGR_PRESETS).map(([k, t]) => `<button class="${admgr.preset === k ? 'on' : ''}" onclick="admgrSetPreset('${k}')">${t.replace('최근 ', '')}</button>`).join('')}<button class="${admgr.preset === 'custom' ? 'on' : ''}" onclick="admgrRangeModal()" title="기간 직접 지정"><i class="fa-regular fa-calendar"></i>${admgr.preset === 'custom' && admgr.customRange ? ` ${esc(admgr.customRange.since.slice(5))}~${esc(admgr.customRange.until.slice(5))}` : ' 직접'}</button></span>
       <label class="ag-check" title="켜져 있는 것만 표시"><input type="checkbox" ${admgr.activeOnly ? 'checked' : ''} onchange="admgrToggleActive()" /> 활성만</label>`}
       <span class="ag-search"><i class="fa-solid fa-magnifying-glass"></i><input class="inp" id="admgr-q" placeholder="${own ? '세트명·소재명 검색' : '이름 검색'}" value="${esc(admgr.q)}" oninput="admgrSearch(this.value)" /></span>
       <span style="flex:1;"></span>
@@ -559,6 +561,50 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
 /* 행 여백 클릭 = 체크박스 토글 (2026-09-15 사용자 요청). 버튼·링크·입력칸·토글·연필 등 조작 요소 위 클릭은 제외 */
 /* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고를 다른 캠페인·광고세트에 꺼진 상태로 복사하고,
    원본 광고가 있는 세트 이름 뒤에 " [→캠페인명]" 표시를 붙인다. 표시는 marker_sync가 자동으로 정리 ═══ */
+/* 기간 직접 지정 (2026-09-16 사용자 요청) — 메타 광고관리자처럼 시작·종료 날짜를 골라서 조회 */
+function admgrRangeModal() {
+  const r = admgr.customRange || { since: todayStr(-7), until: todayStr(0) };
+  $('abm-title').textContent = '기간 직접 지정';
+  $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      <label style="font-size:.76rem;font-weight:700;color:#4b5563;">시작<br/><input type="date" class="inp" id="ag-range-since" value="${esc(r.since)}" max="${todayStr(0)}" style="margin-top:4px;" /></label>
+      <label style="font-size:.76rem;font-weight:700;color:#4b5563;">종료<br/><input type="date" class="inp" id="ag-range-until" value="${esc(r.until)}" max="${todayStr(0)}" style="margin-top:4px;" /></label>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+      ${[['이번 주', -6], ['2주', -13], ['이번 달', 'month'], ['지난달', 'lastmonth'], ['90일', -89]].map(([t, v]) =>
+        `<button class="filter-tab" style="font-size:.72rem;" onclick="admgrRangeQuick('${v}')">${t}</button>`).join('')}
+    </div>
+    <div id="ag-range-err" style="display:none;font-size:.72rem;color:#dc2626;margin-top:8px;"></div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">최대 400일 · 판정·23:55 세팅·최근 변경 열은 '오늘'에서만 보여요</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
+      <button class="btn-analyze" onclick="admgrRangeApply()">조회</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+function admgrRangeQuick(v) {
+  const t = new Date(todayStr(0) + 'T00:00:00Z');
+  let since, until = todayStr(0);
+  if (v === 'month') since = todayStr(0).slice(0, 8) + '01';
+  else if (v === 'lastmonth') {
+    const d = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1));
+    since = d.toISOString().slice(0, 10);
+    until = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 0)).toISOString().slice(0, 10);
+  } else since = todayStr(Number(v));
+  $('ag-range-since').value = since; $('ag-range-until').value = until;
+}
+function admgrRangeApply() {
+  const since = ($('ag-range-since') || {}).value || '', until = ($('ag-range-until') || {}).value || '';
+  const err = m => { const el = $('ag-range-err'); el.textContent = m; el.style.display = 'block'; };
+  if (!since || !until) return err('시작·종료 날짜를 모두 고르세요');
+  if (since > until) return err('시작이 종료보다 뒤예요');
+  if ((new Date(until) - new Date(since)) / 86400000 > 400) return err('최대 400일까지 조회할 수 있어요');
+  if (until > todayStr(0)) return err('오늘 이후는 조회할 수 없어요');
+  admgr.customRange = { since, until }; lsSet('adc_admgr_range', admgr.customRange);
+  closeModal('admgr-budget-modal');
+  admgr.preset = 'custom'; admgr.chgFilter = 'all';
+  if (admgr.demo) { admgr.data = admgrDemoData(); renderAdmgr(); } else admgrFetch();
+}
 function admgrCopyModal() {
   const { camps, ads } = admgrRows();
   const picked = ads.filter(a => admgr.selAds.has(a.id));
