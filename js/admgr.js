@@ -542,6 +542,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       <b>${nc ? `캠페인 ${nc}` : ''}${nc && ns ? ' · ' : ''}${ns ? `세트 ${ns}` : ''} 선택</b><span class="sep"></span>
       ${isCamp && nc ? `<button onclick="admgrSetView('set')">선택한 캠페인의 세트 보기 →</button>` : ''}
       ${isSet && ns ? `<button onclick="admgrSetView('ad')">선택한 세트의 광고 보기 →</button>` : ''}
+      ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo && admgr.write.daystart && admgr.write.daystart.size ? `<button onclick="admgrRestoreSel()" title="체크한 세트를 오늘 시작 예산(00:10 기록)으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-rotate-left"></i> 시작 예산 복구</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
       <span style="flex:1;"></span><button class="ghost" onclick="admgrClearSel()">선택 해제 ✕</button></div>` : '';
@@ -658,6 +659,23 @@ function admgrCut10(id) {   // 판정 셀의 ÷10 (행 하나)
 }
 function admgrCutAll() {   // 판정 '감액' 후보 전체
   admgrCutDraft(admgrRows().sets.filter(r => admgrJudge(r).key === 'cut'), '감액 후보');
+}
+function admgrRestoreSel() {   // 체크한 세트를 오늘 시작 예산(00:10 기록)으로 되돌리기 → 임시 저장 (2026-09-16 사용자 요청)
+  const ds = admgr.write.daystart;
+  if (!ds || !ds.size) { toast('오늘 시작 예산 기록이 아직 없어요 (00:10에 저장돼요)'); return; }
+  const sel = admgrRows().sets.filter(r => admgr.selSets.has(r.id));
+  let n = 0, same = 0, none = 0;
+  for (const r of sel) {
+    const st = Math.round(ds.get(r.id) ?? 0);
+    if (!(st >= 1000)) { none++; continue; }
+    if (st === Math.round(r.budget)) { same++; continue; }
+    admgrDraft[r.id] = st; n++;
+  }
+  if (!n) { toast(same ? `이미 시작 예산 그대로예요 (${same}개)` : `되돌릴 시작 예산 기록이 없어요 (${none}개)`); return; }
+  lsSet('adc_admgr_draft', admgrDraft);
+  admgr.selSets.clear();
+  toast(`${n}개를 시작 예산으로 임시 저장${same ? ` · 동일 ${same}개` : ''}${none ? ` · 기록 없음 ${none}개` : ''} — 상단 '게시'로 반영`);
+  renderAdmgr(true);
 }
 function admgrCutSel() {   // 체크한 광고세트
   if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); renderAdmgr(true); }
