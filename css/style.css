@@ -565,3 +565,67 @@ textarea.inp { resize: vertical; min-height: 64px; }
 details[open] > summary .rp-arrow { transform: rotate(90deg); }
 summary::-webkit-details-marker { display: none; }
 @media (max-width: 700px) { .rp-cards { grid-template-columns: repeat(2, 1fr) !important; } .rp-why { grid-template-columns: 1fr !important; } }
+
+/* ══ 광고관리자 폰 3단계: 수정 방식 (2026-09-18) — 전부 폰(≤768px) 전용, PC는 이 블록이 안 켜짐 ══ */
+.mc-check, .ag-pubbar, .ag-selbar, .ag-selpanel, .ag-fnotice { display: none; }
+#admgr-sheet { display: none; }
+@media (max-width: 768px) {
+  #sec-admgr .ag-btn-publish { display: none; }
+  #sec-admgr .mcard { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  #sec-admgr .mcards.msel .mcard * { pointer-events: none; }
+  #sec-admgr .mcards.msel .mc-check { display: inline-flex; flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid #d1d5db; align-items: center; justify-content: center; margin-right: 10px; color: #fff; font-size: 13px; background: #fff; }
+  #sec-admgr .mcards.msel .mcard.sel { border: 2px solid #1877f2; background: #f5f9ff; box-shadow: none; }
+  #sec-admgr .mcards.msel .mcard.sel .mc-check { background: #1877f2; border-color: #1877f2; }
+  #sec-admgr .mcards.msel .mc-tg, #sec-admgr .mcards.msel .mc-btns, #sec-admgr .mcards.msel .mc-more { display: none !important; }
+  #sec-admgr .mcards.msel .mc-top { align-items: center; }
+  body.admgr-selecting #sec-admgr .ag-bar, body.admgr-selecting #sec-admgr .ag-filters, body.admgr-selecting #sec-admgr .mtabs { display: none; }
+  body.admgr-selecting .mnav { display: none !important; }
+  body.admgr-selecting .layout .container { padding-bottom: 150px; }
+  #sec-admgr .ag-selbar { display: flex; position: fixed; top: 0; left: 0; right: 0; z-index: 140; align-items: center; gap: 8px; background: #fff; border-bottom: 1px solid #e7e8ee; padding: calc(6px + env(safe-area-inset-top)) 10px 6px; box-shadow: 0 2px 10px rgba(17,24,39,.06); }
+  #sec-admgr .ag-selbar b { flex: 1; font-size: 17px; font-weight: 800; color: #1e1b4b; }
+  #sec-admgr .ag-selbar button { min-height: 44px; border: none; background: transparent; font-family: inherit; }
+  #sec-admgr .ag-selbar-x { width: 44px; font-size: 18px; color: #4b5563; }
+  #sec-admgr .ag-selbar-all { padding: 0 10px; color: #1877f2; font-size: 15px; font-weight: 700; }
+  #sec-admgr .ag-selpanel { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: fixed; left: 0; right: 0; bottom: 0; z-index: 140; background: #fff; border-top: 1px solid #e7e8ee; border-radius: 20px 20px 0 0; box-shadow: 0 -6px 20px rgba(17,24,39,.08); padding: 8px 6px calc(10px + env(safe-area-inset-bottom)); }
+  #sec-admgr .ag-selpanel button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 64px; border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 700; color: #4b5563; border-radius: 12px; }
+  #sec-admgr .ag-selpanel button i { font-size: 20px; color: #1877f2; }
+  #sec-admgr .ag-selpanel button:first-child i { color: #dc2626; }
+  #sec-admgr .ag-selpanel button:active { background: #f3f4f6; }
+  body.admgr-pending .layout .container { padding-bottom: 170px; }
+  #sec-admgr .ag-pubbar { display: flex; position: fixed; left: 12px; right: 12px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 125; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; min-height: 56px; border-radius: 16px; background: #1e1b4b; color: #fff; box-shadow: 0 8px 24px rgba(30,27,75,.28); }
+  #sec-admgr .ag-pubbar div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #sec-admgr .ag-pubbar b { font-size: 15px; font-weight: 800; }
+  #sec-admgr .ag-pubbar small { font-size: 12px; color: rgba(255,255,255,.7); }
+  #sec-admgr .ag-pubbar button { min-height: 44px; padding: 0 18px; border: none; border-radius: 10px; background: #fff; color: #1e1b4b; font-weight: 800; font-size: 15px; font-family: inherit; }
+  #sec-admgr .ag-fnotice { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
+  #sec-admgr .ag-fpill { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; background: #eef2ff; color: #4338ca; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sec-admgr .ag-fnotice button { flex: none; width: 44px; height: 44px; border: 1.5px solid #c7d2fe; border-radius: 12px; background: #fff; color: #4338ca; font-size: 16px; }
+  body.ags-open { overflow: hidden; }
+  #admgr-sheet .ags-dim { position: fixed; inset: 0; z-index: 300; background: rgba(15,23,42,.45); }
+  #admgr-sheet .ags-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 301; max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: #fff; border-radius: 22px 22px 0 0; padding: 8px 18px calc(18px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 30px rgba(15,23,42,.18); }
+  #admgr-sheet .ags-grab { width: 40px; height: 5px; border-radius: 999px; background: #d1d5db; margin: 2px auto 10px; }
+  #admgr-sheet .ags-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+  #admgr-sheet .ags-head > div { flex: 1; }
+  #admgr-sheet .ags-head b { display: block; font-size: 17px; font-weight: 800; color: #1e1b4b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #admgr-sheet .ags-head small { display: block; font-size: 12px; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #admgr-sheet .ags-x { flex: none; width: 44px; height: 44px; border: none; background: #f3f4f6; border-radius: 12px; font-size: 16px; color: #4b5563; }
+  #admgr-sheet .ags-warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 12px; padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }
+  #admgr-sheet .ags-lbl { display: block; font-size: 13px; font-weight: 700; color: #6b7280; margin-bottom: 6px; }
+  #admgr-sheet .ags-amt { display: flex; align-items: center; gap: 8px; height: 64px; padding: 0 14px; border: 2px solid #1877f2; border-radius: 14px; }
+  #admgr-sheet .ags-amt span { color: #6b7280; font-size: 18px; }
+  #admgr-sheet .ags-amt input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 28px !important; font-weight: 800; color: #1e1b4b; font-family: inherit; }
+  #admgr-sheet .ags-amt em { font-style: normal; font-size: 12px; color: #9ca3af; }
+  #admgr-sheet .ags-info { font-size: 12px; color: #9ca3af; margin: 8px 2px 10px; line-height: 1.5; }
+  #admgr-sheet .ags-err { font-size: 12px; color: #dc2626; margin: -4px 2px 8px; }
+  #admgr-sheet .ags-quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  #admgr-sheet .ags-quick button { min-height: 56px; border: 1.5px solid #e5e7eb; border-radius: 12px; background: #fff; font-family: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  #admgr-sheet .ags-quick button b { font-size: 15px; font-weight: 800; color: #1e1b4b; }
+  #admgr-sheet .ags-quick button small { font-size: 12px; color: #6b7280; }
+  #admgr-sheet .ags-quick button.cut b { color: #dc2626; }
+  #admgr-sheet .ags-quick button.on { border: 2px solid #1877f2; background: #eff6ff; }
+  #admgr-sheet .ags-quick button.cut.on { border-color: #ef4444; background: #fef2f2; }
+  #admgr-sheet .ags-link { display: block; margin: 10px auto 0; min-height: 44px; border: none; background: none; color: #9ca3af; font-size: 13px; font-family: inherit; text-decoration: underline; }
+  #admgr-sheet .ags-btns { display: flex; gap: 8px; margin-top: 14px; }
+  #admgr-sheet .ags-btns button { flex: 1; min-height: 52px; justify-content: center; font-size: 16px; border-radius: 12px; }
+  #admgr-sheet .ags-btns .btn-analyze { background: #1877f2; }
+}

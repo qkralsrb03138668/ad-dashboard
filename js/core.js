@@ -131,6 +131,11 @@ function showMenu(key) {
   const sec = ADMGR_SOLO[key] ? 'admgr' : key;
   document.querySelectorAll('.page-sec').forEach(el => el.style.display = 'none');
   $('sec-' + sec).style.display = 'block';
+  if (sec !== 'admgr') {   // 광고관리자 폰 선택 모드·게시 대기 표시가 다른 메뉴로 새지 않게 (2026-09-18)
+    document.body.classList.remove('admgr-selecting', 'admgr-pending');
+    if (typeof admgr !== 'undefined') admgr.mSelect = false;
+    if (typeof admgrSheetClose === 'function') admgrSheetClose();
+  }
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   // 광고관리자는 Meta 프리셋 기간을 따로 쓰므로 공통 기간 바를 숨긴다
   $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload' || key === 'ptest') ? 'none' : 'flex';   // 소재 업로드도 기간을 안 쓴다 (2026-09-14 사용자 요청: PC·모바일 모두 숨김)

@@ -12,6 +12,7 @@ const admgr = {
   activeOnly: true,          // 켜짐 또는 기간 중 지출>0 (원본 기본값)
   q: '',
   selCamps: new Set(), selSets: new Set(),
+  mSelect: false,             // 폰 롱프레스 선택 모드 (2026-09-18)
   sort: [],                  // [{key, dir}] — 먼저 누른 열이 1순위
   data: null, demo: false, loading: false,
   /* 이식 2·3단계 탭 상태 (원본 admgrState.test/offad/best 그대로) */
@@ -119,6 +120,7 @@ function admgrSetPreset(p) {
 /* 탭 전환 — 자체 데이터 탭은 첫 진입 때 자동 조회 */
 function admgrSetView(v) {
   admgr.view = v;
+  admgr.mSelect = false;   // 탭·뷰 전환 시 선택 모드는 나가되, selCamps/selSets는 그대로 둔다 (다음 탭의 필터로 씀 — D)
   const t = admgr.test, o = admgr.offad, b = admgr.best;
   /* 첫 진입: 마지막에 받아둔 데이터만 보여준다. 새로 받는 건 '새로고침'을 누를 때만 (자동 조회 없음 — 2026-09-05 사용자 지정) */
   if (v === 'test' && !t.loaded) {
@@ -335,13 +337,16 @@ function renderAdmgr(keepScroll) {
   const canWrite = !own && !admgr.demo && !!w.st && dnrbCan('budget');
   const nd = canWrite ? admgrDraftTargets().length : 0;
   const npend = w.pendingByObj ? w.pendingByObj.size : 0;
+  /* 폰 전용 상태를 body 클래스로 — .mnav는 #sec-admgr 밖이라 CSS로 여기서만 훅을 걸 수 있다 (2026-09-18) */
+  document.body.classList.toggle('admgr-selecting', admgr.mSelect && admgrMobile());
+  document.body.classList.toggle('admgr-pending', admgrMobile() && !admgr.mSelect && nd > 0);
   const midState = w.midMode === 'setting' ? `<span class="ag-tag amber">세팅중${npend ? ' · ' + npend : ''}</span>`
     : w.resetRow ? '<span class="ag-tag green">원복 승인됨</span>' : (npend ? `<span class="ag-tag">예약 ${npend}</span>` : '');
   const toolbar = `<div class="ag-bar">
       ${status}
       <span style="flex:1;"></span>
       ${canWrite ? `<button class="btn-ghost ag-btn" onclick="admgrMidMenu(event)" title="23:55 세팅 — 반영 세팅 시작/완료 · 원복 승인 · 예약 목록"><i class="fa-regular fa-clock"></i> 23:55 세팅${midState}</button>` : ''}
-      ${nd ? `<button class="btn-analyze ag-btn" style="background:#0a7c3f;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산·켜기/끄기를 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 게시 ${nd}</button>` : ''}
+      ${nd ? `<button class="btn-analyze ag-btn ag-btn-publish" style="background:#0a7c3f;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산·켜기/끄기를 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 게시 ${nd}</button>` : ''}
       ${cfg && !admgr.demo ? `<button class="btn-analyze ag-btn" onclick="admgrRefresh()" ${busy ? 'disabled' : ''} title="${own ? '서버에서 다시 불러오기' : 'Meta에서 다시 불러오기'}"><i class="fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> ${busy ? '불러오는 중' : '새로고침'}</button>` : ''}
       ${!cfg || admgr.demo ? `<button class="btn-sample ag-btn" onclick="admgrDemo()"><i class="fa-solid fa-wand-magic-sparkles"></i> 데모 데이터로 보기</button>` : ''}
       <button class="btn-ghost ag-btn ag-more" onclick="admgrMoreMenu(event)" title="더 보기 — PIN · 열 · 임시 저장 · 예약 목록"><i class="fa-solid fa-ellipsis"></i></button>
@@ -383,7 +388,10 @@ function renderAdmgr(keepScroll) {
 
   /* 검색창에 커서가 있을 때(타이핑 중)는 컨트롤 바를 그대로 두고 그 아래만 다시 그린다 — 입력칸까지 새로 만들면 폰에서 키보드가
      닫혔다 열리며 화면이 깜빡이고 한글 조합이 끊겼다 (2026-09-13 사용자 제보) */
-  const rest = (admgr.solo ? '' : tabs) + main;
+  /* 임시 저장 게시 대기 바 (C, 폰 전용) — 선택 모드 중엔 하단이 선택 패널 차지라 숨김 */
+  const pubBar = (admgrMobile() && !admgr.mSelect && nd > 0)
+    ? `<div class="ag-pubbar"><div><b>임시 저장 ${nd}개</b><small>Meta엔 아직 반영 전</small></div><button onclick="admgrPublishDrafts()">게시</button></div>` : '';
+  const rest = (admgr.solo ? '' : tabs) + main + pubBar;
   if (hadFocus && $('admgr-rest') && $('admgr-banner')) { $('admgr-banner').innerHTML = banner; $('admgr-rest').innerHTML = rest; }
   else body.innerHTML = `<div id="admgr-banner">${banner}</div>${controls}<div id="admgr-rest">${rest}</div>`;
   window.scrollTo(0, pageY);
@@ -523,8 +531,9 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     const level = isCamp ? 'campaign' : isSet ? 'adset' : 'ad';
     const roas = r => r.spend ? (r.value / r.spend).toFixed(2) : '—';
     const roasColor = r => !r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : '#1c1e21';
-    const sel = isCamp ? admgr.selCamps : admgr.selSets;
-    cards = `<div class="mcards">${vis.map(r => {
+    const sel = isCamp ? admgr.selCamps : isSet ? admgr.selSets : admgr.selAds;
+    const kind = isCamp ? 'camp' : isSet ? 'set' : 'ad';
+    cards = `<div class="mcards ${admgr.mSelect ? 'msel' : ''}">${vis.map(r => {
       const sub = isCamp ? '' : isSet ? (r._campName || '') : (r._setName || '');
       const more = `
         ${admgr.view === 'ad' ? `<div class="row"><span>클릭</span><span>${comma(r.clicks || 0)}</span></div>` : ''}
@@ -533,10 +542,10 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         <div class="row"><span>CPC</span><span>${cpcTd(r)}</span></div>
         ${showChg ? `<div class="row"><span>최근 변경</span><span>${admgrChgCell(r)}</span></div>` : ''}
         ${showMid ? `<div class="row"><span>23:55 세팅</span><span>${admgrMidCell(r, level)}</span></div>` : ''}
-        ${admgr.view !== 'ad' ? `<div class="row"><span>선택</span><span><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" ${sel.has(r.id) ? 'checked' : ''} onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /> ${isCamp ? '이 캠페인의 세트만 보기' : '베스트소재 담기용 선택'}</label></span></div>
+        ${admgr.view !== 'ad' ? `<div class="row"><span>선택</span><span><button class="drill" style="border:none;background:none;font:inherit;padding:10px 0;" onclick="event.stopPropagation();admgrSelectEnter('${kind}','${r.id}')">선택 모드로</button></span></div>
         <div class="row"><span></span><span><a class="drill" onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</a></span></div>` : ''}`;
-      return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''}" ${admgr.view === 'ad' ? `onclick="showMetaPreview('${r.id}')"` : ''}>
-        <div class="mc-top"><div class="mc-name"><b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}<div class="mc-sub">${admgrStBadge(r.status)}${sub ? ' · ' + esc(admgrBase(sub)) : ''}${admgrMarkBadges(sub)}</div></div>
+      return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''}" onclick="admgrCardClick(event,'${kind}','${r.id}')" ontouchstart="admgrCardDown(event,'${kind}','${r.id}')" ontouchmove="admgrCardMove(event)" ontouchend="admgrCardCancel()" ontouchcancel="admgrCardCancel()">
+        <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}<div class="mc-sub">${admgrStBadge(r.status)}${sub ? ' · ' + esc(admgrBase(sub)) : ''}${admgrMarkBadges(sub)}</div></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
         ${showJudge ? `<div class="mc-judge">${admgrJudgeCell(r)}</div>` : ''}
         <div class="mc-nums"><div><i>지출</i>${admgrMoney(r.spend)}</div><div><i>구매</i>${comma(r.purchases || 0)}</div><div><i>ROAS</i><span style="color:${roasColor(r)};">${roas(r)}</span></div></div>
@@ -559,6 +568,18 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
       <span style="flex:1;"></span><button class="ghost" onclick="admgrClearSel()">선택 해제 ✕</button></div>` : '';
+  /* 폰 (2026-09-18): 검은 동작바 대신 — 선택 모드면 상단 선택바 + 하단 동작판, 아니면 상위 선택이 필터로 남았을 때 알림줄 */
+  if (admgrMobile()) {
+    let fnotice = '';
+    if (!admgr.mSelect) {
+      const nm = (list, set) => admgrBase((list.find(x => set.has(x.id)) || {}).name || '');
+      if (isSet && admgr.selCamps.size) fnotice = admgrFNoticeHtml(nm(R.camps, admgr.selCamps), admgr.selCamps.size);
+      else if (admgr.view === 'ad' && admgr.selSets.size) fnotice = admgrFNoticeHtml(nm(R.sets, admgr.selSets), admgr.selSets.size);
+      else if (admgr.view === 'ad' && admgr.selCamps.size) fnotice = admgrFNoticeHtml(nm(R.camps, admgr.selCamps), admgr.selCamps.size);
+    }
+    const selTop = admgr.mSelect ? admgrSelBarHtml() : '', selPanel = admgr.mSelect ? admgrSelPanelHtml() : '';
+    return selTop + chgChips + judgeChips + fnotice + tiles + table + cards + selPanel;
+  }
   return chgChips + judgeChips + tiles + table + cards + actbar;
 }
 /* 행 여백 클릭 = 체크박스 토글 (2026-09-15 사용자 요청). 버튼·링크·입력칸·토글·연필 등 조작 요소 위 클릭은 제외 */
@@ -653,7 +674,7 @@ async function admgrTestEndRun() {
     const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items: plan.map(p => ({ id: p.id, name: p.name })) });   // 광고도 같은 방식(POST /{id} name)
     const failedIds = new Set((r.failed || []).map(f => String(f.id)));
     const ok = plan.filter(p => !failedIds.has(String(p.id)));
-    admgr.selSets.clear();
+    admgr.selSets.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
     $('abm-title').textContent = '테스트 종료 결과';
     $('abm-body').innerHTML = `
       <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">세트 <b style="color:#15803d;">${ok.filter(p => p.level === 'adset').length}</b>개 · 광고 <b style="color:#15803d;">${ok.filter(p => p.level === 'ad').length}</b>개 이름을 바꿨어요${failedIds.size ? ` · 실패 <b style="color:#dc2626;">${failedIds.size}</b>개` : ''}</div>
@@ -719,7 +740,7 @@ async function admgrCopyRun() {
       items.push({ id: sid, name: admgrMarkName(sname, [...has, campName]) });
     }
     if (items.length) { const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items }); marked = r.ok || 0; }
-    admgr.selAds.clear();
+    admgr.selAds.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
     const tgt = (admgr.copySets && admgr.copySets[admgr.copyCamp] || []).find(x => x.id === setId) || admgrRows().sets.find(x => x.id === setId) || {};
     admgrCopyResult(d, campName, admgrBase(tgt.name || ''), marked);
     admgrFetch();
@@ -776,6 +797,64 @@ window.addEventListener('resize', () => {   // 폰↔데스크톱 경계를 넘�
   if (admgrMobileWas === null) { admgrMobileWas = now; return; }
   if (now !== admgrMobileWas) { admgrMobileWas = now; if (admgr.data && ['camp', 'set', 'ad'].includes(admgr.view)) renderAdmgr(true); }
 });
+
+/* ═══ 폰 롱프레스 선택 모드 (2026-09-18 스펙 B) — 카드를 500ms 누르고 있으면 선택 모드 진입 + 그 카드 선택.
+   손가락이 10px 넘게 움직이면(스크롤 포함) 취소. 롱프레스가 실제로 발동하면 뒤이어 오는 합성 click 1번은 무시(그대로 두면 방금 켠 선택이 곧바로 꺼짐) */
+let admgrLP = null, admgrLPFired = false;
+function admgrCardDown(ev, kind, id) {
+  if (!admgrMobile() || admgr.mSelect) return;   // 이미 선택모드면 탭이 곧 토글이라 롱프레스 불필요
+  const p = ev.touches ? ev.touches[0] : ev;
+  admgrLP = { x: p.clientX, y: p.clientY, timer: setTimeout(() => { admgrLPFired = true; admgrLP = null; admgrSelectEnter(kind, id); setTimeout(() => { admgrLPFired = false; }, 600); }, 500) };
+}
+function admgrCardMove(ev) {
+  if (!admgrLP) return;
+  const p = ev.touches ? ev.touches[0] : ev;
+  if (Math.hypot(p.clientX - admgrLP.x, p.clientY - admgrLP.y) > 10) admgrCardCancel();
+}
+function admgrCardCancel() { if (admgrLP) { clearTimeout(admgrLP.timer); admgrLP = null; } }
+function admgrCardClick(ev, kind, id) {   // 카드 탭 — 선택모드면 토글, 아니면 광고 카드는 미리보기(기존 동작 유지)
+  if (admgrLPFired) { admgrLPFired = false; return; }
+  if (admgr.mSelect) { admgrSelToggle(kind, id); return; }
+  if (kind === 'ad') showMetaPreview(id);
+}
+function admgrSelToggle(kind, id) { (kind === 'camp' ? admgrToggleCamp : kind === 'set' ? admgrToggleSet : admgrToggleAd)(id); }
+function admgrSelectEnter(kind, id) {
+  if (!lsGet('adc_admgr_lphint', false)) { toast('카드를 길게 누르면 선택 모드'); lsSet('adc_admgr_lphint', true); }
+  admgr.mSelect = true;
+  admgrSelToggle(kind, id);   // 내부에서 renderAdmgr(true) 호출
+}
+function admgrSelectExit() { admgr.mSelect = false; admgrClearSel(); }   // ✕ 닫기 — 선택도 전부 해제
+/* 선택 모드 상단 바 — 기존 상단 컨트롤(도구바·필터·탭)을 CSS로 숨기고 이 자리에 표시 */
+function admgrSelBarHtml() {
+  const kind = admgr.view === 'camp' ? 'camp' : admgr.view === 'set' ? 'set' : 'ad';
+  const set = kind === 'camp' ? admgr.selCamps : kind === 'set' ? admgr.selSets : admgr.selAds;
+  return `<div class="ag-selbar">
+    <button class="ag-selbar-x" onclick="admgrSelectExit()" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button>
+    <b>${set.size}개 선택됨</b>
+    <button class="ag-selbar-all" onclick="admgrSelAllDisp()">전체 선택</button>
+  </div>`;
+}
+/* 선택 모드 하단 동작 패널 — 폰 탭바(.mnav) 대신 뜨는 자리. 전부 기존 함수 재사용 */
+function admgrSelPanelHtml() {
+  const w = admgr.write, R = admgr.data ? admgrRows() : { sets: [] };
+  const items = [];
+  if (admgr.view === 'camp') items.push(['fa-layer-group', '세트 보기', "admgrSetView('set')"]);
+  if (admgr.view === 'set') {
+    items.push(['fa-arrow-down', '÷10 임시 저장', 'admgrCutSel()']);
+    if (w.daystart && w.daystart.size) items.push(['fa-rotate-left', '시작 예산 복구', 'admgrRestoreSel()']);
+    if ([...admgr.selSets].some(id => { const r = R.sets.find(x => x.id === id); return r && admgrIsTest(r); })) items.push(['fa-flag-checkered', '테스트 종료', 'admgrTestEndModal()']);
+    items.push(['fa-ellipsis', '더보기', 'admgrSelMoreMenu(event)']);
+  }
+  if (admgr.view === 'ad') items.push(['fa-copy', '광고 복사', 'admgrCopyModal()']);
+  return `<div class="ag-selpanel">${items.map(([ic, label, fn]) => `<button onclick="${fn}"><i class="fa-solid ${ic}"></i><span>${label}</span></button>`).join('')}</div>`;
+}
+function admgrSelMoreMenu(ev) {
+  admgrPopAt(ev, `<div class="ag-menu">${agItem('fa-eye', '광고 보기', "admgrSetView('ad')")}${agItem('fa-star', '베스트 담기', 'admgrBestAdd()')}</div>`, 200);
+}
+/* 선택 아닌 상태에서 상위 선택이 필터로 남아 있을 때(D) — 다크 액션바 대신 알림줄 하나 + 해제 버튼 */
+function admgrFNoticeHtml(name, n) {
+  return `<div class="ag-fnotice"><span class="ag-fpill">${esc(name)}${n > 1 ? ` 외 ${n - 1}개` : ''} 만 보는 중</span><button onclick="admgrClearSel()" aria-label="보기 해제"><i class="fa-solid fa-xmark"></i></button></div>`;
+}
 
 /* ═══ 오늘의 판정 (2026-09-05 사용자 운영 규칙) ═══
    마진 = 판매가 − 공급가×1.1 (카페24 상품, 세트명에 상품명이 들어간 것으로 매칭 — 가장 긴 이름 우선) · 세트별 수동 입력이 있으면 그것 우선
@@ -887,10 +966,10 @@ function admgrRestoreSel() {   // 체크한 세트를 오늘 시작 예산(00:10
   }
   if (!n) { toast(same ? `이미 시작 예산 그대로예요 (${same}개)` : `되돌릴 시작 예산 기록이 없어요 (${none}개)`); return; }
   lsSet('adc_admgr_draft', admgrDraft);
-  admgr.selSets.clear();
+  admgr.selSets.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
   toast(`${n}개를 시작 예산으로 임시 저장${same ? ` · 동일 ${same}개` : ''}${none ? ` · 기록 없음 ${none}개` : ''} — 상단 '게시'로 반영`);
   renderAdmgr(true);
 }
 function admgrCutSel() {   // 체크한 광고세트
-  if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); renderAdmgr(true); }
+  if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); admgr.mSelect = false; renderAdmgr(true); }
 }

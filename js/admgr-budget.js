@@ -370,6 +370,7 @@ async function admgrMidCancel(pid) {
   } catch (e) { toast('취소 실패: ' + e.message); }
 }
 function admgrBudgetPop(ev, id, level) {
+  if (admgrMobile()) { admgrBudgetSheet(id, level); return; }   // 폰은 작은 팝업 대신 하단 판 (2026-09-18)
   const w = admgr.write;
   const R = admgrRows();
   const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
@@ -725,4 +726,59 @@ async function admgrBudgetImpact(i) {
       <thead><tr><th style="text-align:left;">구간</th><th>시간대</th><th>지출</th><th>구매</th><th>ROAS</th></tr></thead>
       <tbody>${row('변경 전', beforeH, B)}${row('적용 후', afterH, A)}${R ? row('어제 같은 시간', afterH, R) : ''}</tbody></table></div>
     <div style="font-size:.66rem;color:#9ca3af;margin-top:6px;">Meta 예산 반영 지연(~1시간)을 고려해 변경 시간대와 다음 1시간은 뺐어요 · 참고용 — 시간대·요일 효과가 섞여 있어 확정 판단은 금물</div></div>`;
+}
+
+/* ═══ 폰 예산 수정 하단 판 (2026-09-18 스펙 A) — 빠른 버튼은 입력칸만 채우고, 저장은 임시 저장/게시/23:55 반영 중 하나로.
+   입력칸·오류칸·예약 버튼 id는 팝업과 같게 써서 admgrNumInput·admgrBudgetWrite·admgrBudgetCancel을 그대로 재사용 ═══ */
+function admgrBudgetSheet(id, level) {
+  const w = admgr.write, R = admgrRows();
+  const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id); if (!node) return;
+  admgrBP.id = id; admgrBP.level = level; admgrBP.name = node.name;
+  const cur = Math.round(node.budget || 0), draft = admgrDraft[id];
+  const start = w.daystart && w.daystart.get(id) != null ? Math.round(w.daystart.get(id)) : null;
+  const pend = w.pendingByObj && w.pendingByObj.get(id);
+  const setting = w.midMode === 'setting', max = (w.st && w.st.max_budget) || 300000;
+  const r100 = v => Math.max(1000, Math.round(v / 100) * 100);
+  const quick = [['÷10', Math.max(1000, Math.round(cur / 10)), 'cut'], ['−50%', r100(cur * 0.5)], ['+20%', r100(cur * 1.2)], ['+50%', r100(cur * 1.5)]];
+  if (start) quick.push(['시작 예산', start]);
+  let sh = $('admgr-sheet');
+  if (!sh) { sh = document.createElement('div'); sh.id = 'admgr-sheet'; document.body.appendChild(sh); }
+  sh.innerHTML = `<div class="ags-dim" onclick="admgrSheetClose()"></div>
+    <div class="ags-panel" role="dialog" aria-label="예산 수정">
+      <div class="ags-grab"></div>
+      <div class="ags-head"><div style="min-width:0;"><b>${esc(admgrProductOf({ adset_name: admgrBase(node.name) }))}</b><small>${esc(admgrBase(node.name))}</small></div>
+        <button class="ags-x" onclick="admgrSheetClose()" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button></div>
+      ${w.st && w.st.token_set ? '' : '<div class="ags-warn">Meta 쓰기 토큰이 아직 설정되지 않아 게시할 수 없어요</div>'}
+      <label class="ags-lbl" for="bpop-amount">일일 예산${setting ? ' · <span style="color:#b45309;">23:55 반영 세팅중</span>' : ''}</label>
+      <div class="ags-amt"><span>₩</span><input id="bpop-amount" type="text" inputmode="numeric" autocomplete="off" value="${comma(Math.round(Number(draft || cur) || 0))}" oninput="admgrNumInput(this);admgrSheetMark(null)" /><em>KRW</em></div>
+      <div class="ags-info">현재 ${comma(cur)}${start ? ` · 오늘 시작 ${comma(start)}` : ''}${draft && draft !== cur ? ` · <b style="color:#b45309;">임시 저장 ${comma(draft)}</b>` : ''}${pend ? ` · <b style="color:#b45309;">23:55 예약 ${comma(pend.new_budget)}</b>` : ''}</div>
+      <div id="bpop-err" class="ags-err" style="display:none;"></div>
+      <div class="ags-quick">${quick.map(([t, v, cls], i) => `<button class="${cls || ''}" data-i="${i}" onclick="admgrSheetQuick(${v},${i})"><b>${t}</b><small>${v > max ? '상한 초과' : comma(v)}</small></button>`).join('')}</div>
+      ${pend ? `<button class="ags-link" onclick="admgrSheetCancelPend(${pend.id})">23:55 예약 취소</button>` : ''}
+      <div class="ags-btns">
+        <button class="btn-ghost" onclick="admgrSheetSave()">임시 저장</button>
+        ${setting ? `<button id="bpop-sched" class="btn-analyze" style="background:#f59e0b;" onclick="admgrSheetSchedule()"><i class="fa-regular fa-clock"></i> 23:55 반영으로 저장</button>`
+          : `<button id="bpop-apply" class="btn-analyze" onclick="admgrSheetPublish()"><i class="fa-solid fa-paper-plane"></i> 게시</button>`}
+      </div>
+    </div>`;
+  sh.style.display = 'block';
+  document.body.classList.add('ags-open');
+}
+function admgrSheetMark(i) { document.querySelectorAll('#admgr-sheet .ags-quick button').forEach(b => b.classList.toggle('on', String(b.dataset.i) === String(i))); }
+function admgrSheetQuick(v, i) { const a = $('bpop-amount'); if (a) a.value = comma(v); admgrSheetMark(i); }
+function admgrSheetClose() { const sh = $('admgr-sheet'); if (sh) { sh.style.display = 'none'; sh.innerHTML = ''; } document.body.classList.remove('ags-open'); }
+function admgrSheetVal() { return String(($('bpop-amount') || {}).value || ''); }
+function admgrSheetSave() {
+  const n = Math.round(Number(admgrSheetVal().replace(/[^0-9]/g, '')));
+  if (!(n >= 1000)) { admgrBpopErr('1,000원 이상 입력하세요'); return; }
+  const id = admgrBP.id; admgrSheetClose(); admgrDraftSave(id, n);
+}
+function admgrSheetPublish() { const { id, level } = admgrBP, v = admgrSheetVal(); admgrSheetClose(); admgrApplyNow(id, level, v); }
+async function admgrSheetSchedule() {
+  await admgrBudgetWrite('schedule');
+  const e = $('bpop-err'); if (!e || e.style.display !== 'block') admgrSheetClose();
+}
+async function admgrSheetCancelPend(pid) {
+  await admgrBudgetCancel(pid);
+  const e = $('bpop-err'); if (!e || e.style.display !== 'block') admgrSheetClose();
 }
