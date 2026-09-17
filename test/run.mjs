@@ -339,7 +339,8 @@ test('admgrReportBuild(cmp·dirs): OFF·우수 공통점 비교, 실패 이유 �
   assert.equal(JSON.stringify(ax.price.good), JSON.stringify([['5~8만', 3]]));
   assert.equal(JSON.stringify(ax.cut.off), JSON.stringify([['정면', 1]]));
   assert.equal(c.reasons.map(r => r.label + r.n).join(), '클릭 약함2,후크 약함1');
-  assert.ok(c.commonGood.includes('형식 릴스 100%') && c.commonGood.includes('가격대 5~8만 100%') && c.commonGood.includes('AI 컷 유형 시연 100%'));
+  assert.ok(c.commonGood.includes('형식 릴스 100% (OFF 33%)') && c.commonGood.includes('가격대 5~8만 100% (OFF 0%)') && c.commonGood.includes('AI 컷 유형 시연 100% (OFF 0%)'), c.commonGood.join('|'));
+  assert.ok(c.commonOff.includes('형식 이미지 67% (우수 0%)'), c.commonOff.join('|'));
   assert.ok(c.thin);
   const D = Object.fromEntries(rep.dirs.map(d => [d.name, d]));
   assert.equal(D['루즈핏 니트'].kind, 'good');
