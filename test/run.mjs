@@ -404,10 +404,16 @@ test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패�
   assert.equal([rep.eff.reg, rep.eff.good, rep.eff.meh, rep.eff.off].join(), '2,2,1,1');
   assert.equal(JSON.stringify(rep.eff.by), JSON.stringify([{ who: 'kim', n: 1, good: 1 }, { who: 'lee', n: 1, good: 0 }]));
   assert.ok(rep.actions.md[0].includes('니트') && rep.actions.ct.some(x => x.includes("'사이즈'")));
-  const txt = g('admgrBestReportText')(rep, { text: '해석', at: '2026-09-11T09:00:00Z' });
-  assert.ok(txt.includes('■ 요약') && txt.includes('[확장] 루즈핏 니트') && txt.includes('kim님 소재 1개 중 우수 1') && txt.includes('■ AI 해석'));
+  assert.equal(rep.top5.map(a => a.id).join(), '1,3,4,2');   // 순이익 없음(pf 미주입) → 기간 ROAS순 (1·3 동률 5.0, 4는 0.3, 2는 0)
+  assert.ok(rep.lines.hero.includes('루즈핏 니트') && rep.lines.next.includes('확장 1개'), JSON.stringify(rep.lines));
+  assert.equal(rep.todoRule.filter(t => t.kind === 'md').length, 3);
+  assert.equal(rep.todoRule.filter(t => t.kind === 'ct').map(t => t.name).join(), '루즈핏 니트,스커트');   // 교체 검토(블라우스)는 변형 요청 없음
+  const txt = g('admgrBestReportText')(rep, { text: '■ 이번 주 한 줄 평\nAI 한 줄 평\n■ 왜 터졌나\nAI 이유', at: '2026-09-11T09:00:00Z' });
+  assert.ok(txt.includes('■ 결론') && txt.includes('주인공: AI 한 줄 평') && txt.includes('[확장] 루즈핏 니트') && txt.includes('[MD팀]') && txt.includes('■ AI 해석 원문'), txt.slice(0, 500));
+  const sum = g('admgrBestReportText')(rep, null, 'summary');
+  assert.ok(sum.includes('주인공: 루즈핏 니트') && sum.includes('☐ 루즈핏 니트 — 재고 확인') && !sum.includes('상품 판단'), sum);
   const html = g('admgrBestReportHtml')(rep, null);
-  assert.ok(html.includes('베스트 소재 주간 리포트') && html.includes('교체 검토') && html.includes('주간리포트-해석'));
+  assert.ok(html.includes('베스트 소재 리포트') && html.includes('교체 검토') && html.includes('rp-cards') && html.includes('경보') && html.includes('<details'));
 });
 
 console.log('⑤ 소재 메뉴 단독 화면 (테스트 소재·베스트소재)');

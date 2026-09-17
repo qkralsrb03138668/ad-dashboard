@@ -564,3 +564,4 @@ textarea.inp { resize: vertical; min-height: 64px; }
 /* 리포트 접기(details) 화살표 — summary가 flex라 기본 삼각형이 안 보여서 직접 (2026-09-17) */
 details[open] > summary .rp-arrow { transform: rotate(90deg); }
 summary::-webkit-details-marker { display: none; }
+@media (max-width: 700px) { .rp-cards { grid-template-columns: repeat(2, 1fr) !important; } .rp-why { grid-template-columns: 1fr !important; } }

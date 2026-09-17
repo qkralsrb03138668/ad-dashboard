@@ -79,6 +79,44 @@ await api('client-log', { action: 'state_set' }, { key: 'test_report', base: cur
   out.todo.forEach(x => { const o = m.get(x.key); m.set(x.key, { key: x.key, name: x.name, text: x.text, kind: x.kind, why: x.why || '', done: o ? !!o.done : false, doneAt: o ? (o.doneAt || null) : null, doneBy: o ? (o.doneBy || '') : '', addedAt: (o && o.addedAt) || x.addedAt }); });   // 완료 표시는 서버값 그대로 — 자동 실행이 사람 체크를 지우지 않게
   await api('client-log', { action: 'state_set' }, { key: 'test_todo', base: t.ver || null, data: { items: [...m.values()] } });
 }
-console.log('✅ 리포트 저장 → AI 태그·해석 시작');
+console.log('✅ 테스트 리포트 저장 → AI 태그·해석 시작');
 const r = spawnSync(process.execPath, [path.join(root, 'scripts/test-insight.mjs')], { stdio: 'inherit', cwd: root });
-process.exit(r.status || 0);
+
+/* ── 베스트 소재 리포트 (7일) — 같은 vm 위에서. 순이익(반품률 60일)·추세(스냅샷 8일)·테스트 리포트가 단 AI 태그 재사용 ── */
+try {
+  process.stdout.write('📥 베스트 데이터 수집 중… ');
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+  const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const bd = 7, from = shift(today, -(bd - 1)), prevFrom = shift(from, -bd);
+  const bestRows = await api('meta-ads', { action: 'best_list' });
+  const bestSets = [...new Set((Array.isArray(bestRows) ? bestRows : []).map(r => r.adset_id))];
+  const bestAds = [];
+  for (let i = 0; i < bestSets.length; i += 100) { const rr = await api('meta-ads', { action: 'creatives', set_ids: bestSets.slice(i, i + 100).join(',') }); bestAds.push(...(rr.ads || [])); }
+  const [dayRes, trendRes, nr, tagRes, todoRes, aiRes] = await Promise.all([
+    api('meta-ads', { action: 'daystats', d1: from, d0: prevFrom }), api('meta-ads', { action: 'daystats', since: shift(today, -8) }),
+    api('cafe24-perf', { action: 'netreturns', start_date: shift(today, -60), end_date: today }).catch(e => (console.log('(반품률 없음: ' + e.message + ')'), null)),
+    api('client-log', { action: 'state_get', key: 'test_report_ai' }).catch(() => ({})), api('client-log', { action: 'state_get', key: 'best_todo' }).catch(() => ({})), api('client-log', { action: 'state_get', key: 'best_report_ai' }).catch(() => ({})),
+  ]);
+  console.log(`베스트 세트 ${bestSets.length} · 소재 ${bestAds.length} · 반품률 ${nr ? (nr.rows || []).length : 0}개 상품`);
+  ctx.__b = { rows: Array.isArray(bestRows) ? bestRows : [], ads: bestAds, day: dayRes.rows || [], trend: trendRes.rows || [], nr: nr ? (nr.rows || []) : null, nrTotal: nr && nr.totals ? nr.totals.net_return_rate : null,
+    tags: tagRes.data && tagRes.data.tags || null, todo: todoRes.data && Array.isArray(todoRes.data.items) ? todoRes.data.items : [], ai: aiRes.data && aiRes.data.text ? aiRes.data : null, days: bd, today };
+  const bo = vm.runInContext(`(() => {
+    admgr.best.rows = __b.rows; admgr.best.ads = __b.ads; admgr.best.loaded = true;
+    if (__b.nr) { admgr.best.nr = new Map(__b.nr.map(x => [x.product_no, x])); admgr.best.nrTotal = __b.nrTotal; admgr.best.nrDay = __b.today; }
+    admgr.test.trend = new Map(); __b.trend.forEach(r => (admgr.test.trend.get(r.ad_id) || admgr.test.trend.set(r.ad_id, []).get(r.ad_id)).push(r)); admgr.test.trendDay = __b.today;
+    const thumbs = {}; __b.ads.forEach(a => { thumbs[a.id] = a.image || a.thumb || ''; });
+    const rep = admgrBestReportBuild({ tests: admgrTestRowSets().vis, best: __b.rows, bestAds: __b.ads, dayRows: __b.day, cre: admgr.test.creatives, products: admgr.products, judge: admgrTJudge, pf: admgrProfit, trend: a => admgrTrend(a), aiTags: __b.tags, thumbs }, __b.days, __b.today);
+    rep.todoSaved = __b.todo; rep.todo = admgrTodoMerge(rep.todoRule, rep.todoSaved, rep.to);
+    return { from: rep.from, to: rep.to, text: admgrBestReportText(rep, null), todo: rep.todo.items.map(({ carried, ...x }) => x), n: rep.S.best.n, profit: rep.profit.cur, tired: rep.alerts.tired.length };
+  })()`, ctx);
+  console.log(`📊 베스트 리포트 ${bo.from}~${bo.to} — 소재 ${bo.n} · 기간 순이익 ${Math.round(bo.profit).toLocaleString()}원 · 식음 ${bo.tired}`);
+  const cur2 = await api('client-log', { action: 'state_get', key: 'best_report' });
+  await api('client-log', { action: 'state_set' }, { key: 'best_report', base: cur2.ver || null, data: { from: bo.from, to: bo.to, days: bd, at: new Date().toISOString(), text: bo.text } });
+  const t2 = await api('client-log', { action: 'state_get', key: 'best_todo' });
+  const m2 = new Map(((t2.data && t2.data.items) || []).map(x => [x.key, x]));
+  bo.todo.forEach(x => { const o = m2.get(x.key); m2.set(x.key, { key: x.key, name: x.name, text: x.text, kind: x.kind, why: x.why || '', done: o ? !!o.done : false, doneAt: o ? (o.doneAt || null) : null, doneBy: o ? (o.doneBy || '') : '', addedAt: (o && o.addedAt) || x.addedAt }); });
+  await api('client-log', { action: 'state_set' }, { key: 'best_todo', base: t2.ver || null, data: { items: [...m2.values()] } });
+  console.log('✅ 베스트 리포트 저장 → AI 해석 시작');
+  const r2 = spawnSync(process.execPath, [path.join(root, 'scripts/weekly-insight.mjs')], { stdio: 'inherit', cwd: root });
+  process.exit((r.status || 0) || (r2.status || 0));
+} catch (e) { console.error('❌ 베스트 리포트 실패: ' + e.message); process.exit(r.status || 1); }
