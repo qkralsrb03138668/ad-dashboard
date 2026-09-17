@@ -43,7 +43,7 @@ if (!cur.data || !cur.data.text) { console.error('❌ 저장된 리포트가 없
 const r = cur.data;
 console.log(`📊 리포트 ${r.from}~${r.to} (${r.days}일, ${String(r.at).slice(0, 16).replace('T', ' ')} 저장) 읽음 → 해석 생성 중…`);
 let out;
-try { out = runClaude(`아래 주간 리포트를 해석해 줘.\n\n${r.text}`, ['--append-system-prompt', SYSTEM]).trim(); }   // 도구 없이 — 숫자만 해석
+try { out = (await runClaude(`아래 주간 리포트를 해석해 줘.\n\n${r.text}`, ['--append-system-prompt', SYSTEM])).trim(); }   // 도구 없이 — 숫자만 해석
 catch (e) { console.error('❌ ' + e.message); process.exit(1); }
 console.log('\n' + out + '\n');
 if (dry) { console.log('(--dry: 저장 안 함)'); process.exit(0); }

@@ -49,7 +49,7 @@ for (let i = 0; i < files.length; i += 12) {
   const chunk = files.slice(i, i + 12);
   const prompt = `아래 이미지 ${chunk.length}장을 각각 Read로 열어 보고 태그 JSON 배열만 출력해.\n` + chunk.map(f => `- id ${f.a.id}: ${f.fp}`).join('\n');
   let out = '';
-  try { out = runClaude(prompt, ['--restricted', '--tools', 'Read', '--strict-mcp-config', '--append-system-prompt', TAG_SYS]); }
+  try { out = await runClaude(prompt, ['--restricted', '--tools', 'Read', '--strict-mcp-config', '--append-system-prompt', TAG_SYS]); }
   catch (e) { console.log(`  ✗ 태그 실패 (${i + 1}~${i + chunk.length}): ${e.message}`); continue; }
   const m = out.match(/\[[\s\S]*\]/);
   try { for (const t of JSON.parse(m ? m[0] : '[]')) if (t && t.id) tags[String(t.id)] = { cut: t.cut || '기타', text: !!t.text, size: !!t.size, face: !!t.face, bg: t.bg || '기타', note: String(t.note || '').slice(0, 20) }; }
@@ -82,7 +82,7 @@ const SYS = `너는 여성 의류 쇼핑몰 '다나로브'의 메타 광고 소�
 분량: OFF 공통점 최대 3줄(숫자·태그 인용) · 실패 이유 최대 3줄(퍼널 단계와 연결) · 우수 공통점 최대 3줄 · 우수 이유 최대 2줄 · 추가소재 방향은 상품별 최대 6줄로 "상품명 — 무엇을 몇 개" 형식 · 주의 최대 2줄.`;
 console.log('🧠 해석 생성 중…');
 let text;
-try { text = runClaude(`아래 테스트 소재 리포트와 태그 표를 해석해 줘.\n\n${r.text}\n\n${table}`, ['--append-system-prompt', SYS]).trim(); }
+try { text = (await runClaude(`아래 테스트 소재 리포트와 태그 표를 해석해 줘.\n\n${r.text}\n\n${table}`, ['--append-system-prompt', SYS])).trim(); }
 catch (e) { console.error('❌ ' + e.message); process.exit(1); }
 console.log('\n' + table + '\n\n' + text + '\n');
 if (dry) { console.log('(--dry: 저장 안 함)'); process.exit(0); }

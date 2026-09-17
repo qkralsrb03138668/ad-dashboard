@@ -35,8 +35,8 @@ function badCopy(text) {
   if (!/♡\s*$/.test(t)) return '마지막 ♡ 없음';
   return '';
 }
-function generate(facts, url) {
-  const ask = (extra) => {
+async function generate(facts, url, ui) {   // ui = { onTick, note } — 경과 시간 표시·재시도 표시
+  const ask = async (extra) => {
     const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써.
 쓸 수 있는 도구는 WebFetch 하나뿐이다. 페이지가 이미지 위주라 정보가 적어도 다른 도구를 찾지 말고, 있는 정보(상품명·옵션·가격·후기)만으로 쓴다.
 출력은 한국어 카피 본문만. 영어·과정 설명·도구 언급·"정보가 부족해서" 같은 사족은 단 한 줄도 넣지 마.${extra}
@@ -44,14 +44,14 @@ function generate(facts, url) {
 [카페24 상품 정보]
 ${facts}`;
     // --restricted --tools WebFetch: Bash·브라우저 MCP 등이 아예 없어서 모델이 시도하거나 거부당할 일이 없다. --strict-mcp-config: 이 맥의 MCP 서버 제외
-    const out = runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM]);   // 모델: 사용자 지정 Opus 5 · 최대 (한도면 Fable 5.1 · 높음)
+    const out = await runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM], { onTick: ui && ui.onTick });   // 모델: 사용자 지정 Opus 5 · 최대 (한도면 Fable 5.1 · 높음)
     return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
   };
-  let text = ask('');
+  let text = await ask('');
   let why = badCopy(text);
   if (why) {   // 한 번만 다시 — 그래도 안 되면 저장하지 않고 실패로 보고
-    process.stdout.write(` (재시도: ${why})`);
-    text = ask('\n\n[주의] 직전 출력이 규칙을 어겼다(' + why + '). 규칙대로 한국어 카피 본문만 다시 써라.');
+    if (ui) ui.note = ` (재시도: ${why})`; else process.stdout.write(` (재시도: ${why})`);
+    text = await ask('\n\n[주의] 직전 출력이 규칙을 어겼다(' + why + '). 규칙대로 한국어 카피 본문만 다시 써라.');
     why = badCopy(text);
     if (why) throw new Error('문구 검증 실패 — ' + why + '\n' + text.slice(0, 200));
   }
@@ -91,12 +91,17 @@ else {
 }
 if (!targets.length) { console.log('✅ 문구가 필요한 대기 소재가 없어요'); process.exit(0); }
 console.log(`▶ 생성할 상품 ${targets.length}개 · 모델 ${claudeModel(COPY_MODELS)}${dry ? ' (--dry: 저장 안 함)' : ''}`);
+console.log(`  상품 1개에 보통 3~5분 걸려요 (최대 강도) — 옆의 시간이 올라가고 있으면 정상 진행 중이니 창을 닫지 마세요`);
+const mmss = s => `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`;
 let ok = 0;
 for (const t of targets) {
   try {
     const f = await api('cafe24-perf', { action: 'copy_facts', product_no: t.product_no });
-    process.stdout.write(`… #${t.product_no} ${t.product_name || ''} 생성 중`);
-    const message = generate(f.facts, f.url);
+    const label = `… #${t.product_no} ${t.product_name || ''} 생성 중`;
+    const ui = { note: '', onTick: null };
+    ui.onTick = process.stdout.isTTY ? s => process.stdout.write(`\r\x1b[2K${label}${ui.note} ${mmss(s)}`) : null;   // 터미널이면 같은 줄에 경과 시간 갱신 (로그 파일엔 안 찍음)
+    process.stdout.write(label);
+    const message = await generate(f.facts, f.url, ui);
     console.log(` — ${message.length}자`);
     if (dry) { console.log('\n' + message + '\n'); continue; }
     const text = { message, title: '', description: '', cta: 'LEARN_MORE' };
