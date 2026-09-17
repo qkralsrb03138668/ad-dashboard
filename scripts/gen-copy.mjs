@@ -4,7 +4,7 @@
 // 인증: 이 폴더의 config.js(SUPABASE_URL·anon key·DASH_KEY). 지시문: supabase/functions/cafe24-perf/ad-copy-prompt.ts (서버와 동일)
 import fs from 'node:fs';
 import path from 'node:path';
-import { runClaude } from './claude.mjs';   // Fable 5.1 → 한도 시 Opus 5 자동 전환, 실패 이유 한국어
+import { runCopy, claudeModel, COPY_MODELS } from './claude.mjs';   // Opus 5 · 최대 → 한도 시 Fable 5.1 · 높음 자동 전환, 실패 이유 한국어
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -44,7 +44,7 @@ function generate(facts, url) {
 [카페24 상품 정보]
 ${facts}`;
     // --restricted --tools WebFetch: Bash·브라우저 MCP 등이 아예 없어서 모델이 시도하거나 거부당할 일이 없다. --strict-mcp-config: 이 맥의 MCP 서버 제외
-    const out = runClaude(prompt, ['--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM]);   // 모델: 사용자 지정 Fable 5.1 · 중간 (한도면 Opus 5)
+    const out = runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM]);   // 모델: 사용자 지정 Opus 5 · 최대 (한도면 Fable 5.1 · 높음)
     return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
   };
   let text = ask('');
@@ -90,7 +90,7 @@ else {
   targets = [...byNo.values()];
 }
 if (!targets.length) { console.log('✅ 문구가 필요한 대기 소재가 없어요'); process.exit(0); }
-console.log(`▶ 생성할 상품 ${targets.length}개${dry ? ' (--dry: 저장 안 함)' : ''}`);
+console.log(`▶ 생성할 상품 ${targets.length}개 · 모델 ${claudeModel(COPY_MODELS)}${dry ? ' (--dry: 저장 안 함)' : ''}`);
 let ok = 0;
 for (const t of targets) {
   try {

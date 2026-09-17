@@ -442,11 +442,21 @@ console.log('⑥ 로컬 Claude 실행기 (문구생성·주간 해석)');
   test('runClaude: Fable 한도면 Opus 5로 넘어가고 이후 호출도 Opus 5', () => {
     assert.equal(out, '카피 본문|카피 본문');
     assert.equal(calls.join(), 'claude-fable-5-1,claude-opus-5,claude-opus-5');
-    assert.equal(C.claudeModel(), 'Opus 5');
+    assert.equal(C.claudeModel(), 'Opus 5 · 중간');
   });
   test('runClaude: 마지막 모델도 한도면 한국어 오류로 멈춤', () => {
     const allLimit = () => { throw fail("You've reached your Opus limit."); };
     assert.throws(() => C.runClaude('p', [], allLimit), /사용량 한도 초과/);
+  });
+  test('runCopy: 광고 문구는 Opus 5 · 최대, 한도면 Fable 5.1 · 높음 (리포트 목록과 따로 기억)', () => {
+    const seen = [];
+    const fake2 = (_c, args) => { const m = args[args.indexOf('--model') + 1], e = args[args.indexOf('--effort') + 1]; seen.push(m + ':' + e); if (seen.length === 1) throw fail("You've reached your Opus limit."); return '문구'; };
+    const log2 = process.stdout.write; process.stdout.write = () => true;
+    let o; try { o = C.runCopy('p', ['--y'], fake2) + '|' + C.runCopy('p', [], fake2); } finally { process.stdout.write = log2; }
+    assert.equal(o, '문구|문구');
+    assert.equal(seen.join(), 'claude-opus-5:max,claude-fable-5-1:high,claude-fable-5-1:high');
+    assert.equal(C.claudeModel(C.COPY_MODELS), 'Fable 5.1 · 높음');
+    assert.equal(C.claudeModel(), 'Opus 5 · 중간');   // 리포트용 목록 위치는 그대로
   });
 }
 
