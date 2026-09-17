@@ -552,25 +552,49 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     const roasColor = r => !r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : '#1c1e21';
     const sel = isCamp ? admgr.selCamps : isSet ? admgr.selSets : admgr.selAds;
     const kind = isCamp ? 'camp' : isSet ? 'set' : 'ad';
+    const canBudget = !!(admgr.write.st && admgr.write.st.allowed) && !admgr.demo && dnrbCan('budget');
+    /* 폰 카드 2단계 (2026-09-18): 1줄 상품명+토글 / 2줄 세트명 뒷부분·캠페인 표시 / 3줄 판정+지출·구매·ROAS / 4줄 예산+÷10·수정·펼치기. 나머지는 펼치기 안 */
+    const JB = { cut: ['red', '감액 ÷10'], warn: ['amber', '곧 도달'], up: ['green', '증액 검토'], done: ['gray', '오늘 감액됨'], rebound: ['blue', '감액 후 반등'], testing: ['gray', '테스트중'] };
     cards = `<div class="mcards ${admgr.mSelect ? 'msel' : ''}">${vis.map(r => {
-      const sub = isCamp ? '' : isSet ? (r._campName || '') : (r._setName || '');
+      const base = admgrBase(r.name);
+      const prod = isCamp ? base : admgrProductOf({ adset_name: base });
+      const tail = !isCamp && base.startsWith(prod) ? base.slice(prod.length).replace(/^[\s_\-·]+/, '') : '';
+      const parent = isCamp ? '' : isSet ? (r._campName || '') : (r._setName || '');
+      const j = showJudge ? admgrJudge(r) : null, jb = j && JB[j.key];
+      const open = !!(admgr.mOpen && admgr.mOpen.has(r.id));
+      const d = admgrDraft[r.id], dirty = d && d !== r.budget;
+      const pend = admgr.write.pendingByObj && admgr.write.pendingByObj.get(r.id);
+      const budget = r.budget > 0
+        ? (dirty ? `<s>₩${comma(r.budget)}</s><b class="mc-bnum draft">₩${comma(d)}</b><span class="mc-dpill">임시 저장</span>` : `<b class="mc-bnum">₩${comma(r.budget)}</b><small>/일</small>`)
+        : r.budget_life ? `<b class="mc-bnum">총 ₩${comma(r.budget_life)}</b>` : `<small>${isSet ? '캠페인 예산' : isCamp ? '세트별 예산' : ''}</small>`;
+      const pen = `<button class="mc-ibtn" onclick="event.stopPropagation();admgrMarginEdit('${r.id}')" aria-label="마진 직접 입력"><i class="fa-solid fa-pen"></i></button>`;
       const more = `
+        ${j ? `<div class="row"><span>마진</span><span>${j.m > 0 ? `${won(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%` : esc(j.src ? j.src.slice(0, 18) : '정보 없음')}${pen}</span></div>` : ''}
         ${admgr.view === 'ad' ? `<div class="row"><span>클릭</span><span>${comma(r.clicks || 0)}</span></div>` : ''}
         <div class="row"><span>구매당 비용</span><span>${admgrCpa(r)}</span></div>
         <div class="row"><span>전환값</span><span>${admgrMoney(r.value)}</span></div>
         <div class="row"><span>CPC</span><span>${cpcTd(r)}</span></div>
         ${showChg ? `<div class="row"><span>최근 변경</span><span>${admgrChgCell(r)}</span></div>` : ''}
-        ${showMid ? `<div class="row"><span>23:55 세팅</span><span>${admgrMidCell(r, level)}</span></div>` : ''}
-        ${admgr.view !== 'ad' ? `<div class="row"><span>선택</span><span><button class="drill" style="border:none;background:none;font:inherit;padding:10px 0;" onclick="event.stopPropagation();admgrSelectEnter('${kind}','${r.id}')">선택 모드로</button></span></div>
-        <div class="row"><span></span><span><a class="drill" onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</a></span></div>` : ''}`;
-      return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''}" onclick="admgrCardClick(event,'${kind}','${r.id}')" ontouchstart="admgrCardDown(event,'${kind}','${r.id}')" ontouchmove="admgrCardMove(event)" ontouchend="admgrCardCancel()" ontouchcancel="admgrCardCancel()">
-        <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}<div class="mc-sub">${admgrStBadge(r.status)}${sub ? ' · ' + esc(admgrBase(sub)) : ''}${admgrMarkBadges(sub)}</div></div>
+        ${parent ? `<div class="row"><span>${isSet ? '캠페인' : '광고세트'}</span><span class="mc-par">${esc(admgrBase(parent))}</span></div>` : ''}
+        ${pend ? `<div class="row"><span>23:55 예약</span><span style="color:#b45309;font-weight:700;">₩${comma(pend.new_budget)}</span></div>` : ''}
+        ${showMid ? `<div class="mc-mid"><div class="mc-midt">23:55 세팅</div>${admgrMidCell(r, level)}</div>` : ''}
+        <div class="mc-links">
+          ${admgr.view !== 'ad' ? `<button onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'}<i class="fa-solid fa-chevron-right"></i></button>` : ''}
+          <button onclick="event.stopPropagation();admgrSelectEnter('${kind}','${r.id}')">선택 모드<i class="fa-regular fa-square-check"></i></button>
+        </div>`;
+      return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''} ${open ? 'open' : ''}" data-id="${r.id}" onclick="admgrCardClick(event,'${kind}','${r.id}')" ontouchstart="admgrCardDown(event,'${kind}','${r.id}')" ontouchmove="admgrCardMove(event)" ontouchend="admgrCardCancel()" ontouchcancel="admgrCardCancel()">
+        <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(prod)}</b></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
-        ${showJudge ? `<div class="mc-judge">${admgrJudgeCell(r)}</div>` : ''}
-        <div class="mc-nums"><div><i>지출</i>${admgrMoney(r.spend)}</div><div><i>구매</i>${comma(r.purchases || 0)}</div><div><i>ROAS</i><span style="color:${roasColor(r)};">${roas(r)}</span></div></div>
+        ${jb || tail || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) ? `<div class="mc-r2">${jb ? `<span class="mc-jb ${jb[0]}"><i></i>${jb[1]}</span>` : ''}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
+        <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span></div>
         <div class="mc-foot">
-          <div class="mc-budget" onclick="event.stopPropagation()">${admgr.view === 'ad' ? '<span style="color:#9ca3af;">탭하면 소재 미리보기</span>' : admgrBudgetCell(r, level)}</div>
-          <div class="mc-btns"><button onclick="event.stopPropagation();const c=this.closest('.mcard');c.classList.toggle('open');this.classList.toggle('on',c.classList.contains('open'))" title="더 보기"><i class="fa-solid fa-chevron-down"></i></button></div>
+          ${admgr.view === 'ad' ? '<div class="mc-budget"><small>탭하면 소재 미리보기</small></div>'
+            : canBudget && r.budget > 0 ? `<button class="mc-budget" onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')">${budget}</button>` : `<div class="mc-budget">${budget}</div>`}
+          <div class="mc-btns">
+            ${isSet && canBudget && r.budget > 0 && j && j.key === 'cut' ? `<button class="mc-cut" onclick="event.stopPropagation();admgrCut10('${r.id}')" aria-label="÷10 임시 저장">÷10</button>` : ''}
+            ${admgr.view !== 'ad' && canBudget && r.budget > 0 ? `<button class="mc-edit" onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')"><i class="fa-solid fa-pen"></i>수정</button>` : ''}
+            <button class="mc-exp ${open ? 'on' : ''}" onclick="event.stopPropagation();admgrCardOpen('${r.id}')" aria-label="자세히"><i class="fa-solid fa-chevron-${open ? 'up' : 'down'}"></i></button>
+          </div>
         </div>
         <div class="mc-more" onclick="event.stopPropagation()">${more}</div>
       </div>`; }).join('')}</div>`;
@@ -835,6 +859,14 @@ function admgrCardClick(ev, kind, id) {   // 카드 탭 — 선택모드면 토�
   if (admgrLPFired) { admgrLPFired = false; return; }
   if (admgr.mSelect) { admgrSelToggle(kind, id); return; }
   if (kind === 'ad') showMetaPreview(id);
+}
+function admgrCardOpen(id) {   // 카드 펼치기 — 다시 그려도 펼친 상태 유지 (2026-09-18)
+  admgr.mOpen = admgr.mOpen || new Set();
+  const on = !admgr.mOpen.has(id);
+  if (on) admgr.mOpen.add(id); else admgr.mOpen.delete(id);
+  const c = document.querySelector(`#sec-admgr .mcard[data-id="${id}"]`); if (!c) return;
+  c.classList.toggle('open', on);
+  const b = c.querySelector('.mc-exp'); if (b) { b.classList.toggle('on', on); b.innerHTML = `<i class="fa-solid fa-chevron-${on ? 'up' : 'down'}"></i>`; }
 }
 function admgrSelToggle(kind, id) { (kind === 'camp' ? admgrToggleCamp : kind === 'set' ? admgrToggleSet : admgrToggleAd)(id); }
 function admgrSelectEnter(kind, id) {

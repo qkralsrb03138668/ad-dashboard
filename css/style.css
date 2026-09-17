@@ -671,3 +671,54 @@ summary::-webkit-details-marker { display: none; }
   #admgr-bpop .ag-menu-sep:empty { padding: 0; margin: 4px 0; border-top: 1px solid #f0f2f5; }
   #admgr-bpop .ag-item { min-height: 44px; }
 }
+
+/* ══ 광고관리자 폰 2단계: 카드 정리 (2026-09-18) ══ */
+@media (max-width: 768px) {
+  #sec-admgr .mcard { border: 1px solid #e7e8ee; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  #sec-admgr .mc-top { align-items: center; gap: 10px; }
+  #sec-admgr .mc-name { flex: 1; min-width: 0; }
+  #sec-admgr .mc-name b { display: block; color: #1c1e21; font-size: 16px; font-weight: 800; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
+  #sec-admgr .mc-tg .mtg { width: 44px; height: 26px; border-radius: 13px; } #sec-admgr .mc-tg .mtg::after { width: 22px; height: 22px; }
+  #sec-admgr .mc-r2 { display: flex; align-items: center; gap: 6px; margin-top: 5px; min-width: 0; font-size: 12px; color: #9ca3af; }
+  #sec-admgr .mc-r2 .mc-tail { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sec-admgr .mc-r2 .mc-st { flex: none; color: #6b7280; font-weight: 700; }
+  #sec-admgr .mc-r2 .ag-mark { flex: none; margin-left: 0; }
+  #sec-admgr .mc-r3 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; }
+  #sec-admgr .mc-r2 .mc-jb { flex: none; padding: 2px 8px; font-size: 11.5px; }
+  #sec-admgr .mc-r3 { flex-wrap: nowrap; gap: 14px; }
+  #sec-admgr .mc-jb { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+  #sec-admgr .mc-jb i { width: 6px; height: 6px; border-radius: 50%; }
+  #sec-admgr .mc-jb.red { background: #fef2f2; color: #b91c1c; } #sec-admgr .mc-jb.red i { background: #ef4444; }
+  #sec-admgr .mc-jb.amber { background: #fffbeb; color: #b45309; } #sec-admgr .mc-jb.amber i { background: #f59e0b; }
+  #sec-admgr .mc-jb.green { background: #f0fdf4; color: #15803d; } #sec-admgr .mc-jb.green i { background: #22c55e; }
+  #sec-admgr .mc-jb.blue { background: #eff6ff; color: #1d4ed8; } #sec-admgr .mc-jb.blue i { background: #2563eb; }
+  #sec-admgr .mc-jb.gray { background: #f3f4f6; color: #6b7280; } #sec-admgr .mc-jb.gray i { background: #9ca3af; }
+  #sec-admgr .mc-kv { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+  #sec-admgr .mc-kv i { font-style: normal; font-size: 12px; color: #9ca3af; }
+  #sec-admgr .mc-kv b { font-size: 14px; font-weight: 800; color: #1c1e21; }
+  #sec-admgr .mc-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f2f5; gap: 8px; }
+  #sec-admgr .mc-budget { flex: 1; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; border: none; background: none; padding: 0; text-align: left; font-family: inherit; min-height: 44px; align-content: center; }
+  #sec-admgr .mc-budget small { font-size: 12px; color: #9ca3af; }
+  #sec-admgr .mc-bnum { font-size: 18px; font-weight: 800; color: #1e1b4b; }
+  #sec-admgr .mc-bnum.draft { color: #b45309; }
+  #sec-admgr .mc-budget s { font-size: 13px; color: #9ca3af; }
+  #sec-admgr .mc-dpill { font-size: 11px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 999px; padding: 1px 7px; }
+  #sec-admgr .mc-btns { gap: 6px; }
+  #sec-admgr .mc-btns button { height: 44px; min-width: 44px; width: auto; padding: 0 12px; border-radius: 10px; border: 1.5px solid #e5e7eb; background: #fff; font-family: inherit; font-size: 14px; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; color: #4b5563; }
+  #sec-admgr .mc-btns .mc-cut { color: #dc2626; border-color: #fecaca; }
+  #sec-admgr .mc-btns .mc-edit { color: #1877f2; border-color: #bfdbfe; }
+  #sec-admgr .mc-btns .mc-edit i { font-size: 12px; }
+  #sec-admgr .mc-btns .mc-exp { width: 44px; padding: 0; justify-content: center; color: #9ca3af; }
+  #sec-admgr .mc-btns .mc-exp.on { background: #eef2ff; border-color: #c7d2fe; color: #4f46e5; }
+  #sec-admgr .mc-more { margin-top: 10px; padding-top: 6px; border-top: 1px solid #f0f2f5; font-size: 13px; }
+  #sec-admgr .mc-more .row { min-height: 36px; }
+  #sec-admgr .mc-more .row > span:first-child { font-size: 12px; color: #9ca3af; }
+  #sec-admgr .mc-more .row > span:last-child { font-weight: 700; color: #1c1e21; display: inline-flex; align-items: center; gap: 4px; }
+  #sec-admgr .mc-more .mc-par { max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block !important; }
+  #sec-admgr .mc-ibtn { width: 36px; height: 36px; border: none; background: transparent; color: #a5b4fc; font-size: 12px; }
+  #sec-admgr .mc-mid { padding: 8px 0; border-bottom: 1px solid #f5f6f7; }
+  #sec-admgr .mc-midt { font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
+  #sec-admgr .mc-links { display: flex; gap: 8px; margin-top: 10px; }
+  #sec-admgr .mc-links button { flex: 1; min-height: 44px; border: 1.5px solid #e5e7eb; border-radius: 10px; background: #fff; font-family: inherit; font-size: 14px; font-weight: 700; color: #4b5563; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  #sec-admgr .mc-links button i { font-size: 12px; color: #9ca3af; }
+}
