@@ -1,6 +1,6 @@
 #!/bin/zsh
-# 테스트 소재 리포트에 AI 태그(컷 유형·자막)와 해석(OFF·우수 공통점, 실패·우수 이유, 추가소재 방향) 붙이기 — 대시보드에서 [리포트]를 연 뒤 실행 (이 맥의 Claude Code 구독, 결제 없음)
+# 테스트 소재 리포트(최근 30일)를 만들고 AI 태그·해석까지 붙인다 — 대시보드를 먼저 안 열어도 됨 (이 맥의 Claude Code 구독, 결제 없음). 금요일 08:00 자동 실행(launchd)과 같은 일
 cd "$(dirname "$0")"
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-node scripts/test-insight.mjs
+node scripts/weekly-test-report.mjs 30
 echo; echo "아무 키나 누르면 닫힙니다"; read -k1

@@ -318,6 +318,44 @@ function admgrAiBlock(ai, title) {   // AI 해석 원문에서 '■ 제목' 아�
   const m = ai.text.match(new RegExp('■\\s*' + title + '[^\\n]*\\n([\\s\\S]*?)(?=\\n■|$)'));
   return m ? m[1].split('\n').map(s => s.replace(/^[\s·\-•]+/, '').trim()).filter(Boolean) : [];
 }
+/* ═══ 할 일 추적 (2026-09-17) — 리포트 체크박스를 계정 공유 상태 test_todo에 저장.
+   항목 키 = 상품명(띄어쓰기 무시) + 종류. 다음 리포트에서 "지난주 할 일 n개 중 완료 m"을 보여주고, 안 끝난 항목은 '지난주부터' 표시로 다시 올라온다 */
+const admgrTodoKey = (name, kind) => String(name || '').normalize('NFC').replace(/\s+/g, '') + '|' + (kind || 'good');
+function admgrTodoMerge(cur, saved, today) {   // cur = 이번 리포트 할 일, saved = 저장된 items → { items(표시용), prev:{n, done} }
+  const S = Array.isArray(saved) ? saved : [];
+  const byKey = new Map(S.map(x => [x.key, x]));
+  const now = new Date().toISOString();
+  const items = cur.map(t => { const k = admgrTodoKey(t.name, t.kind), o = byKey.get(k); return { ...t, key: k, done: !!(o && o.done), doneAt: o && o.doneAt || null, doneBy: o && o.doneBy || '', addedAt: o && o.addedAt || now, carried: !!(o && String(o.addedAt || '').slice(0, 10) < today && !o.done) }; });
+  const keys = new Set(items.map(x => x.key));
+  const cutoff = admgrShiftDay(today, -30);
+  S.forEach(o => { if (!keys.has(o.key) && !o.done && String(o.addedAt || '').slice(0, 10) >= cutoff) items.push({ ...o, carried: true }); });   // 지난 리포트에서 못 끝낸 것은 이어서
+  const prev = S.filter(o => String(o.addedAt || '').slice(0, 10) < today);
+  return { items: items.slice(0, 12), prev: { n: prev.length, done: prev.filter(o => o.done).length } };
+}
+async function admgrTodoToggle(key) {
+  const t = admgr.test, rep = t.report; if (!rep || !rep.todo) return;
+  const it = rep.todo.items.find(x => x.key === key); if (!it) return;
+  it.done = !it.done; it.doneAt = it.done ? new Date().toISOString() : null; it.doneBy = it.done ? ((AUTH.me && (AUTH.me.name || AUTH.me.email)) || ADMGR_USER) : '';
+  (rep.todo.dirty = rep.todo.dirty || new Set()).add(key);   // 내가 바꾼 항목만 저장 때 내 값을 쓴다
+  await admgrTodoSave(rep);
+  $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
+}
+async function admgrTodoSave(rep) {   // 표시 목록을 저장본에 합쳐 저장 — 남이 먼저 저장했으면 최신본 위에 다시
+  if (admgr.demo) return;
+  for (let tries = 0; tries < 2; tries++) {
+    try {
+      const cur = await sbCall('client-log', { action: 'state_get', key: 'test_todo' });
+      const base = (cur.data && Array.isArray(cur.data.items)) ? cur.data.items : [];
+      const m = new Map(base.map(x => [x.key, x]));
+      const dirty = rep.todo.dirty || new Set();
+      rep.todo.items.forEach(({ carried, ...x }) => { const o = m.get(x.key), mine = dirty.has(x.key) || !o;   // 안 건드린 항목은 서버의 완료 상태 유지 (다른 사람·자동 실행이 바꾼 것 보존)
+        m.set(x.key, { key: x.key, name: x.name, text: x.text, kind: x.kind, why: x.why || '', done: mine ? !!x.done : !!o.done, doneAt: mine ? (x.doneAt || null) : (o.doneAt || null), doneBy: mine ? (x.doneBy || '') : (o.doneBy || ''), addedAt: (o && o.addedAt) || x.addedAt }); });
+      const items = [...m.values()].filter(x => String(x.addedAt || '').slice(0, 10) >= admgrShiftDay(todayStr(0), -120));   // 4달 지난 건 정리
+      const r = await sbCall('client-log', { action: 'state_set' }, { key: 'test_todo', base: cur.ver || null, data: { items } });
+      if (!r.conflict) return;
+    } catch (e) { if (tries) toast('할 일 저장 실패: ' + e.message); }
+  }
+}
 function admgrReportSummary(rep) {
   const c = rep.cmp, ai = rep.ai, secs = Object.fromEntries(rep.secs.map(s => [s.key, s]));
   const judged = c.off.n + c.good.n + secs.meh.n;
@@ -331,16 +369,17 @@ function admgrReportSummary(rep) {
   const todo = [];
   admgrAiBlock(ai, '추가소재 방향').forEach(l => { const m = l.match(/^(.+?)\s*[—\-–:]\s*(.+)$/); if (!m) return; const d = rep.dirs.find(x => x.name.replace(/\s/g, '') === m[1].replace(/\s/g, '') || m[1].includes(x.name) || x.name.includes(m[1].replace(/·.*$/, ''))); todo.push({ name: m[1], text: m[2], kind: d ? d.kind : 'good', why: d ? d.why : '' }); });
   [...G, ...O].forEach(d => { if (todo.length >= 8 || todo.some(t => t.name.replace(/\s/g, '') === d.name.replace(/\s/g, '') || t.name.includes(d.name))) return; todo.push({ name: d.name, text: d.asks.join(' / '), kind: d.kind, why: d.why }); });
-  return { kpi: { good: c.good.n, off: c.off.n, fresh: secs.fresh.n, rate: judged ? Math.round(c.good.n / judged * 100) : null, judged, prods: new Set(c.good.items.map(x => admgrProductOf(x.a))).size }, win, why, next, todo: todo.slice(0, 8) };
+  const merged = rep.todo || admgrTodoMerge(todo.slice(0, 8), rep.todoSaved || [], rep.to);
+  return { kpi: { good: c.good.n, off: c.off.n, fresh: secs.fresh.n, rate: judged ? Math.round(c.good.n / judged * 100) : null, judged, prods: new Set(c.good.items.map(x => admgrProductOf(x.a))).size }, win, why, next, todo: merged.items, prev: merged.prev };
 }
 function admgrReportText(rep, mode) {   // mode: 'summary' = 첫 화면만(플로우용) · 그 외 = 전체
   const S = admgrReportSummary(rep), c = rep.cmp;
   const L = [`📋 테스트 소재 리포트 · ${fmtMD(rep.from)}~${fmtMD(rep.to)} (${rep.days}일)`,
     `우수 ${S.kpi.good} · OFF ${S.kpi.off} · 우수율 ${S.kpi.rate == null ? '—' : S.kpi.rate + '%'} (판정 ${S.kpi.judged}개) · 새 테스트 ${S.kpi.fresh}`, '',
     `■ 결론`, ` · 통한 것: ${S.win}`, ` · 안 통한 이유: ${S.why}`, ` · 다음 주: ${S.next}`, '',
-    `■ 이번 주 할 일`];
+    `■ 이번 주 할 일${S.prev.n ? ` (지난주 ${S.prev.n}개 중 완료 ${S.prev.done})` : ''}`];
   if (!S.todo.length) L.push('  없음');
-  S.todo.forEach(t => L.push(` ☐ ${t.name} — ${t.text}${t.why ? ` (${t.why})` : ''}`));
+  S.todo.forEach(t => L.push(` ${t.done ? '☑' : '☐'} ${t.name} — ${t.text}${t.why ? ` (${t.why})` : ''}${t.carried ? ' · 지난주부터' : ''}`));
   if (mode === 'summary') return L.join('\n').trim();
   if (c) {
     const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
@@ -387,9 +426,10 @@ function admgrReportHtml(rep, thumbs) {
       <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">안 통한 이유</b>${esc(S.why)}</div>
       <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">다음 주</b>${esc(S.next)}</div></div>`;
   const nG = S.todo.filter(t => t.kind === 'good').length, nO = S.todo.length - nG;
-  const todo = h3('이번 주 할 일', `컨텐츠팀 ${nG} · MD·CS ${nO}`) + `<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:6px 12px;">
-    ${S.todo.length ? S.todo.map(t => `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #e9d5ff;font-size:.86rem;"><span style="width:16px;height:16px;border:1.5px solid #a78bfa;border-radius:4px;flex:none;margin-top:3px;"></span><span style="${t.kind === 'off' ? 'color:#b91c1c;' : ''}"><b style="color:#1e1b4b;">${esc(t.name)}</b> — ${esc(t.text)}</span>${t.why ? `<span style="color:#6b7280;font-size:.72rem;margin-left:auto;white-space:nowrap;" class="m-hide">${esc(t.why)}</span>` : ''}</div>`).join('').replace(/border-bottom:1px dashed #e9d5ff;([^>]*>)(?![\s\S]*border-bottom)/, '$1') : '<div style="padding:6px 0;color:#9ca3af;font-size:.82rem;">없음</div>'}</div>
-    <div style="font-size:.7rem;color:#6b7280;margin-top:6px;">"요약 복사"는 결론 3줄 + 이 목록만 복사돼요 (플로우 붙여넣기용)</div>`;
+  const doneN = S.todo.filter(t => t.done).length;
+  const todo = h3('이번 주 할 일', `컨텐츠팀 ${nG} · MD·CS ${nO}${doneN ? ` · 완료 ${doneN}` : ''}${S.prev.n ? ` · <span style="color:#7c3aed;">지난주 ${S.prev.n}개 중 완료 ${S.prev.done}</span>` : ''}`) + `<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:6px 12px;">
+    ${S.todo.length ? S.todo.map(t => `<label style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #e9d5ff;font-size:.86rem;cursor:pointer;${t.done ? 'opacity:.55;' : ''}"><input type="checkbox" ${t.done ? 'checked' : ''} onchange="admgrTodoToggle('${esc(t.key)}')" style="margin:3px 0 0;flex:none;accent-color:#7c3aed;" /><span style="${t.kind === 'off' ? 'color:#b91c1c;' : ''}${t.done ? 'text-decoration:line-through;' : ''}"><b style="color:#1e1b4b;">${esc(t.name)}</b> — ${esc(t.text)}${t.carried ? ' <span class="status-badge badge-yellow" style="font-size:.6rem;">지난주부터</span>' : ''}${t.done && t.doneBy ? ` <span style="font-size:.66rem;color:#6b7280;">✓ ${esc(t.doneBy)} ${fmtMD(String(t.doneAt || '').slice(0, 10))}</span>` : ''}</span>${t.why ? `<span style="color:#6b7280;font-size:.72rem;margin-left:auto;white-space:nowrap;" class="m-hide">${esc(t.why)}</span>` : ''}</label>`).join('') : '<div style="padding:6px 0;color:#9ca3af;font-size:.82rem;">없음</div>'}</div>
+    <div style="font-size:.7rem;color:#6b7280;margin-top:6px;">체크는 모든 계정에 공유돼요 · "요약 복사"는 결론 3줄 + 이 목록만 복사 (플로우 붙여넣기용)</div>`;
   const chip = (s, cls) => { const m = s.match(/^(.*?)\s(\d+%)\s\((.+)\)$/); return `<span style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:.78rem;font-weight:700;margin:3px 4px 3px 0;background:${cls === 'g' ? '#dcfce7' : '#fee2e2'};color:${cls === 'g' ? '#166534' : '#991b1b'};">${esc(m ? `${m[1]} ${m[2]}` : s)}${m ? `<small style="font-weight:500;opacity:.75;margin-left:4px;">${esc(m[3])}</small>` : ''}</span>`; };
   const box = (title, cls, chips, empty) => `<div style="border:1px solid #e7e8ee;border-radius:12px;padding:10px 12px;"><div style="font-size:.78rem;font-weight:800;color:${cls === 'g' ? '#16a34a' : '#dc2626'};margin-bottom:4px;">${title}</div>${chips.length ? chips.map(s => chip(s, cls)).join('') : `<span style="color:#9ca3af;font-size:.78rem;">${empty}</span>`}</div>`;
   const maxN = Math.max(1, ...c.reasons.map(r => r.n));
@@ -440,8 +480,10 @@ async function admgrTestReport() {
     if (!t.creatives) await admgrTestCreativesEnsure();
     if (!admgr.products && !admgr.productsLoading) await admgrLoadProducts();
     try { const r = await sbCall('client-log', { action: 'state_get', key: 'test_report_ai' }); t.ai = r && r.data ? r.data : null; } catch (e) { t.ai = null; }
+    try { const r = await sbCall('client-log', { action: 'state_get', key: 'test_todo' }); t.todoSaved = r && r.data && Array.isArray(r.data.items) ? r.data.items : []; } catch (e) { t.todoSaved = []; }
   }
-  let rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai });
+  const withTodo = r => { r.todoSaved = t.todoSaved || []; const S = admgrReportSummary(r); r.todo = { items: S.todo, prev: S.prev }; return r; };   // 저장본과 합친 할 일을 rep에 고정 (체크 토글이 이 객체를 바꾼다)
+  let rep = withTodo(admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai }));
   t.report = rep;
   admgrRp.cur = { title: `테스트 소재 리포트 ${rep.from}~${rep.to}`, text: () => admgrReportText(rep), textSummary: () => admgrReportText(rep, 'summary'), html: () => admgrReportHtml(rep, t.thumbs) };
   $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
@@ -452,8 +494,9 @@ async function admgrTestReport() {
       (r.ads || []).forEach(a => { t.thumbs[a.id] = a.image || a.thumb || ''; t.kinds = t.kinds || new Map(); t.kinds.set(String(a.id), !!a.is_video); });
     }
     rep.all.forEach(a => { if (!(a.id in t.thumbs)) t.thumbs[a.id] = ''; });   // 못 찾은 소재는 재조회 안 함
-    if (need.length && t.report === rep) { rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai }); t.report = rep; admgrRp.cur.text = () => admgrReportText(rep); admgrRp.cur.textSummary = () => admgrReportText(rep, 'summary'); admgrRp.cur.html = () => admgrReportHtml(rep, t.thumbs); $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs); }   // 형식(릴스/이미지) 폴백이 채워졌으니 다시 계산
+    if (need.length && t.report === rep) { rep = withTodo(admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai })); t.report = rep; admgrRp.cur.text = () => admgrReportText(rep); admgrRp.cur.textSummary = () => admgrReportText(rep, 'summary'); admgrRp.cur.html = () => admgrReportHtml(rep, t.thumbs); $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs); }   // 형식(릴스/이미지) 폴백이 채워졌으니 다시 계산
   } catch (e) { toast('썸네일 조회 실패 (텍스트는 정상): ' + e.message); }
+  admgrTodoSave(rep);   // 이번 리포트의 할 일을 저장본에 합쳐 둔다 (addedAt 기록 → 다음 주 '지난주 할 일' 집계)
   // 숫자 리포트 + OFF·우수 소재 목록(썸네일 주소)을 계정 공유 상태에 저장 → 바탕화면 '테스트리포트-해석'이 읽어 AI 태그·해석을 붙인다
   if (admgr.demo) return;
   try {

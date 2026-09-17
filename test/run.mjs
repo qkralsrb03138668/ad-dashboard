@@ -358,6 +358,17 @@ test('admgrReportBuild(cmp·dirs): OFF·우수 공통점 비교, 실패 이유 �
   assert.ok(html.includes('이번 주 할 일') && html.includes('왜 그런가') && html.includes('<details') && html.includes('AI 해석 본문') && html.includes('비교표 전체 보기'));
 });
 
+test('admgrTodoMerge: 저장본 done 유지 · 지난주 미완료 이어받기 · 지난주 완료율', () => {
+  const cur = [{ name: '루즈핏 니트', text: '릴스 2개', kind: 'good', why: '우수 3' }, { name: '스커트', text: '점검', kind: 'off', why: 'OFF 2' }];
+  const saved = [{ key: '루즈핏니트|good', name: '루즈핏 니트', text: '옛 문장', kind: 'good', done: true, doneAt: '2026-09-10T00:00:00Z', doneBy: '김도희', addedAt: '2026-09-10T00:00:00Z' },
+    { key: '블라우스|good', name: '블라우스', text: '이미지 1개', kind: 'good', done: false, addedAt: '2026-09-10T00:00:00Z' },
+    { key: '오래된|off', name: '오래된', text: 'x', kind: 'off', done: false, addedAt: '2026-06-01T00:00:00Z' }];
+  const m = g('admgrTodoMerge')(cur, saved, '2026-09-17');
+  assert.equal(m.items.map(x => `${x.name}:${x.done ? 1 : 0}:${x.carried ? 1 : 0}`).join(), '루즈핏 니트:1:0,스커트:0:0,블라우스:0:1');   // 완료 유지 · 새 항목 · 지난주 미완료 이어받기(30일 지난 건 제외)
+  assert.equal(m.items[0].text, '릴스 2개');   // 문장은 이번 리포트 것
+  assert.equal(m.prev.n + '/' + m.prev.done, '3/1');
+});
+
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
   const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-08-01', gone: false,
     effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE', spend: m.spend, purchases: m.pur, value: m.val, meta: m.meta || {} });
