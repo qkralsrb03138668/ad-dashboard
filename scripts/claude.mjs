@@ -1,6 +1,6 @@
 // 이 맥의 Claude Code(구독)를 부르는 공용 실행기 — 문구생성(gen-copy)·리포트 해석(weekly-insight·test-insight)이 같이 쓴다.
 //   · 모델 목록 순서대로 시도하고, 사용량 한도가 차면 다음 모델로 자동 전환 (그 실행 동안 계속 유지)
-//     - 광고 문구 COPY_MODELS: Opus 5 · 최대 → 한도면 Fable 5.1 · 높음 (2026-09-17 사용자 지정: 문구는 Opus 최대)
+//     - 광고 문구 COPY_MODELS: Opus 5 · 높음 → 한도면 Fable 5.1 · 높음 (2026-09-17 사용자 지정. 최대는 상품당 3~6분이라 높음(20초대)으로 변경 — 같은 상품 실측: 최대 3분17초, 높음 22초, 품질 비슷)
 //     - 리포트 해석 MODELS: Fable 5.1 · 중간 → 한도면 Opus 5 · 중간
 //   · 비동기 실행(2026-09-17): 기다리는 동안 onTick(경과 초)으로 화면을 갱신할 수 있다 — 동기 실행은 Opus 최대에서 상품당 3분 넘게 화면이 멈춘 것처럼 보였다
 //   · 시간 제한: 넘으면 claude를 끊고 한국어 오류 (진짜로 멈춘 호출이 전체를 붙잡지 않게)
@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process';
 
 export const MODELS = [['claude-fable-5-1', 'Fable 5.1', 'medium'], ['claude-opus-5', 'Opus 5', 'medium']];   // [모델 id, 이름, 강도]
-export const COPY_MODELS = [['claude-opus-5', 'Opus 5', 'max'], ['claude-fable-5-1', 'Fable 5.1', 'high']];
+export const COPY_MODELS = [['claude-opus-5', 'Opus 5', 'high'], ['claude-fable-5-1', 'Fable 5.1', 'high']];
 const EFFORT_KO = { low: '낮음', medium: '중간', high: '높음', xhigh: '매우 높음', max: '최대' };
 const pos = new Map();   // 목록별 현재 위치 — 한도로 넘어간 모델은 그 실행 동안 유지
 export const claudeModel = (models = MODELS) => { const m = models[pos.get(models) || 0]; return `${m[1]} · ${EFFORT_KO[m[2]] || m[2]}`; };
@@ -50,5 +50,5 @@ export async function runClaude(prompt, extra = [], opts = {}) {
     }
   } finally { if (iv) clearInterval(iv); }
 }
-/* 광고 문구 생성 전용 — Opus 5 · 최대, 상품 1개(검증 재시도 1번 포함) 호출마다 12분 제한 */
+/* 광고 문구 생성 전용 — Opus 5 · 높음, 호출마다 12분 제한 */
 export const runCopy = (prompt, extra = [], opts = {}) => runClaude(prompt, extra, { timeoutMs: 12 * 60000, ...opts, models: COPY_MODELS });

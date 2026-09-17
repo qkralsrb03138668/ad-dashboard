@@ -56,9 +56,9 @@ async function generateCopy(no: number, token: string): Promise<{ message: strin
   ];
   // deno-lint-ignore no-explicit-any
   const res: any = await client.beta.messages.create({
-    model: COPY_MODEL, max_tokens: 16000,   // 최대 강도는 생각 토큰이 max_tokens에 포함돼 4000이면 문구가 잘린다
+    model: COPY_MODEL, max_tokens: 16000,   // 생각 토큰이 max_tokens에 포함돼 4000이면 문구가 잘릴 수 있다
     betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
-    output_config: { effort: "max" },   // 2026-09-17 사용자 지정: 문구는 Opus 5 · 최대
+    output_config: { effort: "high" },   // 2026-09-17 사용자 지정: 문구는 Opus 5 · 높음 (최대는 상품당 3~6분이라 변경)
     system,
     tools: [{ type: "web_fetch_20260209", name: "web_fetch", allowed_domains: [SHOP_URL.replace(/^https?:\/\//, "")], max_uses: 2 }],
     messages: [{ role: "user", content: `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써. 완성 카피만 출력.\n\n[카페24 상품 정보]\n${facts}` }],

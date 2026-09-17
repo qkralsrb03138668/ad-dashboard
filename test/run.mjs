@@ -456,9 +456,9 @@ console.log('⑥ 로컬 Claude 실행기 (문구생성·주간 해석)');
     const fake2 = (_c, args) => { const m = args[args.indexOf('--model') + 1], e = args[args.indexOf('--effort') + 1]; seen.push(m + ':' + e); if (seen.length === 1) throw fail("You've reached your Opus limit."); return '문구'; };
     const log2 = process.stdout.write; process.stdout.write = () => true;
     let o; try { o = await C.runCopy('p', ['--y'], { exec: fake2 }) + '|' + await C.runCopy('p', [], { exec: fake2 }); } finally { process.stdout.write = log2; }
-  test('runCopy: 광고 문구는 Opus 5 · 최대, 한도면 Fable 5.1 · 높음 (리포트 목록과 따로 기억)', () => {
+  test('runCopy: 광고 문구는 Opus 5 · 높음, 한도면 Fable 5.1 · 높음 (리포트 목록과 따로 기억)', () => {
     assert.equal(o, '문구|문구');
-    assert.equal(seen.join(), 'claude-opus-5:max,claude-fable-5-1:high,claude-fable-5-1:high');
+    assert.equal(seen.join(), 'claude-opus-5:high,claude-fable-5-1:high,claude-fable-5-1:high');
     assert.equal(C.claudeModel(C.COPY_MODELS), 'Fable 5.1 · 높음');
     assert.equal(C.claudeModel(), 'Opus 5 · 중간');   // 리포트용 목록 위치는 그대로
   });
