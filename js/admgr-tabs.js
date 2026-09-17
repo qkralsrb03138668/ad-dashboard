@@ -232,13 +232,14 @@ function admgrReportCompare(rows, pick, base, cre, ai, kinds) {
   const F = list => list.map(a => ({ a, f: admgrAdFeat(a, base, cre, ai, kinds) }));
   const off = F(rows.filter(pick.offAll)), good = F(rows.filter(pick.goodAll));
   const dist = (L, k) => { const m = {}; L.forEach(x => { const v = x.f[k]; if (v == null) return; m[v] = (m[v] || 0) + 1; }); return Object.entries(m).sort((x, y) => y[1] - x[1]); };
-  const axes = ADMGR_CMP_AXES.map(([k, label]) => ({ k, label, off: dist(off, k), good: dist(good, k) })).filter(x => x.off.length || x.good.length);
+  const cnt = (L, k) => L.filter(x => x.f[k] != null).length;   // 축별 분모 — AI 태그는 썸네일 본 소재만 있으므로 그룹 전체 수로 나누면 비율이 틀린다
+  const axes = ADMGR_CMP_AXES.map(([k, label]) => ({ k, label, off: dist(off, k), good: dist(good, k), offN: cnt(off, k), goodN: cnt(good, k) })).filter(x => x.off.length || x.good.length);
   const med = L => ({ ctr: admgrMedian(L.map(x => x.f.ctr)), ts: admgrMedian(L.map(x => x.f.ts)), cvr: admgrMedian(L.map(x => x.f.cvr)), roas: admgrMedian(L.map(x => x.f.roas)) });
   const reasons = dist(off.map(x => ({ f: { d: x.f.diag.label } })), 'd').map(([label, n]) => ({ label, n, fix: (off.find(x => x.f.diag.label === label) || {}).f.diag.fix.replace(/^[^—]*—\s*/, '') }));
   // 공통점 = 한쪽에 치우친 값: 그 값의 비율이 상대 그룹보다 20%p 이상 높고 2개↑ (양쪽 다 흔한 '자막 있음 90% vs 88%'는 공통점이 아니다)
   const share = (d, v, n) => { const e = d.find(x => x[0] === v); return n ? (e ? e[1] : 0) / n : 0; };
-  const lean = (mine, other, nm, no) => axes.flatMap(x => (mine === good ? x.good : x.off).map(([v, n]) => { const a = n / nm, b = share(mine === good ? x.off : x.good, v, no); return n >= 2 && a - b >= 0.2 && !/미상|미기입|외부 등록|문구 미상/.test(v) ? { s: `${x.label} ${v} ${Math.round(a * 100)}% (${mine === good ? 'OFF' : '우수'} ${Math.round(b * 100)}%)`, d: a - b } : null; })).filter(Boolean).sort((x, y) => y.d - x.d).map(x => x.s);
-  return { off: { n: off.length, med: med(off), items: off }, good: { n: good.length, med: med(good), items: good }, axes, reasons, commonGood: lean(good, off, good.length, off.length), commonOff: lean(off, good, off.length, good.length), thin: off.length < 5 || good.length < 5 };
+  const lean = (mine) => axes.flatMap(x => { const nm = mine === good ? x.goodN : x.offN, no = mine === good ? x.offN : x.goodN; return (mine === good ? x.good : x.off).map(([v, n]) => { const a = n / nm, b = share(mine === good ? x.off : x.good, v, no); return n >= 2 && a - b >= 0.2 && !/미상|미기입|외부 등록|문구 미상/.test(v) ? { s: `${x.label} ${v} ${Math.round(a * 100)}% (${mine === good ? 'OFF' : '우수'} ${Math.round(b * 100)}%)`, d: a - b } : null; }); }).filter(Boolean).sort((x, y) => y.d - x.d).map(x => x.s);
+  return { off: { n: off.length, med: med(off), items: off }, good: { n: good.length, med: med(good), items: good }, axes, reasons, commonGood: lean(good), commonOff: lean(off), thin: off.length < 5 || good.length < 5 };
 }
 /* 추가소재 방향 — 상품별 제작 요청 문장 (규칙). AI 해석은 별도 */
 function admgrReportDirs(cmp, product, pkey) {
@@ -326,7 +327,7 @@ function admgrReportText(rep) {
     const c = rep.cmp, pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
     const dl = d => d.map(([v, n]) => `${v} ${n}`).join(' · ') || '—';
     L.push(`■ OFF 소재 공통점 (${c.off.n}) vs 우수 소재 공통점 (${c.good.n})${c.thin ? ' — 표본 5개 미만은 참고만' : ''}`);
-    c.axes.forEach(x => L.push(` · ${x.label} — OFF: ${dl(x.off)} | 우수: ${dl(x.good)}`));
+    c.axes.forEach(x => L.push(` · ${x.label} — OFF: ${dl(x.off)} | 우수: ${dl(x.good)}${/^AI/.test(x.label) ? ` (태그 OFF ${x.offN}·우수 ${x.goodN}개 기준)` : ''}`));
     L.push(` · 퍼널 중앙값 — CTR OFF ${pct(c.off.med.ctr)} | 우수 ${pct(c.good.med.ctr)} · 3초 재생 OFF ${pct(c.off.med.ts)} | 우수 ${pct(c.good.med.ts)} · 전환율 OFF ${pct(c.off.med.cvr)} | 우수 ${pct(c.good.med.cvr)} · ROAS OFF ${c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—'} | 우수 ${c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—'}`);
     L.push('', `■ 실패 이유 분포 (OFF ${c.off.n})`); if (!c.reasons.length) L.push('  없음');
     c.reasons.forEach(r => L.push(` · ${r.label} ${r.n} — ${r.fix}`));
@@ -343,7 +344,7 @@ function admgrReportCmpHtml(rep) {
   const sec = (title, color, body, note) => `<section style="margin-bottom:18px;break-inside:avoid;"><div style="display:flex;align-items:baseline;gap:8px;border-left:4px solid ${color};padding-left:8px;margin-bottom:6px;"><b style="font-size:.92rem;color:#111827;">${title}</b>${note ? `<span style="font-size:.7rem;color:#9ca3af;">${note}</span>` : ''}</div><div style="margin-left:12px;font-size:.78rem;color:#374151;line-height:1.7;">${body}</div></section>`;
   const cell = (d, n) => d.map(([v, k]) => `<span style="display:inline-block;margin:1px 6px 1px 0;white-space:nowrap;">${esc(v)} <b>${k}</b><span style="color:#9ca3af;font-size:.66rem;">(${Math.round(k / n * 100)}%)</span></span>`).join(' ') || '<span style="color:#c4c9d4;">—</span>';   // 칩 사이 공백 = 줄바꿈 지점 (없으면 OFF 열이 옆으로 밀려 우수 열이 안 보인다)
   const tbl = `<table style="border-collapse:collapse;width:100%;font-size:.76rem;table-layout:fixed;"><colgroup><col style="width:110px;"><col><col></colgroup><tr><th style="text-align:left;padding:3px 8px 3px 0;color:#6b7280;font-weight:600;">항목</th><th style="text-align:left;padding:3px 8px;color:#dc2626;font-weight:700;">OFF ${c.off.n}개</th><th style="text-align:left;padding:3px 8px;color:#16a34a;font-weight:700;">우수 ${c.good.n}개</th></tr>
-    ${c.axes.map(x => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${x.label}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;">${cell(x.off, c.off.n)}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;">${cell(x.good, c.good.n)}</td></tr>`).join('')}
+    ${c.axes.map(x => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${x.label}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;">${cell(x.off, x.offN)}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;">${cell(x.good, x.goodN)}</td></tr>`).join('')}
     ${[['CTR 중앙값', pct(c.off.med.ctr), pct(c.good.med.ctr)], ['3초 재생 중앙값', pct(c.off.med.ts), pct(c.good.med.ts)], ['전환율 중앙값', pct(c.off.med.cvr), pct(c.good.med.cvr)], ['ROAS 중앙값', c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—', c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—']].map(([l, a, b]) => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${l}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;"><b>${a}</b></td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;"><b>${b}</b></td></tr>`).join('')}</table>`;
   const sum = `<div style="margin-top:8px;"><b style="color:#16a34a;">우수 공통점</b> ${c.commonGood.map(esc).join(' · ') || (c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}<br/><b style="color:#dc2626;">OFF 공통점</b> ${c.commonOff.map(esc).join(' · ') || (c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}</div>`;
   const maxN = Math.max(1, ...c.reasons.map(r => r.n));
