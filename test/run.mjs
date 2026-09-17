@@ -247,7 +247,7 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.equal(by.meh.groups[0].name, '블라우스');
   assert.equal(rep.all.length, 6);   // 1·3·8·4·5·6 (1은 우수+진행 중 중복 제거)
   const txt = g('admgrReportText')(rep);
-  assert.ok(txt.includes('■ 우수 → 추가소재 제작 요청 (2)') && txt.includes('[니트]') && txt.includes('ROAS 1.0') && txt.includes('요청 09/10'));
+  assert.ok(txt.includes('■ 우수 → 추가소재 제작 요청 (2)') && txt.includes('[니트]') && txt.includes('ROAS 1.0') && txt.includes('요청 09/10'), txt);
   const html = g('admgrReportHtml')(rep, { '1': 'https://x/y.jpg' });
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
@@ -348,9 +348,14 @@ test('admgrReportBuild(cmp·dirs): OFF·우수 공통점 비교, 실패 이유 �
   assert.ok(D['스커트'].asks[0].startsWith('소구점 바꿔서') && D['블라우스'].asks[0].startsWith('첫 1초'));
   assert.equal(rep.all.length, 6);
   const txt = g('admgrReportText')(rep);
-  assert.ok(txt.includes('■ OFF 소재 공통점 (3) vs 우수 소재 공통점 (3)') && txt.includes('클릭 약함 2') && txt.includes('[우수 상품 — 더 만들기]') && txt.includes('■ AI 해석') && txt.includes('AI 해석 본문'));
+  assert.ok(txt.includes('■ 비교표 (OFF 3 vs 우수 3)') && txt.includes('실패 이유 클릭 약함 2') && txt.includes('■ 이번 주 할 일') && txt.includes('☐ 루즈핏 니트 —') && txt.includes('■ AI 해석 원문') && txt.includes('AI 해석 본문'), txt.slice(0, 600));
+  const sum = g('admgrReportText')(rep, 'summary');
+  assert.ok(sum.includes('■ 결론') && sum.includes('통한 것:') && sum.includes('☐ 스커트 —') && !sum.includes('비교표'), sum);
+  const S = g('admgrReportSummary')(rep);
+  assert.equal(S.kpi.good + ',' + S.kpi.off + ',' + S.kpi.rate, '3,3,50');
+  assert.ok(S.todo[0].name === '루즈핏 니트' && S.todo.some(t => t.kind === 'off'));
   const html = g('admgrReportHtml')(rep, {});
-  assert.ok(html.includes('실패 이유 분포') && html.includes('추가소재 방향') && html.includes('AI 해석 본문'));
+  assert.ok(html.includes('이번 주 할 일') && html.includes('왜 그런가') && html.includes('<details') && html.includes('AI 해석 본문') && html.includes('비교표 전체 보기'));
 });
 
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {

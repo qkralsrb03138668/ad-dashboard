@@ -310,9 +310,48 @@ function admgrReportLine(a) {
     a.meta.asset_done_at ? '제작완료 ' + fmtMD(String(a.meta.asset_done_at).slice(0, 10)) : ''];
   return parts.filter(Boolean).join(' · ');
 }
-function admgrReportText(rep) {
+/* ═══ 리포트 화면 재구성 (2026-09-17 시안 승인) — 결론 한 장 먼저, 근거는 접기.
+   첫 화면: 숫자 3개 + 결론 3줄(통한 것·안 통한 이유·다음 주) + 이번 주 할 일(상품별 체크리스트). 아래는 <details>로 접힘: 왜 그런가(칩·막대·비교표), 소재 목록, AI 원문.
+   텍스트 복사는 '요약'(첫 화면만, 플로우용)과 '전체' 둘. AI 해석이 있으면 결론·할 일에 AI 문장을 우선 쓰고, 없으면 규칙 문장 */
+function admgrAiBlock(ai, title) {   // AI 해석 원문에서 '■ 제목' 아래 줄들
+  if (!ai || !ai.text) return [];
+  const m = ai.text.match(new RegExp('■\\s*' + title + '[^\\n]*\\n([\\s\\S]*?)(?=\\n■|$)'));
+  return m ? m[1].split('\n').map(s => s.replace(/^[\s·\-•]+/, '').trim()).filter(Boolean) : [];
+}
+function admgrReportSummary(rep) {
+  const c = rep.cmp, ai = rep.ai, secs = Object.fromEntries(rep.secs.map(s => [s.key, s]));
+  const judged = c.off.n + c.good.n + secs.meh.n;
+  const top = c.reasons.filter(r => !/특이 없음|퍼널 균형|데이터 없음/.test(r.label))[0] || c.reasons[0];
+  const first = (t, fb) => admgrAiBlock(ai, t)[0] || fb;
+  const win = first('우수 소재 공통점', c.commonGood.length ? c.commonGood.slice(0, 2).join(' · ') + '이(가) 우수 쪽에 몰려 있어요' : c.good.n ? '우수 소재에 두드러진 공통점이 아직 없어요' : '기간 안 우수 판정이 없어요');
+  const why = first('실패 이유 추측', top ? `OFF ${c.off.n}개 중 ${top.n}개가 ${top.label} — ${top.fix}` : 'OFF 소재가 없어요');
+  const G = rep.dirs.filter(d => d.kind === 'good'), O = rep.dirs.filter(d => d.kind === 'off');
+  const next = G.length || O.length ? `우수 ${G.length}개 상품에 추가 소재 ${G.reduce((s0, d) => s0 + d.asks.length, 0)}건${O.length ? `, OFF ${O.length}개 상품은 점검·재시도` : ''} — 아래 목록대로` : '다음 주 할 일이 없어요 — 새 테스트 등록부터';   // 요약 문장은 규칙으로 (AI 방향은 상품별 줄이라 한 줄 요약엔 안 맞음)
+  // 할 일: AI 방향 줄("상품 — 내용") 우선, 규칙 방향 중 AI가 안 다룬 상품 추가. 최대 8
+  const todo = [];
+  admgrAiBlock(ai, '추가소재 방향').forEach(l => { const m = l.match(/^(.+?)\s*[—\-–:]\s*(.+)$/); if (!m) return; const d = rep.dirs.find(x => x.name.replace(/\s/g, '') === m[1].replace(/\s/g, '') || m[1].includes(x.name) || x.name.includes(m[1].replace(/·.*$/, ''))); todo.push({ name: m[1], text: m[2], kind: d ? d.kind : 'good', why: d ? d.why : '' }); });
+  [...G, ...O].forEach(d => { if (todo.length >= 8 || todo.some(t => t.name.replace(/\s/g, '') === d.name.replace(/\s/g, '') || t.name.includes(d.name))) return; todo.push({ name: d.name, text: d.asks.join(' / '), kind: d.kind, why: d.why }); });
+  return { kpi: { good: c.good.n, off: c.off.n, fresh: secs.fresh.n, rate: judged ? Math.round(c.good.n / judged * 100) : null, judged, prods: new Set(c.good.items.map(x => admgrProductOf(x.a))).size }, win, why, next, todo: todo.slice(0, 8) };
+}
+function admgrReportText(rep, mode) {   // mode: 'summary' = 첫 화면만(플로우용) · 그 외 = 전체
+  const S = admgrReportSummary(rep), c = rep.cmp;
   const L = [`📋 테스트 소재 리포트 · ${fmtMD(rep.from)}~${fmtMD(rep.to)} (${rep.days}일)`,
-    rep.secs.map(s => `${s.short} ${s.n}`).join(' · '), ''];
+    `우수 ${S.kpi.good} · OFF ${S.kpi.off} · 우수율 ${S.kpi.rate == null ? '—' : S.kpi.rate + '%'} (판정 ${S.kpi.judged}개) · 새 테스트 ${S.kpi.fresh}`, '',
+    `■ 결론`, ` · 통한 것: ${S.win}`, ` · 안 통한 이유: ${S.why}`, ` · 다음 주: ${S.next}`, '',
+    `■ 이번 주 할 일`];
+  if (!S.todo.length) L.push('  없음');
+  S.todo.forEach(t => L.push(` ☐ ${t.name} — ${t.text}${t.why ? ` (${t.why})` : ''}`));
+  if (mode === 'summary') return L.join('\n').trim();
+  if (c) {
+    const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
+    const dl = d => d.map(([v, n]) => `${v} ${n}`).join(' · ') || '—';
+    L.push('', `■ 왜 그런가`, ` · 우수 공통점: ${c.commonGood.slice(0, 3).join(' · ') || (c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}`, ` · OFF 공통점: ${c.commonOff.slice(0, 3).join(' · ') || (c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}`);
+    c.reasons.forEach(r => L.push(` · 실패 이유 ${r.label} ${r.n} — ${r.fix}`));
+    L.push('', `■ 비교표 (OFF ${c.off.n} vs 우수 ${c.good.n})${c.thin ? ' — 표본 5개 미만은 참고만' : ''}`);
+    c.axes.forEach(x => L.push(` · ${x.label} — OFF: ${dl(x.off)} | 우수: ${dl(x.good)}${/^AI/.test(x.label) ? ` (태그 OFF ${x.offN}·우수 ${x.goodN}개 기준)` : ''}`));
+    L.push(` · 중앙값 — CTR OFF ${pct(c.off.med.ctr)} | 우수 ${pct(c.good.med.ctr)} · 3초 재생 OFF ${pct(c.off.med.ts)} | 우수 ${pct(c.good.med.ts)} · 전환율 OFF ${pct(c.off.med.cvr)} | 우수 ${pct(c.good.med.cvr)} · ROAS OFF ${c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—'} | 우수 ${c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—'}`);
+  }
+  L.push('');
   rep.secs.forEach(s => {
     L.push(`■ ${s.title} (${s.n})`);
     if (!s.n) L.push('  없음');
@@ -323,59 +362,56 @@ function admgrReportText(rep) {
     });
     L.push('');
   });
-  if (rep.cmp) {
-    const c = rep.cmp, pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
-    const dl = d => d.map(([v, n]) => `${v} ${n}`).join(' · ') || '—';
-    L.push(`■ OFF 소재 공통점 (${c.off.n}) vs 우수 소재 공통점 (${c.good.n})${c.thin ? ' — 표본 5개 미만은 참고만' : ''}`);
-    c.axes.forEach(x => L.push(` · ${x.label} — OFF: ${dl(x.off)} | 우수: ${dl(x.good)}${/^AI/.test(x.label) ? ` (태그 OFF ${x.offN}·우수 ${x.goodN}개 기준)` : ''}`));
-    L.push(` · 퍼널 중앙값 — CTR OFF ${pct(c.off.med.ctr)} | 우수 ${pct(c.good.med.ctr)} · 3초 재생 OFF ${pct(c.off.med.ts)} | 우수 ${pct(c.good.med.ts)} · 전환율 OFF ${pct(c.off.med.cvr)} | 우수 ${pct(c.good.med.cvr)} · ROAS OFF ${c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—'} | 우수 ${c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—'}`);
-    L.push('', `■ 실패 이유 분포 (OFF ${c.off.n})`); if (!c.reasons.length) L.push('  없음');
-    c.reasons.forEach(r => L.push(` · ${r.label} ${r.n} — ${r.fix}`));
-    L.push('', `■ 공통점 요약`, ` · 우수: ${c.commonGood.join(' · ') || (c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}`, ` · OFF: ${c.commonOff.join(' · ') || (c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}`);
-    L.push('', `■ 추가소재 방향 (규칙)`); if (!rep.dirs.length) L.push('  없음');
-    ['good', 'off'].forEach(k => { const D = rep.dirs.filter(d => d.kind === k); if (!D.length) return; L.push(k === 'good' ? ' [우수 상품 — 더 만들기]' : ' [OFF 상품 — 재시도·점검]'); D.forEach(d => L.push(`  · ${d.name} (${d.why}): ${d.asks.join(' / ')}`)); });
-    if (rep.ai && rep.ai.text) L.push('', `■ AI 해석 — 눈으로 본 공통점·이유·방향 (${fmtMD(String(rep.ai.at || '').slice(0, 10))} 생성)`, rep.ai.text.trim());
-  }
+  if (rep.ai && rep.ai.text) L.push(`■ AI 해석 원문 (${fmtMD(String(rep.ai.at || '').slice(0, 10))} 생성)`, rep.ai.text.trim());
   return L.join('\n').trim();
 }
-function admgrReportCmpHtml(rep) {
+function admgrReportCmpHtml(rep) {   // 비교표 (접힘 안 내용)
   const c = rep.cmp; if (!c) return '';
   const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
-  const sec = (title, color, body, note) => `<section style="margin-bottom:18px;break-inside:avoid;"><div style="display:flex;align-items:baseline;gap:8px;border-left:4px solid ${color};padding-left:8px;margin-bottom:6px;"><b style="font-size:.92rem;color:#111827;">${title}</b>${note ? `<span style="font-size:.7rem;color:#9ca3af;">${note}</span>` : ''}</div><div style="margin-left:12px;font-size:.78rem;color:#374151;line-height:1.7;">${body}</div></section>`;
-  const cell = (d, n) => d.map(([v, k]) => `<span style="display:inline-block;margin:1px 6px 1px 0;white-space:nowrap;">${esc(v)} <b>${k}</b><span style="color:#9ca3af;font-size:.66rem;">(${Math.round(k / n * 100)}%)</span></span>`).join(' ') || '<span style="color:#c4c9d4;">—</span>';   // 칩 사이 공백 = 줄바꿈 지점 (없으면 OFF 열이 옆으로 밀려 우수 열이 안 보인다)
-  const tbl = `<table style="border-collapse:collapse;width:100%;font-size:.76rem;table-layout:fixed;"><colgroup><col style="width:110px;"><col><col></colgroup><tr><th style="text-align:left;padding:3px 8px 3px 0;color:#6b7280;font-weight:600;">항목</th><th style="text-align:left;padding:3px 8px;color:#dc2626;font-weight:700;">OFF ${c.off.n}개</th><th style="text-align:left;padding:3px 8px;color:#16a34a;font-weight:700;">우수 ${c.good.n}개</th></tr>
-    ${c.axes.map(x => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${x.label}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;">${cell(x.off, x.offN)}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;">${cell(x.good, x.goodN)}</td></tr>`).join('')}
-    ${[['CTR 중앙값', pct(c.off.med.ctr), pct(c.good.med.ctr)], ['3초 재생 중앙값', pct(c.off.med.ts), pct(c.good.med.ts)], ['전환율 중앙값', pct(c.off.med.cvr), pct(c.good.med.cvr)], ['ROAS 중앙값', c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—', c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—']].map(([l, a, b]) => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${l}</td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;"><b>${a}</b></td><td style="padding:3px 8px;border-top:1px solid #f1f2f6;"><b>${b}</b></td></tr>`).join('')}</table>`;
-  const sum = `<div style="margin-top:8px;"><b style="color:#16a34a;">우수 공통점</b> ${c.commonGood.map(esc).join(' · ') || (c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}<br/><b style="color:#dc2626;">OFF 공통점</b> ${c.commonOff.map(esc).join(' · ') || (c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}</div>`;
-  const maxN = Math.max(1, ...c.reasons.map(r => r.n));
-  const reasons = c.reasons.length ? c.reasons.map(r => `<div style="display:flex;align-items:center;gap:8px;padding:2px 0;"><span style="width:110px;flex:none;font-weight:700;">${esc(r.label)}</span><span style="width:120px;flex:none;height:10px;background:#f3f4f6;border-radius:999px;overflow:hidden;"><span style="display:block;height:100%;width:${Math.round(r.n / maxN * 100)}%;background:#ef4444;"></span></span><b style="width:24px;">${r.n}</b><span style="color:#6b7280;font-size:.72rem;">${esc(r.fix)}</span></div>`).join('') : '<span style="color:#9ca3af;">없음</span>';
-  const dirs = rep.dirs.length ? ['good', 'off'].map(k => { const D = rep.dirs.filter(d => d.kind === k); return D.length ? `<div style="margin-top:4px;"><b style="color:${k === 'good' ? '#16a34a' : '#dc2626'};">${k === 'good' ? '우수 상품 — 더 만들기' : 'OFF 상품 — 재시도·점검'}</b>${D.map(d => `<div>· <b>${esc(d.name)}</b> <span style="color:#9ca3af;font-size:.7rem;">${esc(d.why)}</span> — ${esc(d.asks.join(' / '))}</div>`).join('')}</div>` : ''; }).join('') : '<span style="color:#9ca3af;">없음</span>';
-  const ai = rep.ai && rep.ai.text
-    ? sec('AI 해석 — 눈으로 본 공통점·이유·방향', '#7c3aed', `<div style="white-space:pre-line;background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:10px 12px;">${esc(rep.ai.text.trim())}</div>`, `${fmtMD(String(rep.ai.at || '').slice(0, 10))} 생성 · 썸네일 ${Object.keys(rep.ai.tags || {}).length}개 태그 · 바탕화면 '테스트리포트-해석'으로 갱신`)
-    : sec('AI 해석 — 눈으로 본 공통점·이유·방향', '#7c3aed', `<div style="color:#9ca3af;">아직 없음 — 이 리포트를 연 뒤 바탕화면의 <b>테스트리포트-해석.command</b>를 실행하면 OFF·우수 소재 썸네일을 보고 컷 유형·자막 태그를 달고 이유와 방향을 씁니다 (이 맥의 Claude Code, 결제 없음)</div>`);
-  return sec('OFF vs 우수 소재 공통점', '#4f46e5', tbl + sum, c.thin ? '표본 5개 미만은 참고만 — 기간을 30일로 늘리면 정확해져요' : '기간 안 등록돼 꺼진 소재 vs 기간 안 우수 판정 소재')
-    + sec('실패 이유 분포 (OFF)', '#dc2626', reasons, '퍼널 진단 기준 — 어느 단계에서 막혔나')
-    + sec('추가소재 방향 (규칙)', '#ea580c', dirs, '우수 = 같은 소구점 다른 컷 · 형식 교차 · 문구 훅, OFF = 막힌 단계에 맞는 조치') + ai;
+  const cell = (d, n) => d.map(([v, k]) => `<span style="display:inline-block;margin:1px 6px 1px 0;white-space:nowrap;">${esc(v)} <b>${k}</b><span style="color:#9ca3af;font-size:.66rem;">(${n ? Math.round(k / n * 100) : 0}%)</span></span>`).join(' ') || '<span style="color:#c4c9d4;">—</span>';
+  const td = 'padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;';
+  return `<table style="border-collapse:collapse;width:100%;font-size:.76rem;table-layout:fixed;"><colgroup><col style="width:110px;"><col><col></colgroup><tr><th style="text-align:left;padding:3px 8px 3px 0;color:#6b7280;font-weight:600;">항목</th><th style="text-align:left;padding:3px 8px;color:#dc2626;font-weight:700;">OFF ${c.off.n}개</th><th style="text-align:left;padding:3px 8px;color:#16a34a;font-weight:700;">우수 ${c.good.n}개</th></tr>
+    ${c.axes.map(x => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${x.label}${/^AI/.test(x.label) ? `<div style="font-size:.62rem;color:#c4c9d4;">태그 ${x.offN}·${x.goodN}개</div>` : ''}</td><td style="${td}">${cell(x.off, x.offN)}</td><td style="${td}">${cell(x.good, x.goodN)}</td></tr>`).join('')}
+    ${[['CTR 중앙값', pct(c.off.med.ctr), pct(c.good.med.ctr)], ['3초 재생 중앙값', pct(c.off.med.ts), pct(c.good.med.ts)], ['전환율 중앙값', pct(c.off.med.cvr), pct(c.good.med.cvr)], ['ROAS 중앙값', c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—', c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—']].map(([l, a, b]) => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${l}</td><td style="${td}"><b>${a}</b></td><td style="${td}"><b>${b}</b></td></tr>`).join('')}</table>
+    ${c.thin ? '<div style="font-size:.7rem;color:#b45309;margin-top:6px;">표본 5개 미만은 참고만 — 기간을 30일로 늘리면 정확해져요</div>' : ''}`;
 }
 function admgrReportHtml(rep, thumbs) {
-  const chip = (t, c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${c}18;color:${c};font-size:.72rem;font-weight:700;margin-right:4px;">${t}</span>`;
-  const head = `<div style="margin-bottom:14px;"><div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">테스트 소재 리포트 <span style="font-weight:600;color:#6b7280;font-size:.85rem;">${fmtMD(rep.from)} ~ ${fmtMD(rep.to)} (${rep.days}일)</span></div>
-    <div style="margin-top:6px;">${rep.secs.map(s => chip(`${s.short} ${s.n}`, s.color)).join('')}</div></div>`;
-  const body = rep.secs.map(s => `<section style="margin-bottom:18px;break-inside:avoid;">
-    <div style="display:flex;align-items:baseline;gap:8px;border-left:4px solid ${s.color};padding-left:8px;margin-bottom:6px;">
-      <b style="font-size:.92rem;color:#111827;">${esc(s.title)}</b><span style="font-size:.78rem;color:${s.color};font-weight:700;">${s.n}</span>
-      <span style="font-size:.7rem;color:#9ca3af;">${esc(s.note)}</span></div>
-    ${s.n ? s.groups.map(g => (s.key === 'fresh' || s.key === 'ended')
-      ? `<div style="margin:3px 0 3px 12px;font-size:.78rem;"><b style="color:#312e81;">${esc(g.name)}</b> <span style="color:#9ca3af;">${g.ads.length}개</span> <span style="color:#6b7280;">${esc(g.ads.map(a => a.adset_name).join(' / '))}</span></div>`
-      : `<div style="margin:6px 0 8px 12px;">
-      <div style="font-weight:800;font-size:.86rem;color:#312e81;margin-bottom:4px;">${esc(g.name)} <span style="font-weight:600;color:#9ca3af;font-size:.72rem;">${g.ads.length}개</span></div>
-      ${g.ads.map(a => { const th = thumbs[a.id]; return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid #f1f2f6;">
-        <div style="width:56px;height:56px;flex:none;border-radius:8px;background:#f3f4f6;overflow:hidden;">${th ? `<img src="${esc(th)}" style="width:100%;height:100%;object-fit:cover;" />` : ''}</div>
-        <div style="min-width:0;flex:1;"><div style="font-size:.8rem;font-weight:700;color:#1f2937;word-break:break-all;">${esc(a.adset_name)}</div>
-          <div style="font-size:.72rem;color:#4b5563;margin-top:2px;">${esc(admgrReportLine(a))}</div>
-          ${a.meta.memo ? `<div style="font-size:.72rem;color:#7c3aed;margin-top:2px;">메모: ${esc(a.meta.memo)}</div>` : ''}</div></div>`; }).join('')}</div>`).join('')
-      : '<div style="margin-left:12px;font-size:.78rem;color:#9ca3af;">없음</div>'}</section>`).join('');
-  return head + body + admgrReportCmpHtml(rep);
+  const S = admgrReportSummary(rep), c = rep.cmp;
+  const kpi = (label, val, sub, color) => `<div style="background:#f8fafc;border:1px solid #e7e8ee;border-radius:12px;padding:10px 14px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><b style="font-size:1.25rem;color:${color || '#1e1b4b'};">${val}</b>${sub ? `<span style="color:#6b7280;font-size:.7rem;margin-left:6px;">${sub}</span>` : ''}</div>`;
+  const h3 = (t, n) => `<div style="display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:.92rem;font-weight:800;color:#111827;">${t}${n ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;">${n}</span>` : ''}</div>`;
+  const det = (title, n, body, open) => `<details ${open ? 'open' : ''} style="border:1px solid #e7e8ee;border-radius:12px;margin-top:8px;background:#fff;"><summary style="cursor:pointer;padding:9px 14px;font-size:.84rem;font-weight:700;color:#374151;display:flex;align-items:center;gap:8px;list-style:none;"><span class="rp-arrow" style="color:#9ca3af;display:inline-block;transition:transform .15s;">▸</span>${esc(title)}${n ? `<span style="color:#6b7280;font-weight:600;font-size:.74rem;">${n}</span>` : ''}</summary><div style="padding:0 14px 12px;font-size:.8rem;color:#4b5563;line-height:1.7;">${body}</div></details>`;
+  const head = `<div style="font-size:1.02rem;font-weight:800;color:#1e1b4b;">테스트 소재 리포트 <span style="font-weight:600;color:#6b7280;font-size:.82rem;margin-left:4px;">${fmtMD(rep.from)} ~ ${fmtMD(rep.to)} (${rep.days}일)${rep.ai && rep.ai.text ? ` · AI 해석 ${fmtMD(String(rep.ai.at || '').slice(0, 10))} · 썸네일 ${Object.keys(rep.ai.tags || {}).length}장 분석` : ''}</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0;">${kpi('우수', S.kpi.good, `상품 ${S.kpi.prods}개`, '#16a34a')}${kpi('OFF·종료', S.kpi.off, `새 테스트 ${S.kpi.fresh} 중`, '#dc2626')}${kpi('우수율', S.kpi.rate == null ? '—' : S.kpi.rate + '%', `판정 ${S.kpi.judged}개 기준`)}</div>
+    <div style="border-left:4px solid #4f46e5;padding:2px 0 2px 12px;margin:10px 0 4px;font-size:.9rem;line-height:1.6;">
+      <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">통한 것</b>${esc(S.win)}</div>
+      <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">안 통한 이유</b>${esc(S.why)}</div>
+      <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">다음 주</b>${esc(S.next)}</div></div>`;
+  const nG = S.todo.filter(t => t.kind === 'good').length, nO = S.todo.length - nG;
+  const todo = h3('이번 주 할 일', `컨텐츠팀 ${nG} · MD·CS ${nO}`) + `<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:6px 12px;">
+    ${S.todo.length ? S.todo.map(t => `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #e9d5ff;font-size:.86rem;"><span style="width:16px;height:16px;border:1.5px solid #a78bfa;border-radius:4px;flex:none;margin-top:3px;"></span><span style="${t.kind === 'off' ? 'color:#b91c1c;' : ''}"><b style="color:#1e1b4b;">${esc(t.name)}</b> — ${esc(t.text)}</span>${t.why ? `<span style="color:#6b7280;font-size:.72rem;margin-left:auto;white-space:nowrap;" class="m-hide">${esc(t.why)}</span>` : ''}</div>`).join('').replace(/border-bottom:1px dashed #e9d5ff;([^>]*>)(?![\s\S]*border-bottom)/, '$1') : '<div style="padding:6px 0;color:#9ca3af;font-size:.82rem;">없음</div>'}</div>
+    <div style="font-size:.7rem;color:#6b7280;margin-top:6px;">"요약 복사"는 결론 3줄 + 이 목록만 복사돼요 (플로우 붙여넣기용)</div>`;
+  const chip = (s, cls) => { const m = s.match(/^(.*?)\s(\d+%)\s\((.+)\)$/); return `<span style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:.78rem;font-weight:700;margin:3px 4px 3px 0;background:${cls === 'g' ? '#dcfce7' : '#fee2e2'};color:${cls === 'g' ? '#166534' : '#991b1b'};">${esc(m ? `${m[1]} ${m[2]}` : s)}${m ? `<small style="font-weight:500;opacity:.75;margin-left:4px;">${esc(m[3])}</small>` : ''}</span>`; };
+  const box = (title, cls, chips, empty) => `<div style="border:1px solid #e7e8ee;border-radius:12px;padding:10px 12px;"><div style="font-size:.78rem;font-weight:800;color:${cls === 'g' ? '#16a34a' : '#dc2626'};margin-bottom:4px;">${title}</div>${chips.length ? chips.map(s => chip(s, cls)).join('') : `<span style="color:#9ca3af;font-size:.78rem;">${empty}</span>`}</div>`;
+  const maxN = Math.max(1, ...c.reasons.map(r => r.n));
+  const bars = c.reasons.filter(r => !/특이 없음|퍼널 균형|데이터 없음/.test(r.label)).slice(0, 4).map(r => `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.8rem;"><span style="width:120px;font-weight:700;">${esc(r.label)}</span><span style="width:160px;flex:none;height:9px;background:#f3f4f6;border-radius:999px;overflow:hidden;"><span style="display:block;height:100%;width:${Math.round(r.n / maxN * 100)}%;background:#ef4444;"></span></span><b style="width:24px;">${r.n}</b><span style="color:#6b7280;font-size:.72rem;">${esc(r.fix)}</span></div>`).join('') || '<div style="color:#9ca3af;font-size:.78rem;">막힌 단계가 뚜렷한 OFF 소재가 없어요</div>';
+  const why = h3('왜 그런가', '한쪽에 치우친 항목만') + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="rp-why">${box('우수 소재 공통점', 'g', c.commonGood.slice(0, 3), c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}${box('OFF 소재 공통점', 'r', c.commonOff.slice(0, 3), c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}</div>
+    <div style="margin-top:12px;">${bars}</div>` + det('비교표 전체 보기', '형식·소구점·가격대·등록자·문구 훅·AI 태그 · 중앙값', admgrReportCmpHtml(rep));
+  const adRow = a => { const th = thumbs[a.id]; return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid #f1f2f6;">
+        <div style="width:48px;height:48px;flex:none;border-radius:8px;background:#f3f4f6;overflow:hidden;">${th ? `<img src="${esc(th)}" style="width:100%;height:100%;object-fit:cover;" />` : ''}</div>
+        <div style="min-width:0;flex:1;"><div style="font-size:.78rem;font-weight:700;color:#1f2937;word-break:break-all;">${esc(a.adset_name)}</div><div style="font-size:.7rem;color:#4b5563;">${esc(admgrReportLine(a))}</div>${a.meta.memo ? `<div style="font-size:.7rem;color:#7c3aed;">메모: ${esc(a.meta.memo)}</div>` : ''}</div></div>`; };
+  const secBody = s => !s.n ? '<span style="color:#9ca3af;">없음</span>' : s.groups.map(g => (s.key === 'fresh' || s.key === 'ended')
+    ? `<div style="margin:3px 0;"><b style="color:#312e81;">${esc(g.name)}</b> <span style="color:#9ca3af;">${g.ads.length}개</span> <span style="color:#6b7280;">${esc(g.ads.map(a => a.adset_name).join(' / '))}</span></div>`
+    : `<div style="margin:6px 0;"><div style="font-weight:800;font-size:.84rem;color:#312e81;">${esc(g.name)} <span style="font-weight:600;color:#9ca3af;font-size:.72rem;">${g.ads.length}개</span></div>${g.ads.map(adRow).join('')}</div>`).join('');
+  const good = rep.secs.find(s => s.key === 'good'), top5 = c.good.items.slice().sort((x, y) => y.f.roas - x.f.roas).slice(0, 5);
+  const goodBody = (top5.length ? `<div style="display:flex;gap:8px;margin:6px 0 8px;">${top5.map(x => { const th = thumbs[x.a.id]; return `<div title="${esc(x.a.adset_name)}" style="width:64px;height:64px;border-radius:8px;background:#f3f4f6;overflow:hidden;position:relative;flex:none;">${th ? `<img src="${esc(th)}" style="width:100%;height:100%;object-fit:cover;" />` : ''}<span style="position:absolute;bottom:3px;right:4px;font-size:.62rem;font-weight:800;color:#fff;background:#111827cc;border-radius:6px;padding:1px 5px;">${x.f.roas.toFixed(1)}</span></div>`; }).join('')}</div>` : '') + secBody(good);
+  const list = h3('소재 목록', rep.secs.map(s => `${s.short} ${s.n}`).join(' · '))
+    + det(good.title, `${good.n}${top5.length ? ' · 상위 ' + top5.length + ' 미리보기' : ''}`, goodBody, true)
+    + rep.secs.filter(s => s.key !== 'good').map(s => det(s.title, s.n, secBody(s), false)).join('');
+  const aiSec = rep.ai && rep.ai.text
+    ? h3('AI 해석 원문', `${fmtMD(String(rep.ai.at || '').slice(0, 10))} 생성`) + det('펼쳐 보기', 'OFF 공통점 · 실패 이유 · 우수 공통점 · 우수 이유 · 방향 · 주의', `<div style="white-space:pre-line;">${esc(rep.ai.text.trim())}</div>`, false)
+    : h3('AI 해석', '아직 없음') + `<div style="font-size:.78rem;color:#9ca3af;">이 리포트를 연 뒤 바탕화면의 <b>테스트리포트-해석.command</b>를 실행하면 썸네일을 보고 컷 유형·자막 태그를 달고 결론·할 일에 AI 문장이 들어가요 (이 맥의 Claude Code, 결제 없음)</div>`;
+  const foot = `<div style="font-size:.7rem;color:#9ca3af;margin-top:14px;">OFF = 기간 안 등록돼 꺼진 소재 · 우수 = 기간 안 우수 판정 · 테스트 종료 보관분은 CTR·3초 값 없음 · AI 태그는 썸네일(릴스는 첫 장면) 기준</div>`;
+  return head + todo + why + list + aiSec + foot;
 }
 const admgrRp = { kind: 'test', cur: null };   // 모달에 지금 떠 있는 리포트 — cur = { title, text(), html() } (복사·인쇄 공용)
 function admgrReportRefresh() { admgrRp.kind === 'best' ? admgrBestReport() : admgrTestReport(); }
@@ -387,7 +423,8 @@ function admgrReportModal() {
   m.innerHTML = `<div class="modal-box wide" style="max-width:860px;"><div class="modal-head" style="flex-wrap:wrap;"><b id="rp-title">주간 리포트</b>
     <select id="rp-days" class="inp" style="width:auto;padding:4px 8px;font-size:.76rem;" onchange="admgrReportRefresh()">
       <option value="7">최근 7일</option><option value="14">최근 14일</option><option value="30">최근 30일</option></select>
-    <button class="filter-tab" style="color:#4f46e5;" onclick="admgrReportCopy()" title="플로우·카톡에 붙여넣기용 텍스트"><i class="fa-regular fa-copy"></i> 텍스트 복사</button>
+    <button class="filter-tab" id="rp-copy-sum" style="color:#4f46e5;border-color:#c7d2fe;background:#eef2ff;" onclick="admgrReportCopy('summary')" title="결론 3줄 + 이번 주 할 일만 — 플로우 붙여넣기용"><i class="fa-regular fa-copy"></i> 요약 복사</button>
+    <button class="filter-tab" onclick="admgrReportCopy()" title="리포트 전체 텍스트"><i class="fa-regular fa-copy"></i> 전체 복사</button>
     <button class="filter-tab" onclick="admgrReportPrint()" title="새 창 → 인쇄 대화상자에서 PDF로 저장"><i class="fa-solid fa-print"></i> 인쇄·PDF</button>
     <button class="modal-x" onclick="closeModal('admgr-report')">✕</button></div><div id="rp-body"></div></div>`;
   document.body.appendChild(m);
@@ -406,7 +443,7 @@ async function admgrTestReport() {
   }
   let rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai });
   t.report = rep;
-  admgrRp.cur = { title: `테스트 소재 리포트 ${rep.from}~${rep.to}`, text: () => admgrReportText(rep), html: () => admgrReportHtml(rep, t.thumbs) };
+  admgrRp.cur = { title: `테스트 소재 리포트 ${rep.from}~${rep.to}`, text: () => admgrReportText(rep), textSummary: () => admgrReportText(rep, 'summary'), html: () => admgrReportHtml(rep, t.thumbs) };
   $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
   const need = admgr.demo ? [] : [...new Set(rep.all.filter(a => !(a.id in t.thumbs)).map(a => a.adset_id))];
   try {
@@ -415,7 +452,7 @@ async function admgrTestReport() {
       (r.ads || []).forEach(a => { t.thumbs[a.id] = a.image || a.thumb || ''; t.kinds = t.kinds || new Map(); t.kinds.set(String(a.id), !!a.is_video); });
     }
     rep.all.forEach(a => { if (!(a.id in t.thumbs)) t.thumbs[a.id] = ''; });   // 못 찾은 소재는 재조회 안 함
-    if (need.length && t.report === rep) { rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai }); t.report = rep; admgrRp.cur.text = () => admgrReportText(rep); admgrRp.cur.html = () => admgrReportHtml(rep, t.thumbs); $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs); }   // 형식(릴스/이미지) 폴백이 채워졌으니 다시 계산
+    if (need.length && t.report === rep) { rep = admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai }); t.report = rep; admgrRp.cur.text = () => admgrReportText(rep); admgrRp.cur.textSummary = () => admgrReportText(rep, 'summary'); admgrRp.cur.html = () => admgrReportHtml(rep, t.thumbs); $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs); }   // 형식(릴스/이미지) 폴백이 채워졌으니 다시 계산
   } catch (e) { toast('썸네일 조회 실패 (텍스트는 정상): ' + e.message); }
   // 숫자 리포트 + OFF·우수 소재 목록(썸네일 주소)을 계정 공유 상태에 저장 → 바탕화면 '테스트리포트-해석'이 읽어 AI 태그·해석을 붙인다
   if (admgr.demo) return;
@@ -428,18 +465,18 @@ async function admgrTestReport() {
 }
 function admgrReportOpen(kind, title) {   // 모달 열고 기간 읽기 — 두 리포트 공용
   admgrReportModal().classList.add('show');
-  admgrRp.kind = kind; $('rp-title').textContent = title;
+  admgrRp.kind = kind; $('rp-title').textContent = title; $('rp-copy-sum').style.display = kind === 'test' ? '' : 'none';
   const sel = $('rp-days');
   if (!sel.dataset.init) { sel.value = String(lsGet('adc_admgr_rpdays', 7)); sel.dataset.init = '1'; }
   const days = +sel.value || 7; lsSet('adc_admgr_rpdays', days);
   return days;
 }
-async function admgrReportCopy() {
+async function admgrReportCopy(mode) {
   const c = admgrRp.cur; if (!c) return;
-  const txt = c.text();
+  const txt = mode === 'summary' && c.textSummary ? c.textSummary() : c.text();
   try { await navigator.clipboard.writeText(txt); }
   catch (e) { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
-  toast('리포트 텍스트를 복사했어요 — 플로우에 붙여넣기');
+  toast(mode === 'summary' ? '요약을 복사했어요 — 플로우에 붙여넣기' : '리포트 전체를 복사했어요');
 }
 function admgrReportPrint() {
   /* 팝업 창 대신 숨은 iframe에 그려서 인쇄 — 팝업 차단·앱 내 브라우저에서도 동작. 인쇄 대화상자에서 'PDF로 저장' */
@@ -449,7 +486,7 @@ function admgrReportPrint() {
   f.style.cssText = 'position:fixed;left:-9999px;width:800px;height:600px;border:0;';
   f.srcdoc = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(c.title)}</title>
     <style>body{font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;margin:24px;color:#111827;max-width:800px;}img{max-width:100%;}</style></head>
-    <body>${c.html()}
+    <body>${c.html().replace(/<details /g, '<details open ')}
     <script>Promise.all([...document.images].map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))).then(()=>setTimeout(()=>{focus();print();},300));</script></body></html>`;
   document.body.appendChild(f);
   toast('인쇄 창이 열려요 — 대상에서 "PDF로 저장"을 고르세요');

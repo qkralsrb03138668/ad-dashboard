@@ -561,3 +561,6 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr .ag-mark { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: .66rem; font-weight: 800; white-space: nowrap; cursor: help; }
 #sec-admgr .mc-sub .ag-mark { margin-left: 4px; }
 #sec-admgr tbody tr.sel td { background: #eef2ff; }
+/* 리포트 접기(details) 화살표 — summary가 flex라 기본 삼각형이 안 보여서 직접 (2026-09-17) */
+details[open] > summary .rp-arrow { transform: rotate(90deg); }
+summary::-webkit-details-marker { display: none; }
