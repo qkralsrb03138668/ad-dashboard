@@ -275,8 +275,9 @@ test('admgrFunnelDiag: 중앙값 기준 후크·클릭·랜딩·장바구니·�
   assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 50, purchases: 3 }), 'landing');        // 도착 42% < 60%
   assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 10, purchases: 1 }), 'cart'); // 장바구니→구매 10% < 중앙값 45%의 절반
   assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 1, purchases: 0 }), 'detail');// 클릭 평균 이상, 구매 0, 지출 5만
-  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 2, purchases: 8 }), 'good');
-  assert.ok(g('admgrFunnelCell')({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, freq: 3.4, purchases: 8, spend: 50000 }, base).includes('빈도 3.4'));
+  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 2, purchases: 8, value: 400000 }), 'good');
+  assert.equal(d({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, atc: 2, purchases: 8, value: 30000 }), 'loss');   // 구매는 있는데 ROAS 0.6 < 손익분기
+  assert.ok(g('admgrFunnelCell')({ imp: 10000, clicks: 120, v3: 3000, lpv: 100, freq: 3.4, purchases: 8, value: 400000, spend: 50000 }, base).includes('빈도 3.4'));
 });
 
 test('admgrTrend: 스냅샷 기준 최근 7일·일별 증분·식음 판정', () => {
@@ -309,6 +310,46 @@ test('admgrProfit: 마진율 × (1−순반품률) 순이익과 S/A/B/C 등급',
   vm.runInContext("admgr.best.nr = new Map();", ctx);
   assert.equal(f('루즈핏 니트_R1', { spend: 100000, purchases: 10, value: 500000 }).rrSrc.slice(0, 2), '몰 ');   // 상품 행 없음 → 몰 평균 12%
   assert.ok(g('admgrGradeBadge')(pf).includes('>S<'));
+});
+
+test('admgrReportBuild(cmp·dirs): OFF·우수 공통점 비교, 실패 이유 분포, 추가소재 방향', () => {
+  vm.runInContext("admgr.products = [{ no: 1, name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);
+  const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-09-10', gone: false, effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE',
+    spend: m.spend ?? 50000, purchases: m.pur ?? 0, value: m.val ?? 0, imp: m.imp ?? 10000, clicks: m.clicks ?? 100, v3: m.v3 ?? 0, lpv: m.lpv ?? 90, atc: m.atc ?? 2, meta: m.meta || {} });
+  const good = { verdict: 'good', verdict_at: '2026-09-11T00:00:00Z' };
+  const rows = [
+    ad('1', { set: '루즈핏 니트_R1_사이즈_28_260910_test', pur: 8, val: 400000, v3: 3500, clicks: 300, lpv: 280, meta: good }),
+    ad('2', { set: '루즈핏 니트_R2_사이즈_28_260910_test', pur: 7, val: 350000, v3: 3200, clicks: 280, lpv: 260, meta: good }),
+    ad('3', { set: '루즈핏 니트_R3_핏_28_260910_test', pur: 6, val: 300000, v3: 3000, clicks: 250, lpv: 240, meta: good }),
+    ad('4', { set: '스커트_P1_20_260910_test', es: 'PAUSED', clicks: 40 }),                       // OFF · 클릭 약함
+    ad('5', { set: '스커트_P2_20_260910_test', es: 'PAUSED', clicks: 45 }),                       // OFF · 클릭 약함
+    ad('6', { set: '블라우스_R1_15_260910_test', es: 'PAUSED', v3: 800, clicks: 250, lpv: 240 }),   // OFF · 후크 약함
+    ad('7', { set: '바지_R1_10_260901_test', es: 'PAUSED', reg: '2026-08-01' }),                  // 기간 밖 등록 → 비교 제외
+  ].map(a => ({ ...a, st: g('admgrTestStatusOf')(a, a.meta) }));
+  const cre = new Map([['1', { kind: 'video', file_name: '루즈핏 니트_R1_사이즈_28_260910_test.mov', created_by_name: '김도희', text: { message: '77사이즈도 편해요' } }],
+    ['2', { kind: 'video', file_name: '루즈핏 니트_R2_사이즈_28_260910_test.mov', created_by_name: '김도희', text: { message: '허리 편함' } }],
+    ['3', { kind: 'video', file_name: '루즈핏 니트_R3_핏_28_260910_test.mov', created_by_name: '박민규', text: { message: '체형커버 굿' } }]]);
+  const ai = { at: '2026-09-12T00:00:00Z', text: 'AI 해석 본문', tags: { '1': { cut: '시연', text: true, size: true }, '2': { cut: '시연', text: true, size: false }, '3': { cut: '시연', text: false, size: false }, '4': { cut: '정면', text: false, size: false } } };
+  const rep = g('admgrReportBuild')(rows, 7, '2026-09-12', { cre, ai });
+  const c = rep.cmp;
+  assert.equal(c.off.n + ',' + c.good.n, '3,3');
+  const ax = Object.fromEntries(c.axes.map(x => [x.k, x]));
+  assert.equal(JSON.stringify(ax.fmt.good), JSON.stringify([['릴스', 3]]));
+  assert.equal(JSON.stringify(ax.fmt.off), JSON.stringify([['이미지', 2], ['릴스', 1]]));
+  assert.equal(JSON.stringify(ax.price.good), JSON.stringify([['5~8만', 3]]));
+  assert.equal(JSON.stringify(ax.cut.off), JSON.stringify([['정면', 1]]));
+  assert.equal(c.reasons.map(r => r.label + r.n).join(), '클릭 약함2,후크 약함1');
+  assert.ok(c.commonGood.includes('형식 릴스 100%') && c.commonGood.includes('가격대 5~8만 100%') && c.commonGood.includes('AI 컷 유형 시연 100%'));
+  assert.ok(c.thin);
+  const D = Object.fromEntries(rep.dirs.map(d => [d.name, d]));
+  assert.equal(D['루즈핏 니트'].kind, 'good');
+  assert.ok(D['루즈핏 니트'].asks[0].includes('사이즈·핏') && D['루즈핏 니트'].asks.includes('이미지 변형 1개') && D['루즈핏 니트'].asks.includes('문구에 사이즈 숫자·체형커버 훅'));
+  assert.ok(D['스커트'].asks[0].startsWith('소구점 바꿔서') && D['블라우스'].asks[0].startsWith('첫 1초'));
+  assert.equal(rep.all.length, 6);
+  const txt = g('admgrReportText')(rep);
+  assert.ok(txt.includes('■ OFF 소재 공통점 (3) vs 우수 소재 공통점 (3)') && txt.includes('클릭 약함 2') && txt.includes('[우수 상품 — 더 만들기]') && txt.includes('■ AI 해석') && txt.includes('AI 해석 본문'));
+  const html = g('admgrReportHtml')(rep, {});
+  assert.ok(html.includes('실패 이유 분포') && html.includes('추가소재 방향') && html.includes('AI 해석 본문'));
 });
 
 test('admgrBestReportBuild: 스냅샷 기준 기간 증분·전주 대비·패턴·상품 판단·테스트 효율', () => {
