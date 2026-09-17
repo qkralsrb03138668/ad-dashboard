@@ -682,6 +682,7 @@ function admgrFunnelBase(rows) {   // 표본 기준선 — 노출 1,000↑ 소�
 /* 진단 결과: { k, label, fix, cls } — k: nodata | hook | click | landing | detail | cart | good | ok */
 function admgrFunnelDiag(a, base) {
   const r = admgrFunnelRates(a);
+  if (a.imp == null) return { k: 'nodata', label: '퍼널 데이터 없음', fix: '테스트 종료 보관분(옛 소재)은 노출·클릭이 저장되지 않아 진단 불가', cls: 'badge-gray' };   // gone 스냅샷엔 퍼널 필드가 없다 — '노출 부족'으로 오해하지 않게
   if (!r || a.imp < ADMGR_FUNNEL_MIN_IMP) return { k: 'nodata', label: '노출 부족', fix: `노출 ${comma(a.imp || 0)} < ${comma(ADMGR_FUNNEL_MIN_IMP)} — 진단은 조금 더 돌린 뒤`, cls: 'badge-gray' };
   const J = admgrTJudge;
   if (r.ts != null && base.ts && r.ts < base.ts * 0.7) return { k: 'hook', label: '후크 약함', fix: `3초 재생 ${(r.ts * 100).toFixed(0)}% (평균 ${(base.ts * 100).toFixed(0)}%) — 첫 1초 장면·자막을 바꿔서 다시`, cls: 'badge-red' };
