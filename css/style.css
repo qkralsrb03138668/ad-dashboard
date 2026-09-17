@@ -629,3 +629,45 @@ summary::-webkit-details-marker { display: none; }
   #admgr-sheet .ags-btns button { flex: 1; min-height: 52px; justify-content: center; font-size: 16px; border-radius: 12px; }
   #admgr-sheet .ags-btns .btn-analyze { background: #1877f2; }
 }
+
+/* ══ 광고관리자 폰 1단계: 상단 압축 (2026-09-18) — PC 기본값은 숨김/영향 없음 ══ */
+.ag-mtitle, .ag-icon-m, .ag-period, .ag-sum { display: none; }
+.ag-tabrow { display: contents; }
+.ag-menu-sep { display: none; }
+@media (max-width: 768px) {
+  #sec-admgr > .section-header { display: none; }
+  #sec-admgr.section-card { overflow: visible; }
+  #sec-admgr .ag-hide-m { display: none !important; }
+  #sec-admgr .ag-bar { flex-wrap: nowrap; gap: 6px; margin-bottom: 8px; }
+  #sec-admgr .ag-mtitle { display: block; font-size: 19px; font-weight: 800; color: #1e1b4b; white-space: nowrap; }
+  #sec-admgr .ag-bar .ag-pill { padding: 4px 9px; font-size: 12px; white-space: nowrap; }
+  #sec-admgr .ag-bar .ag-btn { width: 44px; min-height: 44px; padding: 0; justify-content: center; flex: none; }
+  #sec-admgr .ag-bar .btn-analyze.ag-btn { order: 3; }
+  #sec-admgr .ag-bar .ag-icon-m { display: inline-flex; order: 2; }
+  #sec-admgr .ag-bar .ag-icon-m.on { border-color: #1877f2; color: #1877f2; background: #eff6ff; }
+  #sec-admgr .ag-bar .ag-more { order: 4; }
+  #sec-admgr .ag-filters { display: none; }
+  #sec-admgr .ag-filters.m-open { display: flex; margin-bottom: 8px; }
+  #sec-admgr .ag-filters.m-open .ag-seg, #sec-admgr .ag-filters.m-open .ag-check { display: none; }
+  #sec-admgr .ag-filters.m-open .ag-search { flex: 1; }
+  #sec-admgr .ag-filters.m-open > span[style*="flex:1"] { display: none; }
+  #sec-admgr .ag-tabrow .mtab { padding: 8px 9px 10px; }
+  #sec-admgr .ag-filters.m-open .ag-search .inp { width: 100%; min-height: 44px; }
+  #sec-admgr .ag-tabrow { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid #e7e8ee; margin-bottom: 10px; }
+  #sec-admgr .ag-tabrow .mtabs { flex: 1; min-width: 0; border-bottom: none; margin-bottom: 0; }
+  #sec-admgr .ag-period { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 40px; margin-bottom: 4px; padding: 0 12px; border: 1.5px solid #e7e8ee; border-radius: 10px; background: #fff; font-family: inherit; font-size: 14px; font-weight: 700; color: #1e1b4b; }
+  #sec-admgr .ag-period i { font-size: 11px; color: #9ca3af; }
+  #sec-admgr .mtab-x:not(.on), #sec-admgr .mtab-sep { display: none; }
+  #sec-admgr .ag-chg { display: none; }
+  #sec-admgr .ag-judge { position: sticky; top: 65px; z-index: 30; margin: 0 -14px 10px !important; padding: 8px 14px; background: rgba(244,244,250,.96); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  #sec-admgr .ag-judge .ag-muted { display: none; }
+  #sec-admgr .mtabs, #sec-admgr .filter-tabs { scrollbar-width: none; }
+  #sec-admgr .mtabs::-webkit-scrollbar, #sec-admgr .filter-tabs::-webkit-scrollbar { display: none; }
+  #sec-admgr .ag-sum { display: flex; width: 100%; align-items: center; gap: 10px; min-height: 48px; margin-bottom: 10px; padding: 0 14px; border: 1px solid #e7e8ee; border-radius: 12px; background: #fff; font-family: inherit; font-size: 12px; color: #9ca3af; text-align: left; }
+  #sec-admgr .ag-sum span { white-space: nowrap; }
+  #sec-admgr .ag-sum b { font-size: 14px; font-weight: 800; color: #1c1e21; margin-left: 3px; }
+  #sec-admgr .ag-sum i { margin-left: auto; font-size: 11px; }
+  #admgr-bpop .ag-menu-sep { display: block; padding: 8px 10px 2px; font-size: 11px; font-weight: 800; color: #9ca3af; }
+  #admgr-bpop .ag-menu-sep:empty { padding: 0; margin: 4px 0; border-top: 1px solid #f0f2f5; }
+  #admgr-bpop .ag-item { min-height: 44px; }
+}

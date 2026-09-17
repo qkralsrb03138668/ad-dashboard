@@ -183,23 +183,25 @@ function admgrMoreMenu(ev) {
   const rect = ev.currentTarget.getBoundingClientRect();
   admgrPopAt(ev, `<div class="ag-menu">
     ${w.st && dnrbCan('budget') ? (w.pin ? agItem('fa-lock-open', '잠그기', 'admgrPinClear()', '다음 예산 변경부터 PIN을 다시 물어요') : agItem('fa-lock', 'PIN 인증', 'admgrPinPrompt()', '한 번 인증하면 이 화면을 열어두는 동안 유효')) : ''}
-    ${agItem('fa-table-columns', '열 표시·순서', `admgrColsAnchor={left:${Math.round(rect.left)},bottom:${Math.round(rect.bottom)}};admgrColsMenuRender()`)}
-    ${npend ? agItem('fa-list', `23:55 예약 목록 (${npend})`, 'admgrMidList()') : ''}
+    ${admgrMobile() ? '' : agItem('fa-table-columns', '열 표시·순서', `admgrColsAnchor={left:${Math.round(rect.left)},bottom:${Math.round(rect.bottom)}};admgrColsMenuRender()`)}
+    ${admgrMobile() && !ADMGR_OWN.includes(admgr.view) ? `${w.st && dnrbCan('budget') && !admgr.demo ? `<div class="ag-menu-sep">23:55 세팅</div>${admgrMidItems()}<div class="ag-menu-sep"></div>` : ''}
+      ${agItem(admgr.activeOnly ? 'fa-square-check' : 'fa-square', '활성만 보기', 'admgrToggleActive()', admgr.activeOnly ? '켜져 있거나 오늘 지출이 있는 것만' : '꺼진 것도 전부 보기')}` : ''}
+    ${admgrMobile() ? `<div class="ag-menu-sep">다른 탭</div>${agItem('fa-flask', '테스트 소재', "admgrSetView('test')")}${agItem('fa-power-off', 'OFF 광고', "admgrSetView('offad')")}${agItem('fa-star', '베스트', "admgrSetView('best')")}` : ''}
+    ${npend && !admgrMobile() ? agItem('fa-list', `23:55 예약 목록 (${npend})`, 'admgrMidList()') : ''}
     ${nd ? agItem('fa-eraser', `임시 저장 전체 취소 (${nd})`, 'admgrClearDrafts()', 'Meta에는 아무 변화 없어요') : ''}
     ${!admgrCfg() || admgr.demo ? '' : agItem('fa-wand-magic-sparkles', '데모 데이터로 보기', 'admgrDemo()')}
   </div>`);
 }
-function admgrMidMenu(ev) {
+function admgrMidItems() {   // 23:55 세팅 메뉴 항목 — PC 23:55 세팅 버튼과 폰 ⋯ 메뉴가 같이 쓴다 (2026-09-18)
   const w = admgr.write, npend = w.pendingByObj ? w.pendingByObj.size : 0;
   const mid = w.midMode === 'setting' ? agItem('fa-check', '반영 세팅 완료하기', 'admgrMidBtn()', `예산을 클릭해 23:55 금액을 넣는 중${npend ? ` · 예약 ${npend}건` : ''}`)
     : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:55 반영 세팅 시작 — 예산을 클릭해 23:55에 반영될 금액을 입력하세요')")
     : agItem('fa-clock', '23:55 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:55 반영으로 저장돼요');
-  admgrPopAt(ev, `<div class="ag-menu">
-    ${mid}
+  return `${mid}
     ${w.resetRow ? agItem('fa-xmark', '원복 승인 취소', 'admgrResetApprove()', '오늘 23:55에 시작 예산으로 돌아가지 않아요') : agItem('fa-arrow-rotate-left', '23:55 원복 승인', 'admgrResetApprove()', '오늘 23:55에 모든 세트를 하루 시작 예산(00:10 기록)으로')}
-    ${agItem('fa-list', `예약 목록${npend ? ` (${npend})` : ''}`, 'admgrMidList()')}
-  </div>`, 300);
+    ${agItem('fa-list', `예약 목록${npend ? ` (${npend})` : ''}`, 'admgrMidList()')}`;
 }
+function admgrMidMenu(ev) { admgrPopAt(ev, `<div class="ag-menu">${admgrMidItems()}</div>`, 300); }
 async function admgrResetApprove() {
   const w = admgr.write;
   if (!w.pin) { admgrPinPrompt(admgrResetApprove); return; }
