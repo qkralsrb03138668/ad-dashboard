@@ -507,6 +507,7 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr .ag-lbl { font-size: .72rem; font-weight: 800; color: #9ca3af; letter-spacing: .04em; margin-right: 2px; }
 #sec-admgr .ag-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
 #sec-admgr .ag-dot.blue { background: #2563eb; }
+#sec-admgr .ag-dot.gray { background: #9ca3af; }
 #sec-admgr .ag-dot.red { background: #ef4444; } #sec-admgr .ag-dot.amber { background: #f59e0b; } #sec-admgr .ag-dot.green { background: #22c55e; }
 #sec-admgr .filter-tabs { gap: 6px; margin-bottom: 10px; }
 #sec-admgr .filter-tab { padding: 6px 12px; border-radius: 999px; font-size: .76rem; }
