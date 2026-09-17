@@ -338,33 +338,93 @@ async function syncInfo(): Promise<{ sync_at: string | null }> {
   return { sync_at: r?.at && Date.now() - new Date(r.at).getTime() < 15 * 60_000 ? r.at : null };
 }
 
+// 배열을 size개씩 나눈다 — IN 필터 청크 분할, DB 대량 upsert 배치 분할에 공용 사용 (2026-09-17)
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// 청크 배열을 동시 실행 수 제한 걸고 처리 — Meta 호출 폭주·Edge Function 실행시간 방어 (2026-09-17)
+async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+// test_ad_snap/test_ad_day 대량 upsert — 한 번에 다 보내면 페이로드가 커서 실패할 수 있어 500행씩 나눠 보낸다 (2026-09-17)
+async function dbUpsert(table: string, onConflict: string, rows: Record<string, unknown>[]) {
+  for (const part of chunk(rows, 500)) {
+    await dbRest(`${table}?on_conflict=${onConflict}`, {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(part),
+    });
+  }
+}
+
 // 테스트 소재 수집 본체 — testads 액션(5분 캐시)과 sync(하루 첫 실행)가 같이 쓴다. test_ad_snap(현재값)·test_ad_day(일별 누적)에 보관.
+// (2026-09-17) 예전엔 계정 전체 세트를 훑어(graphGetAll 6페이지=3000개 한도) 이름순 상위 200개만 썼다 — 세트가 3000개를 넘어서면서
+//   ACTIVE 테스트 세트가 200개 한도에 밀려 누락되는 사고가 실사고로 확인돼, Meta 쪽에서부터 이름에 kw가 들어간 세트만 걸러 받고
+//   (계정 전체를 안 훑음), ACTIVE 우선·최신순으로 정렬해 안전 상한에 걸려도 ACTIVE가 가장 늦게 잘리게 한다.
 async function fetchTestads(c: Creds, kw: string, today: string) {
   const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-  const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
+  // Meta CONTAIN으로 이름에 kw가 들어간 세트만 미리 걸러 받는다 (대소문자 구분 여부는 불명확 — 최종 판정은 kwRe가 그대로 맡는다)
+  const nameFilter = JSON.stringify([{ field: "name", operator: "CONTAIN", value: kw }]);
+  const allSets = await graphGetAll(
+    `${c.account}/adsets`,
+    { fields: "id,name,effective_status,created_time", filtering: nameFilter, limit: "500" },
+    c.token,
+    20,   // 500×20=10,000개까지 페이지 — 테스트 이름 세트가 안전 상한보다 많아도 정렬 전에 다 모은다
+  );
   const testSets = allSets.filter((r) => kwRe.test(String(r.name ?? "")));
-  const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
-  const setIds = [...setName.keys()].slice(0, 200);   // IN 필터 값 개수·URL 길이 방어
+  // ACTIVE 우선, 그다음 최신 생성순 — 안전 상한에 걸려 뒤가 잘려도 ACTIVE가 가장 늦게 잘린다
+  testSets.sort((a, b) => {
+    const aActive = a.effective_status === "ACTIVE" ? 0 : 1;
+    const bActive = b.effective_status === "ACTIVE" ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    return String(b.created_time ?? "").localeCompare(String(a.created_time ?? ""));
+  });
+  const SAFE_MAX = 1500;   // 폭주 방지용 안전 상한 (정상 운영에서는 안 걸릴 정도로 넉넉히) — 2026-09-17
+  const boundedSets = testSets.slice(0, SAFE_MAX);
+  const setName = new Map(boundedSets.map((r) => [String(r.id), String(r.name ?? "")]));
+  const setIds = [...setName.keys()];
   if (!setIds.length) {
     return { fetched_at: new Date().toISOString(), until: today, adset_count: 0, truncated: false, ads: [] };
   }
 
-  const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
+  const idChunks = chunk(setIds, 150);   // IN 필터 값 개수·URL 길이 방어 — 청크별로 나눠 호출 (2026-09-17)
   const insParams = {
     time_range: JSON.stringify({ since: "2024-01-01", until: today }),
     level: "ad",
     fields: "ad_id,adset_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions",   // 퍼널 진단(2026-09-12): 노출·도달·빈도·링크 클릭·ThruPlay (+actions 안의 3초 재생·랜딩 도착·장바구니)
     limit: "500",
   };
+  // 청크마다 동시 3개까지만 실행 (2026-09-17)
   const [adRows, insRows] = await Promise.all([
-    graphGetAll(`${c.account}/ads`, {
-      fields: "id,name,status,effective_status,created_time,adset_id",
-      filtering: adsetFilter,
-      limit: "500",
-    }, c.token),
-    // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
-    graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilter }, c.token)
-      .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
+    poolMap(idChunks, 3, (ids) =>
+      graphGetAll(`${c.account}/ads`, {
+        fields: "id,name,status,effective_status,created_time,adset_id",
+        filtering: JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]),
+        limit: "500",
+      }, c.token)
+    ).then((chunks) => chunks.flat()),
+    // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지) — 폴백은 청크마다가 아니라 전체 한 번만
+    // 단, 레이트리밋 에러는 그대로 다시 던져서 바깥 cooldown 처리로 넘긴다 — 필터 거부와 달리 삼키면 안 됨 (2026-09-17)
+    poolMap(idChunks, 3, (ids) =>
+      graphGetAll(`${c.account}/insights`, { ...insParams, filtering: JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]) }, c.token)
+    ).then((chunks) => chunks.flat())
+      .catch((e) => {
+        if (isRateLimit(e)) throw e;
+        return graphGetAll(`${c.account}/insights`, insParams, c.token, 12);
+      }),
   ]);
 
   const metric = new Map(insRows
@@ -402,24 +462,16 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
   let goneAds: Record<string, unknown>[] = [];
   try {
     if (ads.length) {
-      await dbRest(`test_ad_snap?on_conflict=ad_id`, {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(ads.map((a) => ({
-          ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
-          status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
-          spend: a.spend, purchases: a.purchases, value: a.value,
-          imp: a.imp, reach: a.reach, freq: a.freq, clicks: a.clicks, v3: a.v3, thru: a.thru, lpv: a.lpv, atc: a.atc, funnel_at: new Date().toISOString(),   // 퍼널도 보관 (2026-09-17)
-          last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (본문에서 제외)
-        }))),
-      });
+      await dbUpsert("test_ad_snap", "ad_id", ads.map((a) => ({
+        ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
+        status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
+        spend: a.spend, purchases: a.purchases, value: a.value,
+        imp: a.imp, reach: a.reach, freq: a.freq, clicks: a.clicks, v3: a.v3, thru: a.thru, lpv: a.lpv, atc: a.atc, funnel_at: new Date().toISOString(),   // 퍼널도 보관 (2026-09-17)
+        last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (본문에서 제외)
+      })));
       // 일별 누적 스냅샷 (주간 리포트) — 같은 날은 덮어쓰기 → 하루 1행
-      await dbRest(`test_ad_day?on_conflict=ad_id,day`, {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(ads.map((a) => ({ ad_id: a.id, day: today, spend: a.spend, purchases: a.purchases, value: a.value,
-          status: a.status, effective_status: a.effective_status, snap_at: new Date().toISOString() }))),
-      });
+      await dbUpsert("test_ad_day", "ad_id,day", ads.map((a) => ({ ad_id: a.id, day: today, spend: a.spend, purchases: a.purchases, value: a.value,
+        status: a.status, effective_status: a.effective_status, snap_at: new Date().toISOString() })));
     }
     const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString();
     const res2 = await dbRest(`test_ad_snap?last_seen=gte.${encodeURIComponent(cutoff)}&select=*`);
@@ -443,7 +495,7 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
     fetched_at: new Date().toISOString(),
     until: today,
     adset_count: setIds.length,
-    truncated: setName.size > setIds.length,
+    truncated: testSets.length > boundedSets.length,   // 안전 상한(1500)에 걸렸을 때만 true (2026-09-17)
     ads: [...ads, ...goneAds],
   };
   return body;
