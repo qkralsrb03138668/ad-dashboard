@@ -33,6 +33,8 @@ const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
 const ADMGR_USER = '대시보드';                  // 판정·담기 기록자 이름 (원본은 로그인 이름 — 이 대시보드는 로그인 없음)
 
+/* 판정 칩·오늘 예산 칩·최근 변경 열을 보여주는 기간 — 오늘 + 직접 지정 (2026-09-17 사용자 요청: 날짜를 직접 골라도 같은 화면). 판정은 그 기간의 지출·구매로, 예산 변경 칩은 오늘 이력 */
+const admgrJudgeView = () => admgr.preset === 'today' || admgr.preset === 'custom';
 function admgrCfg() {
   const c = window.DASH_CFG || {};
   return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null;
@@ -82,7 +84,7 @@ async function admgrFetch() {
     admgr.data = await metaGet({ action: 'hierarchy', preset: admgr.preset, ...(cr ? { since: cr.since, until: cr.until } : {}) });
     lsSet('adc_admgr_last', { preset: admgr.preset, range: admgr.customRange, data: admgr.data });   // 새로고침해도 마지막 데이터 유지 (2026-09-05 사용자 요청)
     admgr.budget = { byObj: null, loading: false, error: false, seven: null, sevenLoading: false };
-    if (admgr.preset === 'today') admgrBudgetFetch();   // '최근 변경' 열은 오늘 칩에서만
+    if (admgrJudgeView()) admgrBudgetFetch();   // '최근 변경' 열은 오늘·직접 지정 기간에서 (예산 변경 이력은 오늘 것)
     admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
     metaGet({ action: 'usage' }).then(u => { admgr.usage = u; renderAdmgr(true); }).catch(() => {});
     admgrMarkerSync();   // 소재가 들어간 캠페인 표시 정리 (우리 서버 → Meta 이름만, 10분에 한 번)   // Meta 사용량·쿨다운 표시 (우리 서버만 조회)
@@ -404,10 +406,10 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
 
   /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
   const bb = admgr.budget;
-  const showChg = admgr.preset === 'today' && (isCamp || isSet) && !admgr.demo;
+  const showChg = admgrJudgeView() && (isCamp || isSet) && !admgr.demo;
   const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo && dnrbCan('budget');   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
   /* '판정' 열 — 광고세트 탭 + 오늘 칩: 지출 vs 마진(판매가−공급가×1.1)·구매로 1차/2차 후보 배지 (2026-09-05 사용자 운영 규칙) */
-  const showJudge = isSet && admgr.preset === 'today' && !admgr.demo;
+  const showJudge = isSet && admgrJudgeView() && !admgr.demo;
   let judgeChips = '';
   if (showJudge) {
     if (!admgr.products && !admgr.productsLoading && admgrCfg()) admgrLoadProducts();
