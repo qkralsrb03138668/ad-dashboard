@@ -198,7 +198,21 @@ function regTagsRender() {
     + (regTags().length > REG_TAGS_DEFAULT.length || regTags().some(t => !REG_TAGS_DEFAULT.includes(t)) ? `<button class="btn-ghost" style="padding:4px 8px;font-size:.68rem;color:#9ca3af;" onclick="regTagRemove()" title="버튼 지우기"><i class="fa-solid fa-minus"></i></button>` : '')
     + `<span style="font-size:.7rem;color:#9ca3af;margin-left:4px;">${cur ? `선택: <b style="color:#3730a3;">${esc(cur)}</b> (파일명 순번 뒤에 들어가요)` : '선택 안 함 — 순번_마진 형식'}</span>`;
 }
-function regTagPick(t) { $('reg-preset-tag').value = $('reg-preset-tag').value === t ? '' : t; regTagsRender(); regStepsRender(); }
+function regTagPick(t) { const v = $('reg-preset-tag').value === t ? '' : t; $('reg-preset-tag').value = v; regTagsRender(); regStepsRender(); if (v) regApplyTag(v); }
+/* 소구점은 필수 (2026-09-17 — 리포트에서 '어떤 소구점이 통했나'를 보려면 빠지면 안 된다).
+   행의 소구점 = 먼저 고른 상품 행은 r.tag, 파일명 인식 행은 파일명 규칙(_R3_소구점_28_260911_test)에서. ② 소구점을 고르면 아직 없는 대기 행에 적용 */
+const regRowTag = r => r.tag || (String(r.fileName || r.file.name).match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}_test/) || [])[1] || '';
+function regApplyTag(tag) {
+  let n = 0;
+  reg.rows.forEach((r, i) => {
+    if (r.done || regRowTag(r)) return;
+    if (r.why === 'preset') { regRowRename(i, tag); n++; return; }
+    const m = String(r.fileName || r.file.name).match(/^(.*?_[RP]\d+)_(\d+_\d{6}_test)(\.[^.]+)$/);   // 규칙 파일명인데 소구점 자리만 빈 경우 → 끼워 넣기
+    r.tag = tag; if (m) { r.fileName = `${m[1]}_${tag}_${m[2]}${m[3]}`; r.name = r.fileName.replace(/\.[^.]+$/, ''); }
+    n++;
+  });
+  if (n) { regRender(); toast(`소구점 '${tag}'을(를) 파일 ${n}개에 적용했어요`); }
+}
 function regTagAdd() {
   const t = (prompt('추가할 소구점 (예: 착용컷2, 리뷰, 상세컷)') || '').trim().replace(/[_\/\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return; const list = regTags(); if (list.includes(t)) { regTagPick(t); return; }
@@ -234,11 +248,11 @@ function regRender() {
     <thead><tr><th style="width:28px;"><input type="checkbox" onchange="reg.rows.forEach(r=>r.sel=this.checked);regRender()" ${reg.rows.every(r => r.sel) ? 'checked' : ''} /></th>
       <th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th style="text-align:left;">URL</th><th>문구</th><th style="text-align:left;">상태</th><th></th></tr></thead>
     <tbody>${reg.rows.map((r, i) => {
-      const warn = !r.done && (r.multi || !r.product);
+      const warn = !r.done && (r.multi || !r.product || !regRowTag(r));
       const opts = r.cands.map(c => `<option value="${c.product_no}" ${r.product && r.product.product_no === c.product_no ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
       return `<tr style="${warn ? 'background:#fffbeb;' : ''}">
         <td><input type="checkbox" ${r.sel ? 'checked' : ''} ${r.done ? 'disabled' : ''} onchange="reg.rows[${i}].sel=this.checked;regSelBtn()" /></td>
-        <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${regFileThumb(r)}<div><span class="reg-fname">${esc(r.fileName || r.file.name)}</span><div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div>${r.why === 'preset' && !r.done ? `<div style="margin-top:4px;"><input class="inp" value="${esc(r.tag || '')}" placeholder="소구점 (착용컷·인스타·다나대표)" style="width:200px;font-size:.72rem;padding:3px 8px;background:#fff;" oninput="regRowRename(${i}, this.value)" /></div>` : ''}</div></div></td>
+        <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${regFileThumb(r)}<div><span class="reg-fname">${esc(r.fileName || r.file.name)}</span>${r.done ? '' : regRowTag(r) ? ` <span class="status-badge badge-blue" style="font-size:.6rem;">${esc(regRowTag(r))}</span>` : ' <span class="status-badge badge-red" style="font-size:.6rem;" title="② 소구점을 고르면 적용돼요">소구점 없음</span>'}<div style="color:#9ca3af;font-size:.7rem;">${fmtMB(r.file.size)} · ${REG_KIND_TYPE[r.kind]} · ${r.why === 'preset' ? `먼저 고른 상품 (원본 ${esc(r.file.name)})` : `인식한 상품명: <b>${esc(r.core || '-')}</b>`}</div>${r.why === 'preset' && !r.done ? `<div style="margin-top:4px;"><input class="inp" value="${esc(r.tag || '')}" placeholder="소구점 (착용컷·인스타·다나대표)" style="width:200px;font-size:.72rem;padding:3px 8px;background:#fff;" oninput="regRowRename(${i}, this.value)" /></div>` : ''}</div></div></td>
         <td style="min-width:240px;">${r.done ? esc(r.product ? r.product.name : '-') : `
           <select class="inp" style="width:100%;font-size:.78rem;background:#fff;padding:5px 8px;" onchange="regPick(${i}, this.value)">
             <option value="">— 상품 선택 —</option>${opts}</select>
@@ -276,6 +290,8 @@ async function regRun() {
   const todo = reg.rows.filter(r => !r.done);
   if (!todo.length) return;
   const pin = '';   // 등록 PIN 폐지 — 로그인 계정으로 충분
+  const noTag = todo.filter(r => !regRowTag(r));
+  if (noTag.length) { toast(`소구점이 없는 파일 ${noTag.length}개 — ② 소구점을 고르면 적용돼요 (리포트가 소구점별로 비교하려면 필수)`); $('reg-tags').scrollIntoView({ behavior: 'smooth', block: 'center' }); regRender(); return; }
   const noProd = todo.filter(r => !r.product);
   if (noProd.length && !confirm(`상품이 안 정해진 파일 ${noProd.length}개가 있어요. 상품 없이(URL만) 등록할까요?\n취소하면 돌아가서 고를 수 있어요.`)) return;
   const ask = todo.filter(r => r.multi && r.why !== 'manual' && r.why !== 'alias');

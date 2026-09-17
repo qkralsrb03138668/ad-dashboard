@@ -552,6 +552,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${na && cfg && !admgr.demo ? `<button onclick="admgrCopyModal()" title="고른 광고의 소재를 다른 캠페인·광고세트에 복사 (꺼진 상태로 만들어요)"><i class="fa-regular fa-copy"></i> 광고 복사</button>` : ''}
       ${isCamp && nc ? `<button onclick="admgrSetView('set')">선택한 캠페인의 세트 보기 →</button>` : ''}
       ${isSet && ns ? `<button onclick="admgrSetView('ad')">선택한 세트의 광고 보기 →</button>` : ''}
+      ${isSet && ns && cfg && !admgr.demo && admgrRows().sets.some(r => admgr.selSets.has(r.id) && admgrIsTest(r)) ? `<button onclick="admgrTestEndModal()" title="체크한 테스트중 세트의 이름 맨 뒤 _test를 세트·광고에서 지워 Meta에 저장 — 그다음부터 일반 판정에 들어가요"><i class="fa-solid fa-flag-checkered"></i> 테스트 종료</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo && admgr.write.daystart && admgr.write.daystart.size ? `<button onclick="admgrRestoreSel()" title="체크한 세트를 오늘 시작 예산(00:10 기록)으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-rotate-left"></i> 시작 예산 복구</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
@@ -604,6 +605,61 @@ function admgrRangeApply() {
   closeModal('admgr-budget-modal');
   admgr.preset = 'custom'; admgr.chgFilter = 'all';
   if (admgr.demo) { admgr.data = admgrDemoData(); renderAdmgr(); } else admgrFetch();
+}
+/* ═══ 테스트 종료 (2026-09-17 사용자 요청) — 체크한 테스트중 세트의 이름 맨 뒤 _test를 세트·광고 이름에서 지워 Meta에 저장.
+   이름에서 test가 빠지면 다음 새로고침부터 일반 판정(감액·곧 도달·증액 검토)에 들어간다. [→캠페인] 표시는 유지 ═══ */
+const AG_TEST_TAIL = /[_\s-]*test\s*$/i;   // 맨 뒤 _test / test / -test (앞 구분자 포함)
+function admgrTestEndName(name) {
+  const { base, camps } = admgrMarkParse(name);
+  const stripped = base.replace(AG_TEST_TAIL, '').trim();
+  return { next: admgrMarkName(stripped, camps), changed: stripped !== base, stillTest: /test/i.test(stripped) };
+}
+function admgrTestEndModal() {
+  const sets = admgrRows().sets.filter(r => admgr.selSets.has(r.id) && admgrIsTest(r));
+  if (!sets.length) { toast('테스트중 세트를 체크하세요'); return; }
+  const plan = [];   // {id, from, to, level}
+  const stuck = [];  // 맨 뒤가 아니라 못 지우는 것
+  for (const s of sets) {
+    const n = admgrTestEndName(s.name);
+    if (n.changed) plan.push({ id: s.id, from: admgrBase(s.name), to: admgrBase(n.next), name: n.next, level: 'adset', still: n.stillTest });
+    else stuck.push({ name: admgrBase(s.name), level: 'adset' });
+    for (const a of (s.ads || [])) {
+      const m = admgrTestEndName(a.name);
+      if (m.changed) plan.push({ id: a.id, from: a.name, to: m.next, name: m.next, level: 'ad', still: m.stillTest });
+      else if (/test/i.test(a.name)) stuck.push({ name: a.name, level: 'ad' });
+    }
+  }
+  admgr.testEndPlan = plan;
+  const row = p => `<div style="padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:.76rem;"><span class="ag-muted" style="margin-right:6px;">${p.level === 'adset' ? '세트' : '광고'}</span>${esc(p.from)} <span style="color:#9ca3af;">→</span> <b>${esc(p.to)}</b>${p.still ? ' <span style="color:#b45309;">(아직 test가 남아요)</span>' : ''}</div>`;
+  $('abm-title').textContent = `테스트 종료 — 세트 ${sets.length}개`;
+  $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `
+    <div style="font-size:.78rem;color:#374151;margin-bottom:8px;">이름 맨 뒤 <b>_test</b>를 지워 Meta에 저장해요 · 세트 ${plan.filter(p => p.level === 'adset').length}개 · 광고 ${plan.filter(p => p.level === 'ad').length}개</div>
+    <div style="max-height:40vh;overflow:auto;">${plan.map(row).join('') || '<div style="font-size:.76rem;color:#9ca3af;padding:8px 0;">바꿀 이름이 없어요</div>'}</div>
+    ${stuck.length ? `<div style="margin-top:10px;font-size:.74rem;color:#b45309;"><b>못 지우는 것 ${stuck.length}개</b> — test가 맨 뒤가 아니라서 직접 고쳐주세요<div style="color:#6b7280;margin-top:4px;">${stuck.slice(0, 8).map(x => `· ${esc(x.name)}`).join('<br/>')}${stuck.length > 8 ? '<br/>…' : ''}</div></div>` : ''}
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">이름만 바뀌고 성과·학습에는 영향 없어요 · 이름에서 test가 빠지면 다음 새로고침부터 일반 판정에 들어가요</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
+      <button class="btn-analyze" id="ag-testend-go" onclick="admgrTestEndRun()" ${plan.length ? '' : 'disabled'}>테스트 종료</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+async function admgrTestEndRun() {
+  const plan = admgr.testEndPlan || [];
+  if (!plan.length) return;
+  const btn = $('ag-testend-go'); btn.disabled = true; btn.textContent = '저장 중…';
+  try {
+    const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items: plan.map(p => ({ id: p.id, name: p.name })) });   // 광고도 같은 방식(POST /{id} name)
+    const failedIds = new Set((r.failed || []).map(f => String(f.id)));
+    const ok = plan.filter(p => !failedIds.has(String(p.id)));
+    admgr.selSets.clear();
+    $('abm-title').textContent = '테스트 종료 결과';
+    $('abm-body').innerHTML = `
+      <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">세트 <b style="color:#15803d;">${ok.filter(p => p.level === 'adset').length}</b>개 · 광고 <b style="color:#15803d;">${ok.filter(p => p.level === 'ad').length}</b>개 이름을 바꿨어요${failedIds.size ? ` · 실패 <b style="color:#dc2626;">${failedIds.size}</b>개` : ''}</div>
+      ${(r.failed || []).map(f => `<div style="font-size:.74rem;color:#dc2626;">✗ ${esc(String(f.id))} — ${esc(String(f.error || ''))}</div>`).join('')}
+      <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">화면을 새로 받아오고 있어요 — 잠시 후 일반 판정에 나타나요</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
+    admgrFetch();
+  } catch (e) { btn.disabled = false; btn.textContent = '테스트 종료'; toast('실패: ' + e.message); }
 }
 function admgrCopyModal() {
   const { camps, ads } = admgrRows();

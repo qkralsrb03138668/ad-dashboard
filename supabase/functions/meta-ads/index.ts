@@ -409,6 +409,7 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
           ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
           status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
           spend: a.spend, purchases: a.purchases, value: a.value,
+          imp: a.imp, reach: a.reach, freq: a.freq, clicks: a.clicks, v3: a.v3, thru: a.thru, lpv: a.lpv, atc: a.atc, funnel_at: new Date().toISOString(),   // 퍼널도 보관 (2026-09-17)
           last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (본문에서 제외)
         }))),
       });
@@ -432,6 +433,8 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
         status: String(s.status ?? ""), effective_status: String(s.effective_status ?? ""),
         created_time: "", reg_date: String(s.reg_date ?? ""),
         spend: num(s.spend), purchases: num(s.purchases), value: num(s.value),
+        // 퍼널 — funnel_at 없는 옛 보관분은 필드를 아예 안 넣어 클라이언트가 '퍼널 데이터 없음'으로 구분
+        ...(s.funnel_at ? { imp: num(s.imp), reach: num(s.reach), freq: num(s.freq), clicks: num(s.clicks), v3: num(s.v3), thru: num(s.thru), lpv: num(s.lpv), atc: num(s.atc) } : {}),
         gone: true, gone_since: String(s.last_seen ?? ""),
       }));
   } catch { /* 보관 실패해도 본 목록은 정상 반환 */ }
