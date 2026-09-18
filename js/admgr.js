@@ -138,7 +138,6 @@ function admgrSetView(v) {
   renderAdmgr();
 }
 function admgrRefresh() {
-  admgrMakerLoad();   // 만든 사람 지정도 같이 최신으로 (다른 사람이 바꿨을 수 있음)
   if (admgr.view === 'test') admgrTestFetch();
   else if (admgr.view === 'offad') admgrOffFetch();
   else if (admgr.view === 'best') admgrBestFetch();
@@ -323,7 +322,6 @@ const admgrTile = (label, val) => `<div class="kpi-tile"><div class="kt-label">$
 function renderAdmgr(keepScroll) {
   const body = $('admgr-body');
   const cfg = admgrCfg();
-  if (!admgr.mk.tried) { admgr.mk.tried = true; admgrMakerLoad(); }   // 만든 사람 지정 — 첫 렌더에 한 번만 (실패해도 반복 호출 안 함)
   /* 재렌더 시 표 스크롤 유지 (가이드 §7-10) + 검색창 포커스 유지 */
   const wrap = body.querySelector('.table-wrap');
   const sc = keepScroll && wrap ? { t: wrap.scrollTop, l: wrap.scrollLeft } : null;
@@ -428,13 +426,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const isCamp = admgr.view === 'camp', isSet = admgr.view === 'set';
   const VIEW_LABEL = isCamp ? '캠페인' : isSet ? '광고세트' : '광고';
   let vis = isCamp ? admgrVisible(R.camps) : isSet ? admgrVisible(setsInSel) : admgrVisible(adsInSel);
-  /* 만든 사람 (2026-09-18): 광고세트 탭 — 칩 줄은 거르기 전 목록으로 세고, 고르면 그 사람 세트만 남긴다 */
-  let mkRow = '';
-  if (isSet) {
-    mkRow = admgrMakerChips(vis.map(r => ({ id: r.id, name: r.name })));
-    vis = vis.filter(r => admgrMakerPass(r.id, r.name));
-    mkRow += admgrMakerBanner(vis);
-  }
 
   /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
   const bb = admgr.budget;
@@ -514,7 +505,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
           <td class="l tg">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
           <td class="name-cell" title="${esc(r.name || '')}${!isCamp ? ' · ' + esc(r._campName || '') : ''}">
-            <b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}${isSet ? admgrMakerChip(r.id, r.name) : ''}<button class="btn-ghost row-act"
+            <b>${esc(admgrBase(r.name))}</b>${admgrMarkBadges(r.name)}<button class="btn-ghost row-act"
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button>
             <div class="ag-sub">${admgrStBadge(r.status)}${!isCamp && r._campName ? ` · ${esc(r._campName)}` : ''}</div></td>
           ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td>` : ''}
@@ -594,7 +585,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''} ${open ? 'open' : ''}" data-id="${r.id}" onclick="admgrCardClick(event,'${kind}','${r.id}')" ontouchstart="admgrCardDown(event,'${kind}','${r.id}')" ontouchmove="admgrCardMove(event)" ontouchend="admgrCardCancel()" ontouchcancel="admgrCardCancel()">
         <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(prod)}</b></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
-        ${jb || tail || isSet || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) ? `<div class="mc-r2">${jb ? `<span class="mc-jb ${jb[0]}"><i></i>${jb[1]}</span>` : ''}${isSet ? admgrMakerChip(r.id, r.name) : ''}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
+        ${jb || tail || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) ? `<div class="mc-r2">${jb ? `<span class="mc-jb ${jb[0]}"><i></i>${jb[1]}</span>` : ''}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
         <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span></div>
         <div class="mc-foot">
           ${admgr.view === 'ad' ? '<div class="mc-budget"><small>탭하면 소재 미리보기</small></div>'
@@ -618,7 +609,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${isSet && ns && cfg && !admgr.demo && admgrRows().sets.some(r => admgr.selSets.has(r.id) && admgrIsTest(r)) ? `<button onclick="admgrTestEndModal()" title="체크한 테스트중 세트의 이름 맨 뒤 _test를 세트·광고에서 지워 Meta에 저장 — 그다음부터 일반 판정에 들어가요"><i class="fa-solid fa-flag-checkered"></i> 테스트 종료</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo && admgr.write.daystart && admgr.write.daystart.size ? `<button onclick="admgrRestoreSel()" title="체크한 세트를 오늘 시작 예산(00:10 기록)으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-rotate-left"></i> 시작 예산 복구</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
-      ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrMakerPick(event,'@set')" title="체크한 세트에 만든 사람을 한 번에 지정"><i class="fa-solid fa-user-pen"></i> 만든 사람 지정</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
       <span style="flex:1;"></span><button class="ghost" onclick="admgrClearSel()">선택 해제 ✕</button></div>` : '';
   /* 폰 (2026-09-18): 검은 동작바 대신 — 선택 모드면 상단 선택바 + 하단 동작판, 아니면 상위 선택이 필터로 남았을 때 알림줄 */
@@ -631,9 +621,9 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       else if (admgr.view === 'ad' && admgr.selCamps.size) fnotice = admgrFNoticeHtml(nm(R.camps, admgr.selCamps), admgr.selCamps.size);
     }
     const selTop = admgr.mSelect ? admgrSelBarHtml() : '', selPanel = admgr.mSelect ? admgrSelPanelHtml() : '';
-    return selTop + chgChips + judgeChips + mkRow + fnotice + tiles + table + cards + selPanel;
+    return selTop + chgChips + judgeChips + fnotice + tiles + table + cards + selPanel;
   }
-  return chgChips + judgeChips + mkRow + tiles + table + cards + actbar;
+  return chgChips + judgeChips + tiles + table + cards + actbar;
 }
 /* 행 여백 클릭 = 체크박스 토글 (2026-09-15 사용자 요청). 버튼·링크·입력칸·토글·연필 등 조작 요소 위 클릭은 제외 */
 /* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고를 다른 캠페인·광고세트에 꺼진 상태로 복사하고,
@@ -910,7 +900,7 @@ function admgrSelPanelHtml() {
   return `<div class="ag-selpanel">${items.map(([ic, label, fn]) => `<button onclick="${fn}"><i class="fa-solid ${ic}"></i><span>${label}</span></button>`).join('')}</div>`;
 }
 function admgrSelMoreMenu(ev) {
-  admgrPopAt(ev, `<div class="ag-menu">${agItem('fa-eye', '광고 보기', "admgrSetView('ad')")}${agItem('fa-star', '베스트 담기', 'admgrBestAdd()')}<div class="ag-menu-sep">만든 사람 지정</div>${admgrMakerItems('@set')}</div>`, 200);
+  admgrPopAt(ev, `<div class="ag-menu">${agItem('fa-eye', '광고 보기', "admgrSetView('ad')")}${agItem('fa-star', '베스트 담기', 'admgrBestAdd()')}</div>`, 200);
 }
 /* 선택 아닌 상태에서 상위 선택이 필터로 남아 있을 때(D) — 다크 액션바 대신 알림줄 하나 + 해제 버튼 */
 function admgrFNoticeHtml(name, n) {
@@ -1033,81 +1023,4 @@ function admgrRestoreSel() {   // 체크한 세트를 오늘 시작 예산(00:10
 }
 function admgrCutSel() {   // 체크한 광고세트
   if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); admgr.mSelect = false; renderAdmgr(true); }
-}
-
-/* ═══ 만든 사람 (2026-09-18 사용자 요청) — 세트별 소재 제작자(김도희·다나대표) 표시·지정·거르기. 광고세트·테스트 소재·베스트 탭 공통.
-   저장: shared_state 'makers' = { sets: { adset_id: 'dohee'|'dana'|'-' }, prods: { 상품명: 'dohee'|'dana' } } — 모든 계정이 같은 값.
-   세트에 직접 지정이 없으면 같은 상품의 마지막 지정(prods)을 이어받는다. '-' = 일부러 지정 안 함(이어받기도 끔).
-   ponytail: sets 맵은 지워진 세트도 계속 남는다 — 수천 개여도 수십 KB라 정리 안 함. 2MB 한도에 가까워지면 Meta에 없는 id를 솎아낼 것 */
-const AG_MAKERS = { dohee: '김도희', dana: '다나대표' };
-admgr.mk = { sets: {}, prods: {}, ver: null, loading: false, tried: false, filter: lsGet('adc_admgr_maker', 'all'), names: {} };
-async function admgrMakerLoad() {
-  const m = admgr.mk;
-  if (m.loading || admgr.demo || !admgrCfg()) return;
-  m.loading = true;
-  try {
-    const r = await sbCall('client-log', { action: 'state_get', key: 'makers' });
-    const d = (r && r.data) || {};
-    m.sets = d.sets || {}; m.prods = d.prods || {}; m.ver = (r && r.ver) || null;
-  } catch (e) { console.warn('만든 사람 불러오기 실패', e.message); }
-  m.loading = false; renderAdmgr(true);
-}
-const admgrMakerProd = name => admgrProductOf({ adset_name: admgrBase(name || '') });
-function admgrMakerOf(id, name) {
-  const m = admgr.mk, v = m.sets[id];
-  if (v) return AG_MAKERS[v] ? v : '';
-  const pv = m.prods[admgrMakerProd(name)];
-  return AG_MAKERS[pv] ? pv : '';
-}
-const admgrMakerPass = (id, name) => { const f = admgr.mk.filter; if (f === 'all') return true; const k = admgrMakerOf(id, name); return f === 'none' ? !k : k === f; };
-function admgrMakerFilter(k) { const m = admgr.mk; m.filter = m.filter === k ? 'all' : k; lsSet('adc_admgr_maker', m.filter); renderAdmgr(); }
-/* 세트명 옆 칩 — 누르면 지정/변경 */
-function admgrMakerChip(id, name) {
-  if (admgr.demo || !admgrCfg() || !id) return '';
-  admgr.mk.names[id] = name || '';
-  const k = admgrMakerOf(id, name);
-  return `<button class="mk-chip ${k ? 'mk-' + k : 'mk-none'}" onclick="event.stopPropagation();admgrMakerPick(event,'${id}')" title="${k ? AG_MAKERS[k] + ' — 누르면 바꿀 수 있어요' : '누가 만든 소재인지 지정'}">${k ? '<i></i>' + AG_MAKERS[k] : '+ 만든 사람'}</button>`;
-}
-/* 필터 칩 줄 — items = 거르기 전 [{id(세트 id), name(세트명)}] */
-function admgrMakerChips(items) {
-  if (admgr.demo || !admgrCfg() || !items.length) return '';
-  const f = admgr.mk.filter, cnt = { dohee: 0, dana: 0, '': 0 };
-  items.forEach(x => { cnt[admgrMakerOf(x.id, x.name)]++; });
-  const chip = (k, label, n, cls) => `<button class="filter-tab ${cls} ${f === k ? 'active' : ''}" onclick="admgrMakerFilter('${k}')">${label} ${n}</button>`;
-  return `<div class="filter-tabs ag-mk" style="margin-bottom:12px;"><span class="ag-lbl">만든 사람</span>${chip('all', '전체', items.length, '')}${chip('dohee', '<i class="mk-dot"></i>김도희', cnt.dohee, 'mk-f mk-dohee')}${chip('dana', '<i class="mk-dot"></i>다나대표', cnt.dana, 'mk-f mk-dana')}${chip('none', '미지정', cnt[''], 'mk-f mk-none')}</div>`;
-}
-/* 광고세트 탭: 거른 상태 알림 띠 — rows = 거른 뒤 세트 */
-function admgrMakerBanner(rows) {
-  const f = admgr.mk.filter;
-  if (f === 'all' || admgr.demo || !admgrCfg()) return '';
-  const spend = rows.reduce((s0, r) => s0 + (r.spend || 0), 0), value = rows.reduce((s0, r) => s0 + (r.value || 0), 0), pur = rows.reduce((s0, r) => s0 + (r.purchases || 0), 0);
-  return `<div class="ag-mkban ${f === 'none' ? 'mk-none' : 'mk-' + f}"><i class="mk-dot"></i><b>${f === 'none' ? '만든 사람 미지정 세트' : AG_MAKERS[f] + '가 만든 세트'}만 보는 중</b>
-    <span>${rows.length}개 · 지출 <b>${won(spend)}</b> · 구매 <b>${comma(pur)}</b> · ROAS <b>${spend ? (value / spend).toFixed(2) : '—'}</b></span>
-    <span style="flex:1;"></span><button onclick="admgrMakerFilter('all')">✕ 전체 보기</button></div>`;
-}
-/* 지정 메뉴 — target: 세트 id / '@set' 광고세트 탭 체크분 / '@test' 테스트 소재 탭 체크분. 폰은 아래에서 올라오는 시트 */
-function admgrMakerItems(target) {
-  const it = (k, label) => `<button class="ag-item mk-item ${AG_MAKERS[k] ? 'mk-' + k : ''}" onclick="document.getElementById('admgr-bpop').style.display='none';admgrMakerSet('${target}','${k}')">${AG_MAKERS[k] ? '<i class="mk-dot"></i>' : '<i class="fa-solid fa-xmark"></i>'}<span>${label}</span></button>`;
-  return it('dohee', '김도희') + it('dana', '다나대표') + it('-', '지정 안 함');
-}
-function admgrMakerPick(ev, target) {
-  admgrPopAt(ev, `<div class="ag-menu"><div class="ag-menu-sep mk-q">누가 만들었나요?</div>${admgrMakerItems(target)}</div>`, 190);
-  if (admgrMobile()) $('admgr-bpop').classList.add('mk-sheet');
-}
-async function admgrMakerSet(target, k) {
-  const m = admgr.mk, t = admgr.test;
-  const ids = target === '@set' ? [...admgr.selSets]
-    : target === '@test' ? [...new Set(((t.data || {}).ads || []).filter(a => t.sel.has(a.id)).map(a => { m.names[a.adset_id] = a.adset_name; return a.adset_id; }))]
-    : [target];
-  if (!ids.length) { toast('먼저 세트를 체크하세요'); return; }
-  const apply = () => ids.forEach(id => { m.sets[id] = k; if (AG_MAKERS[k] && m.names[id]) m.prods[admgrMakerProd(m.names[id])] = k; });
-  apply(); renderAdmgr(true);
-  for (let tries = 0; tries < 2; tries++) {   // 남이 먼저 저장했으면 최신본 위에 내 지정만 다시 얹어 한 번 더
-    try {
-      const r = await sbCall('client-log', { action: 'state_set' }, { key: 'makers', base: m.ver, data: { sets: m.sets, prods: m.prods } });
-      if (!r.conflict) { m.ver = r.ver; if (ids.length > 1) toast(`${ids.length}개 세트 — ${AG_MAKERS[k] || '지정 안 함'}`); return; }
-      const d = r.data || {}; m.sets = d.sets || {}; m.prods = d.prods || {}; m.ver = r.ver || null; apply();
-    } catch (e) { toast('만든 사람 저장 실패: ' + e.message); return; }
-  }
-  toast('만든 사람 저장 실패 — 새로고침 후 다시 시도해 주세요');
 }

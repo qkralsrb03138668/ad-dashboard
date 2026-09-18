@@ -151,16 +151,15 @@ function admgrTestRowSets() {
   const all = ((t.data || {}).ads || []).map(a => { const meta = t.state.get(a.id) || {}; return { ...a, meta, st: admgrTestStatusOf(a, meta) }; });
   const vis = all.filter(a => !a.meta.hidden);
   const hid = all.filter(a => a.meta.hidden);
-  const pvis = vis.filter(a => admgrMakerPass(a.adset_id, a.adset_name));   // 만든 사람 필터 반영분 — 화면 칩·타일·표용 (vis는 리포트·퍼널 기준선이 쓰므로 그대로 둔다)
   let rows = t.showHidden ? hid
-    : t.filter === 'all' ? pvis
-    : t.filter === 'req' ? pvis.filter(a => a.meta.asset_req_at)
-    : t.filter === 'gone' ? pvis.filter(a => a.gone)
-    : t.filter === 'judge' ? pvis.filter(a => ['off', 'good'].includes((admgrRecommend(a) || {}).k))
-    : pvis.filter(a => a.st === t.filter);
+    : t.filter === 'all' ? vis
+    : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at)
+    : t.filter === 'gone' ? vis.filter(a => a.gone)
+    : t.filter === 'judge' ? vis.filter(a => ['off', 'good'].includes((admgrRecommend(a) || {}).k))
+    : vis.filter(a => a.st === t.filter);
   if (admgr.q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).normalize('NFC').toLowerCase().includes(admgr.q.normalize('NFC')));
   // 정렬을 안 골랐으면 '판정 필요 순': OFF·우수 후보 → 기준 미달 → 지켜보기 → 판정 끝난 것, 같은 급에선 D+ 큰 순
-  return { vis, pvis, hid, rows: rows.slice().sort(admgr.sort.length ? admgrCmp : admgrTJudgeCmp) };
+  return { vis, hid, rows: rows.slice().sort(admgr.sort.length ? admgrCmp : admgrTJudgeCmp) };
 }
 /* 엑셀 추출 — 지금 화면에 보이는 표 그대로 */
 async function admgrTestXlsx() {
@@ -1228,7 +1227,7 @@ function renderAdmgrTest() {
     return `<div class="empty-state"><p>${t.loading ? '테스트 소재를 불러오는 중… (전체 세트를 훑어서 10초쯤 걸려요)' : '<b>새로고침</b>을 누르면 테스트 소재를 불러와요.'}</p></div>`;
   }
   const d = t.data;
-  const { vis: visAll, pvis: vis, hid, rows } = admgrTestRowSets();   // vis = 만든 사람 필터 반영분, visAll = 전체(퍼널 기준선·만든 사람 칩 개수)
+  const { vis, hid, rows } = admgrTestRowSets();
   const cnt = k => vis.filter(a => a.st === k).length;
   const nEval = cnt('eval'), nOff = cnt('off'), nMeh = cnt('meh'), nGood = cnt('good'), nEtc = cnt('review') + cnt('rejected');
   const nReq = vis.filter(a => a.meta.asset_req_at).length;
@@ -1259,13 +1258,12 @@ function renderAdmgrTest() {
     <span style="flex:1;"></span>
     <button class="filter-tab ${t.group ? 'active' : ''}" onclick="admgrTestGroupToggle()" title="세트명 앞 상품명으로 묶어 상품별 소계 표시"><i class="fa-solid fa-layer-group"></i> 상품별 묶기</button>
     <button class="filter-tab ${t.judgeOpen ? 'active' : ''}" onclick="admgrTJudgeToggle()" title="판정 추천 기준 바꾸기"><i class="fa-solid fa-sliders"></i> 기준</button>
-    <button class="filter-tab" onclick="admgrMakerPick(event,'@test')" title="체크한 소재의 세트에 만든 사람을 한 번에 지정"><i class="fa-solid fa-user-pen"></i> 만든 사람 지정</button>
     <button class="filter-tab" style="color:${t.showHidden ? '#4f46e5' : '#dc2626'};border-color:${t.showHidden ? '#a5b4fc' : '#fecaca'};" onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})">${t.showHidden ? '선택 복원' : '목록에서 제거'}</button>
     <button class="filter-tab" onclick="admgrTestToggleHidden()">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>
     <button class="filter-tab" style="color:#15803d;" onclick="admgrTestXlsx()" title="지금 보이는 표 그대로 (필터·검색·정렬 반영)"><i class="fa-solid fa-file-arrow-down"></i> 엑셀</button>
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrTestReport()" title="상품팀 전달용 — 기간 내 판정·추가소재 현황을 상품별로 정리 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 리포트</button>
-  </div>${admgrMakerChips(visAll.map(a => ({ id: a.adset_id, name: a.adset_name })))}${judgeBox}
-  <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (5분 캐시)${d.truncated ? ' · 일부 생략(세트가 너무 많아요)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 정렬 안 고르면 <b>판정 필요 순</b></div>`;
+  </div>${judgeBox}
+  <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (60초 캐시)${d.truncated ? ' · 일부 생략(세트가 너무 많아요)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 정렬 안 고르면 <b>판정 필요 순</b></div>`;
 
   const tileBtn = (key, label, val, sub) => `<div class="kpi-tile ${t.filter === key && !t.showHidden ? 'kt-hero' : ''}" style="cursor:pointer;" onclick="admgrTestFilter('${key}')" title="누르면 걸러요"><div class="kt-label">${label}</div><div class="kt-value" style="font-size:1.15rem;">${val}</div>${sub ? `<div class="kt-sub">${sub}</div>` : ''}</div>`;
   const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
@@ -1281,7 +1279,7 @@ function renderAdmgrTest() {
   }
   const allChecked = rows.length && rows.every(r => t.sel.has(r.id));
   const cre = t.creatives || new Map();
-  const fbase = admgrFunnelBase(visAll);   // 퍼널 기준선 — 숨긴 것 빼고 전체 테스트 소재의 중앙값 (필터와 무관하게 같은 기준)
+  const fbase = admgrFunnelBase(vis);   // 퍼널 기준선 — 숨긴 것 빼고 전체 테스트 소재의 중앙값 (필터와 무관하게 같은 기준)
   /* 열: 선택 · 소재(썸네일+세트명+광고명+등록기록) · 등록(MM/DD, D+) · 판정(추천 → 현재 상태 → 버튼) · 지출 · 구매/CPA · ROAS · 추가소재 · 메모 */
   const rowHtml = a => {
     const checked = t.sel.has(a.id), dp = admgrDPlus(a), c = cre.get(String(a.id));
@@ -1293,7 +1291,7 @@ function renderAdmgrTest() {
         <td class="name-cell" style="text-align:left;"><div style="display:flex;gap:8px;align-items:center;min-width:0;">
           <span onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="소재 미리보기" style="cursor:zoom-in;flex:none;">${mediaThumbHtml(thSrc, 'image', 40)}</span>
           <div style="min-width:0;flex:1;">
-            <div style="display:flex;align-items:center;gap:6px;min-width:0;"><div class="ell" onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="${esc(a.adset_name)} — 클릭하면 미리보기" style="font-weight:700;color:#4338ca;cursor:pointer;">${esc(a.adset_name)}</div>${admgrMakerChip(a.adset_id, a.adset_name)}</div>
+            <div class="ell" onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="${esc(a.adset_name)} — 클릭하면 미리보기" style="font-weight:700;color:#4338ca;cursor:pointer;">${esc(a.adset_name)}</div>
             <div class="ell" style="font-size:.66rem;color:#9ca3af;" title="${esc(a.name)}">${esc(a.name)}</div>
             ${c ? `<div class="ell" style="font-size:.64rem;color:#6b7280;"><i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc(whoName(c.created_by_name, c.created_by_email))} · <a href="#" onclick="event.stopPropagation();admgrTestCopy('${a.id}');return false;">문구</a></div>` : ''}
           </div></div></td>
@@ -1352,7 +1350,7 @@ function renderAdmgrTest() {
           <span style="flex:none;">${mediaThumbHtml(thSrc, 'image', 44)}</span>
           <div class="mc-name" style="flex:1;"><b>${esc(a.adset_name)}</b><div class="mc-sub">${a.reg_date ? fmtMD(a.reg_date) + (dp == null ? '' : ` · D+${dp}`) : ''}${c ? ` · <i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(c.file_name) || '소재')} · ${esc(whoName(c.created_by_name, c.created_by_email))}` : ''}</div></div>
           <div class="mc-tg" onclick="event.stopPropagation()"><label style="display:inline-flex;padding:4px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="admgrTestSel('${a.id}')" title="선택 (일괄 제거용)" /></label></div></div>
-        <div class="mc-judge" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${admgrMakerChip(a.adset_id, a.adset_name)}${judge}</div>
+        <div class="mc-judge" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${judge}</div>
         <div class="mc-nums"><div><i>지출</i>${won(a.spend)}</div><div><i>구매 · CPA</i>${comma(a.purchases)}<span style="font-size:.64rem;color:#9ca3af;font-weight:600;"> ${a.purchases ? won(Math.round(a.spend / a.purchases)) : ''}</span></div><div><i>ROAS</i>${admgrRoasTd(a)}</div></div>
         <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${admgrFunnelCell(a, fbase)}${admgrSparkHtml(admgrTrend(a), rec && rec.be)}</div>
         <div class="mc-foot"><div class="mc-budget" style="font-size:.72rem;color:#6b7280;">${a.meta.memo ? `<i class="fa-regular fa-note-sticky"></i> ${esc(a.meta.memo)}` : `<span style="color:#9ca3af;">${a.meta.asset_req_at ? '추가소재 요청됨' : '탭하면 미리보기'}</span>`}</div>
@@ -1583,8 +1581,6 @@ function renderAdmgrBest() {
   setTimeout(() => admgrProfitEnsure(), 0);
   let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; const ta = testAds.find(x => x.id === a.id); return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)), tr: ta ? admgrTrend(ta) : null, pf: admgrProfit(nameOf.get(a.adset_id) || a.name, m) }; });
   if (admgr.q) ads = ads.filter(a => (a.setNm + ' ' + a.name).toLowerCase().includes(admgr.q));
-  const mkAll = ads;   // 만든 사람 거르기 전 (검색 반영) — 칩 개수·사람별 ROAS 타일용
-  ads = ads.filter(a => admgrMakerPass(a.adset_id, a.setNm || a.name));
   const allAds = ads;
   const prods = [...new Set(ads.map(a => a.prod))];
   if (b.hideOff) ads = ads.filter(a => a.effective_status === 'ACTIVE');
@@ -1606,14 +1602,13 @@ function renderAdmgrBest() {
     <span style="flex:1;"></span>
     ${sw(b.hideOff, '꺼진 소재 숨기기', `admgrBestSet('hideOff',${!b.hideOff})`)}
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrBestReport()" title="회의용 — 이번 기간 베스트 성과·전주 대비·패턴(릴스/이미지·소구점·가격대)·상품 판단·테스트 효율·다음 주 액션 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트</button>
-  </div>${admgrMakerChips(mkAll.map(a => ({ id: a.adset_id, name: a.setNm || a.name })))}
+  </div>
   <div class="info-bar"><i class="fa-solid fa-star"></i> 담은 세트 ${b.rows.length}개 · 소재 ${allAds.length}개 · 성과는 <b>등록 이후 누적</b>${metricsReady ? '' : ' (불러오는 중…)'} · 타일 클릭 = 큰 미리보기 · 상품 제목의 ✕ = 세트 빼기</div>`;
   const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
     <div class="kpi-tile kt-hero"><div class="kt-label"><i class="fa-solid fa-star"></i> 베스트 소재</div><div class="kt-value" style="font-size:1.15rem;">${allAds.length}개</div><div class="kt-sub">상품 ${prods.length}개</div></div>
     ${admgrTile('누적 지출', metricsReady ? won(tot.spend) : '…')}${admgrTile('구매', metricsReady ? comma(tot.purchases) + '건' : '…')}
     ${admgrTile('평균 ROAS', metricsReady ? `<span style="color:#15803d;">${tot.spend ? (tot.value / tot.spend).toFixed(2) : '—'}</span>` : '…')}
-    ${metricsReady ? Object.keys(AG_MAKERS).map(k => { const l = mkAll.filter(a => admgrMakerOf(a.adset_id, a.setNm || a.name) === k), g = sum(l); return l.length ? `<div class="kpi-tile mk-tile mk-${k}" style="cursor:pointer;" onclick="admgrMakerFilter('${k}')" title="누르면 ${AG_MAKERS[k]} 소재만"><div class="kt-label"><i class="mk-dot"></i>${AG_MAKERS[k]} 소재 ROAS</div><div class="kt-value" style="font-size:1.15rem;">${g.spend ? (g.value / g.spend).toFixed(2) : '—'}</div><div class="kt-sub">${l.length}개 · 구매 ${comma(g.purchases)}</div></div>` : ''; }).join('') : ''}
-    ${admgrTile('순이익 합 <span title=""전환값 × 마진율 × (1 − 순반품률) − 지출. 반품률은 판매 성과 최근 60일 배송완료 기준, 등급 S=순이익≥광고비 · A=≥50% · B=≥0 · C=손실" style="color:#c4c9d4;cursor:help;">?</span>', pfAds.length ? `<span style="color:${pfSum >= 0 ? '#15803d' : '#dc2626'};">${pfSum >= 0 ? '+' : ''}${won(Math.round(pfSum))}</span>` : `<span style="font-size:.8rem;color:#9ca3af;">—${pfNote}</span>`)}
+    ${admgrTile('순이익 합 <span title="전환값 × 마진율 × (1 − 순반품률) − 지출. 반품률은 판매 성과 최근 60일 배송완료 기준, 등급 S=순이익≥광고비 · A=≥50% · B=≥0 · C=손실" style="color:#c4c9d4;cursor:help;">?</span>', pfAds.length ? `<span style="color:${pfSum >= 0 ? '#15803d' : '#dc2626'};">${pfSum >= 0 ? '+' : ''}${won(Math.round(pfSum))}</span>` : `<span style="font-size:.8rem;color:#9ca3af;">—${pfNote}</span>`)}
     ${admgrTile('꺼진 소재', `<span style="color:${off ? '#dc2626' : '#374151'};">${off}개</span>`)}
     ${admgrTile('식은 소재 <span title="최근 7일 ROAS가 누적의 절반 미만 (일별 스냅샷 3일치부터 판정)" style="color:#c4c9d4;cursor:help;">?</span>', `<span style="color:${allAds.filter(a => a.tr && a.tr.tired).length ? '#dc2626' : '#374151'};">${allAds.filter(a => a.tr && a.tr.tired).length}개</span>`)}
   </div>`;
@@ -1630,7 +1625,6 @@ function renderAdmgrBest() {
       </div>
       <div style="padding:8px 10px;">
         <div class="ell" style="font-size:.76rem;font-weight:700;color:#1e1b4b;" title="${esc(a.setNm)}">${esc(a.setNm)}</div>
-        <div style="margin:3px 0 2px;">${admgrMakerChip(a.adset_id, a.setNm || a.name)}</div>
         <div class="ell" style="font-size:.64rem;color:#6b7280;">${a.c ? `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> ${esc(admgrTagOf(a.c.file_name) || '소재')} · ${esc(whoName(a.c.created_by_name, a.c.created_by_email))} · ` : ''}${a.m.reg ? fmtMD(a.m.reg) + (admgrDPlus({ reg_date: a.m.reg }) != null ? ` (D+${admgrDPlus({ reg_date: a.m.reg })})` : '') : ''}</div>
         <div style="display:flex;gap:10px;margin-top:6px;font-size:.66rem;color:#6b7280;">
           <span>지출<b style="display:block;font-size:.8rem;color:#1e1b4b;">${metricsReady ? won(a.m.spend) : '…'}</b></span>
@@ -1652,7 +1646,6 @@ function renderAdmgrBest() {
       <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;margin-bottom:10px;font-size:.8rem;flex-wrap:wrap;">
         <b style="color:#1e1b4b;">${esc(pn)}</b>
         <span style="color:#6b7280;font-size:.72rem;">소재 ${list.length}개${metricsReady ? ` · 지출 ${won(g.spend)} · 구매 ${comma(g.purchases)} · ROAS <b style="color:#15803d;">${g.spend ? (g.value / g.spend).toFixed(2) : '—'}</b>` : ''}${list.some(a => a.pf) ? ` · 순이익 <b style="color:${list.reduce((s0, a) => s0 + (a.pf ? a.pf.net : 0), 0) >= 0 ? '#15803d' : '#dc2626'};">${won(Math.round(list.reduce((s0, a) => s0 + (a.pf ? a.pf.net : 0), 0)))}</b>` : ''}</span>
-        ${Object.keys(AG_MAKERS).map(k => { const n = list.filter(a => admgrMakerOf(a.adset_id, a.setNm || a.name) === k).length; return n ? `<span class="mk-chip mk-${k}" style="cursor:default;"><i></i>${AG_MAKERS[k]} ${n}</span>` : ''; }).join('')}
         <span style="flex:1;"></span>
         <a href="#" style="font-size:.72rem;" onclick="admgrTestGoRegister('${esc(pn)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 같은 상품 소재 등록</a>
         ${sets.map(id => `<button class="btn-ghost btn-danger-ghost" style="padding:2px 8px;font-size:.64rem;" onclick="admgrBestRemove('${id}')" title="${esc(nameOf.get(id) || '')} 세트를 베스트에서 빼기"><i class="fa-solid fa-xmark"></i></button>`).join('')}</div>
