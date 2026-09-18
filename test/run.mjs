@@ -338,8 +338,15 @@ test('admgrReportBuild(cmp·dirs): OFF·우수 공통점 비교, 실패 이유 �
   assert.equal(JSON.stringify(ax.fmt.off), JSON.stringify([['이미지', 2], ['릴스', 1]]));
   assert.equal(JSON.stringify(ax.price.good), JSON.stringify([['5~8만', 3]]));
   assert.equal(JSON.stringify(ax.cut.off), JSON.stringify([['정면', 1]]));
+  // 영상 태그(프레임 전체 분석)가 있으면 썸네일 태그보다 우선 — 1번 소재는 착용이 아니라 시연으로 잡힌다
+  const rep2 = g('admgrReportBuild')(rows, 7, '2026-09-12', { cre, ai, vtags: { '1': { hook: '손 시연', cuts: 9, scenes: [{ t: 0, kind: '시연' }, { t: 2, kind: '시연' }, { t: 5, kind: '착용' }], subtitles: [{ t: 0, text: '77사이즈' }], size_number: { shown: true, t: 1 } } } });
+  const ax2 = Object.fromEntries(rep2.cmp.axes.map(x => [x.k, x]));
+  assert.equal(JSON.stringify(ax2.vhook.good), JSON.stringify([['손 시연', 1]]));
+  assert.equal(JSON.stringify(ax2.cutsB.good), JSON.stringify([['컷 8+', 1]]));
+  assert.equal(ax2.cut.goodN, 3);   // 영상 1 + 썸네일 2·3
+  assert.equal(JSON.stringify(ax2.size.good), JSON.stringify([['없음', 2], ['사이즈 숫자 노출', 1]]));
   assert.equal(c.reasons.map(r => r.label + r.n).join(), '클릭 약함2,후크 약함1');
-  assert.ok(c.commonGood.includes('형식 릴스 100% (OFF 33%)') && c.commonGood.includes('가격대 5~8만 100% (OFF 0%)') && c.commonGood.includes('AI 컷 유형 시연 100% (OFF 0%)'), c.commonGood.join('|'));
+  assert.ok(c.commonGood.includes('형식 릴스 100% (OFF 33%)') && c.commonGood.includes('가격대 5~8만 100% (OFF 0%)') && c.commonGood.includes('AI 장면 유형 시연 100% (OFF 0%)'), c.commonGood.join('|'));
   assert.ok(c.commonOff.includes('형식 이미지 67% (우수 0%)'), c.commonOff.join('|'));
   assert.ok(c.thin);
   const D = Object.fromEntries(rep.dirs.map(d => [d.name, d]));
@@ -450,7 +457,7 @@ console.log('⑥ 로컬 Claude 실행기 (문구생성·주간 해석)');
   test('runClaude: 마지막 모델도 한도면 한국어 오류, 시간 초과는 전환 없이 중단, 기다리는 동안 onTick', () => {
     assert.ok(/사용량 한도 초과/.test(allLimitErr), allLimitErr);
     assert.ok(/^시간 초과 — 12분/.test(killedErr), killedErr);
-    assert.equal(slow, '느린 응답'); assert.ok(ticks.length >= 2 && ticks[0] === 1, ticks.join());
+    assert.equal(slow, '느린 응답'); assert.ok(ticks.length >= 2 && ticks[ticks.length - 1] >= 1, ticks.join());   // 초 계산은 내림이라 첫 틱이 0일 수 있다
   });
   const seen = [];
     const fake2 = (_c, args) => { const m = args[args.indexOf('--model') + 1], e = args[args.indexOf('--effort') + 1]; seen.push(m + ':' + e); if (seen.length === 1) throw fail("You've reached your Opus limit."); return '문구'; };

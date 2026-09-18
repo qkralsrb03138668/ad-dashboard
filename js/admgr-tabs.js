@@ -215,21 +215,33 @@ const ADMGR_RP_SECS = [   // [키, 제목, 짧은 이름(요약 칩), 색, 설�
 /* ═══ 테스트 리포트 고도화 (2026-09-17) — OFF·우수 소재 공통점 비교, 실패 이유 분포, 추가소재 방향.
    숫자 공통점(형식·소구점·가격대·등록자·문구 훅·퍼널 단계)은 여기서, 눈으로 보는 공통점(컷 유형·자막)은 scripts/test-insight.mjs가 썸네일을 보고 태그를 달아 shared_state test_report_ai로 넘긴다.
    ponytail: 표본 5개 미만은 '표본 부족' 표시만, 통계 검정 없음 */
+/* 릴스 영상 태그(scripts/video-tags.mjs가 프레임을 보고 단 것) → 비교 축 값. 영상은 첫 장면이 아니라 전체 구성 기준 (2026-09-18) */
+function admgrVideoFeat(vt) {
+  if (!vt) return null;
+  const sc = Array.isArray(vt.scenes) ? vt.scenes : [], subs = Array.isArray(vt.subtitles) ? vt.subtitles : [];
+  const kinds = sc.map(x => x.kind).filter(Boolean);
+  const main = kinds.length ? kinds.slice().sort((a, b) => kinds.filter(k => k === b).length - kinds.filter(k => k === a).length)[0] : null;   // 가장 많이 나온 장면 유형
+  return { cut: main || null, text: subs.length > 0, size: !!(vt.size_number && vt.size_number.shown), hook: vt.hook || null,
+    cutsB: vt.cuts >= 8 ? '컷 8+' : vt.cuts >= 4 ? '컷 4~7' : vt.cuts >= 1 ? '컷 1~3' : null, src: 'video' };
+}
 const ADMGR_HOOK_RE = /\b(44|55|66|77|88)\b|사이즈|kg|\d{2,3}\s?cm|뱃살|팔뚝|허벅지|골반|체형|커버|날씬|슬림|가려|숨겨/;
 function admgrPriceOf(name) { const n = admgrNorm(name); const p = admgrProdIdx().find(p => n.includes(p.n)); return p ? p.price : 0; }
 const admgrPriceBand = pr => !pr ? '가격 미상' : pr < 30000 ? '3만 미만' : pr < 50000 ? '3~5만' : pr < 80000 ? '5~8만' : '8만 이상';
-function admgrAdFeat(a, base, cre, ai, kinds) {   // 소재 하나의 비교 축 값. kinds = Map(광고 id → is_video) — 썸네일 조회 응답 (등록 기록·퍼널 없는 옛 소재의 형식 폴백)
-  const c = cre.get(String(a.id)), r = admgrFunnelRates(a), tg = ai && ai.tags && ai.tags[a.id], kv = kinds && kinds.get(String(a.id));
+function admgrAdFeat(a, base, cre, ai, kinds, vtags) {   // 소재 하나의 비교 축 값. kinds = Map(광고 id → is_video) — 썸네일 조회 응답 (등록 기록·퍼널 없는 옛 소재의 형식 폴백)
+  const c = cre.get(String(a.id)), r = admgrFunnelRates(a), kv = kinds && kinds.get(String(a.id));
+  const vf = admgrVideoFeat(vtags && vtags[a.id]);   // 영상 태그가 있으면 썸네일 태그보다 우선 (영상 전체를 본 결과)
+  const tg = vf || (ai && ai.tags && ai.tags[a.id]);
   const fmt = c ? (c.kind === 'video' ? '릴스' : '이미지') : kv != null ? (kv ? '릴스' : '이미지') : a.v3 > 0 ? '릴스' : a.imp > 0 ? '이미지' : '미상';
   const msg = c && c.text && c.text.message ? String(c.text.message).normalize('NFC') : '';
   return { fmt, tag: (c && admgrTagOf(c.file_name)) || '미기입', price: admgrPriceBand(admgrPriceOf(a.adset_name || a.name)),
-    who: c ? (whoName(c.created_by_name, c.created_by_email) || '?') : '외부 등록', hook: msg ? (ADMGR_HOOK_RE.test(msg) ? '훅 있음' : '훅 없음') : '문구 미상',
+    who: c ? (whoName(c.created_by_name, c.created_by_email) || '?') : '외부 등록', hook: msg ? (ADMGR_HOOK_RE.test(msg) ? '훅 있음' : '훅 없음') : '문구 미상', vhook: vf ? vf.hook : null,
     diag: admgrFunnelDiag(a, base), ctr: r ? r.ctr : null, ts: r ? r.ts : null, cvr: r ? r.cvr : null, roas: a.spend > 0 ? (a.value || 0) / a.spend : 0,
-    cut: tg ? (tg.cut || '미상') : null, text: tg ? (tg.text ? '자막 있음' : '자막 없음') : null, size: tg ? (tg.size ? '사이즈 숫자 노출' : '없음') : null };
+    cut: tg ? (tg.cut || '미상') : null, text: tg ? (tg.text ? '자막 있음' : '자막 없음') : null, size: tg ? (tg.size ? '사이즈 숫자 노출' : '없음') : null,
+    cutsB: vf ? vf.cutsB : null, tagSrc: vf ? '영상 전체' : tg ? '썸네일' : null };
 }
-const ADMGR_CMP_AXES = [['fmt', '형식'], ['tag', '소구점'], ['price', '가격대'], ['who', '등록자'], ['hook', '문구 훅(사이즈·체형)'], ['cut', 'AI 컷 유형'], ['text', 'AI 자막'], ['size', 'AI 사이즈 노출']];
-function admgrReportCompare(rows, pick, base, cre, ai, kinds) {
-  const F = list => list.map(a => ({ a, f: admgrAdFeat(a, base, cre, ai, kinds) }));
+const ADMGR_CMP_AXES = [['fmt', '형식'], ['tag', '소구점'], ['price', '가격대'], ['who', '등록자'], ['hook', '문구 훅(사이즈·체형)'], ['cut', 'AI 장면 유형'], ['text', 'AI 자막'], ['size', 'AI 사이즈 노출'], ['vhook', '릴스 훅(첫 1초)'], ['cutsB', '릴스 컷 전환']];
+function admgrReportCompare(rows, pick, base, cre, ai, kinds, vtags) {
+  const F = list => list.map(a => ({ a, f: admgrAdFeat(a, base, cre, ai, kinds, vtags) }));
   const off = F(rows.filter(pick.offAll)), good = F(rows.filter(pick.goodAll));
   const dist = (L, k) => { const m = {}; L.forEach(x => { const v = x.f[k]; if (v == null) return; m[v] = (m[v] || 0) + 1; }); return Object.entries(m).sort((x, y) => y[1] - x[1]); };
   const cnt = (L, k) => L.filter(x => x.f[k] != null).length;   // 축별 분모 — AI 태그는 썸네일 본 소재만 있으므로 그룹 전체 수로 나누면 비율이 틀린다
@@ -295,7 +307,7 @@ function admgrReportBuild(rows, days, today, opt) {
   };
   const secs = ADMGR_RP_SECS.map(([key, title, short, color, note]) => { const list = rows.filter(pick[key]); return { key, title, short, color, note, n: list.length, groups: group(list) }; });
   const o = opt || {}, cre = o.cre || admgr.test.creatives || new Map();
-  const cmp = admgrReportCompare(rows, pick, admgrFunnelBase(rows), cre, o.ai || null, o.kinds || admgr.test.kinds || null);
+  const cmp = admgrReportCompare(rows, pick, admgrFunnelBase(rows), cre, o.ai || null, o.kinds || admgr.test.kinds || null, o.vtags || admgr.test.vtags || null);
   const dirs = admgrReportDirs(cmp, product, pkey);
   const seen = new Set(); const all = [];
   secs.forEach(s => s.groups.forEach(g => g.ads.forEach(a => { if (!seen.has(a.id)) { seen.add(a.id); all.push(a); } })));
@@ -388,7 +400,7 @@ function admgrReportText(rep, mode) {   // mode: 'summary' = 첫 화면만(플�
     L.push('', `■ 왜 그런가`, ` · 우수 공통점: ${c.commonGood.slice(0, 3).join(' · ') || (c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}`, ` · OFF 공통점: ${c.commonOff.slice(0, 3).join(' · ') || (c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}`);
     c.reasons.forEach(r => L.push(` · 실패 이유 ${r.label} ${r.n} — ${r.fix}`));
     L.push('', `■ 비교표 (OFF ${c.off.n} vs 우수 ${c.good.n})${c.thin ? ' — 표본 5개 미만은 참고만' : ''}`);
-    c.axes.forEach(x => L.push(` · ${x.label} — OFF: ${dl(x.off)} | 우수: ${dl(x.good)}${/^AI/.test(x.label) ? ` (태그 OFF ${x.offN}·우수 ${x.goodN}개 기준)` : ''}`));
+    c.axes.forEach(x => L.push(` · ${x.label} — OFF: ${dl(x.off)} | 우수: ${dl(x.good)}${/^AI|^릴스/.test(x.label) ? ` (태그 OFF ${x.offN}·우수 ${x.goodN}개 기준)` : ''}`));
     L.push(` · 중앙값 — CTR OFF ${pct(c.off.med.ctr)} | 우수 ${pct(c.good.med.ctr)} · 3초 재생 OFF ${pct(c.off.med.ts)} | 우수 ${pct(c.good.med.ts)} · 전환율 OFF ${pct(c.off.med.cvr)} | 우수 ${pct(c.good.med.cvr)} · ROAS OFF ${c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—'} | 우수 ${c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—'}`);
   }
   L.push('');
@@ -411,7 +423,7 @@ function admgrReportCmpHtml(rep) {   // 비교표 (접힘 안 내용)
   const cell = (d, n) => d.map(([v, k]) => `<span style="display:inline-block;margin:1px 6px 1px 0;white-space:nowrap;">${esc(v)} <b>${k}</b><span style="color:#9ca3af;font-size:.66rem;">(${n ? Math.round(k / n * 100) : 0}%)</span></span>`).join(' ') || '<span style="color:#c4c9d4;">—</span>';
   const td = 'padding:3px 8px;border-top:1px solid #f1f2f6;white-space:normal;';
   return `<table style="border-collapse:collapse;width:100%;font-size:.76rem;table-layout:fixed;"><colgroup><col style="width:110px;"><col><col></colgroup><tr><th style="text-align:left;padding:3px 8px 3px 0;color:#6b7280;font-weight:600;">항목</th><th style="text-align:left;padding:3px 8px;color:#dc2626;font-weight:700;">OFF ${c.off.n}개</th><th style="text-align:left;padding:3px 8px;color:#16a34a;font-weight:700;">우수 ${c.good.n}개</th></tr>
-    ${c.axes.map(x => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${x.label}${/^AI/.test(x.label) ? `<div style="font-size:.62rem;color:#c4c9d4;">태그 ${x.offN}·${x.goodN}개</div>` : ''}</td><td style="${td}">${cell(x.off, x.offN)}</td><td style="${td}">${cell(x.good, x.goodN)}</td></tr>`).join('')}
+    ${c.axes.map(x => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${x.label}${/^AI|^릴스/.test(x.label) ? `<div style="font-size:.62rem;color:#c4c9d4;">태그 ${x.offN}·${x.goodN}개</div>` : ''}</td><td style="${td}">${cell(x.off, x.offN)}</td><td style="${td}">${cell(x.good, x.goodN)}</td></tr>`).join('')}
     ${[['CTR 중앙값', pct(c.off.med.ctr), pct(c.good.med.ctr)], ['3초 재생 중앙값', pct(c.off.med.ts), pct(c.good.med.ts)], ['전환율 중앙값', pct(c.off.med.cvr), pct(c.good.med.cvr)], ['ROAS 중앙값', c.off.med.roas != null ? c.off.med.roas.toFixed(1) : '—', c.good.med.roas != null ? c.good.med.roas.toFixed(1) : '—']].map(([l, a, b]) => `<tr><td style="padding:3px 8px 3px 0;border-top:1px solid #f1f2f6;color:#4b5563;">${l}</td><td style="${td}"><b>${a}</b></td><td style="${td}"><b>${b}</b></td></tr>`).join('')}</table>
     ${c.thin ? '<div style="font-size:.7rem;color:#b45309;margin-top:6px;">표본 5개 미만은 참고만 — 기간을 30일로 늘리면 정확해져요</div>' : ''}`;
 }
@@ -482,9 +494,10 @@ async function admgrTestReport() {
     if (!admgr.products && !admgr.productsLoading) await admgrLoadProducts();
     try { const r = await sbCall('client-log', { action: 'state_get', key: 'test_report_ai' }); t.ai = r && r.data ? r.data : null; } catch (e) { t.ai = null; }
     try { const r = await sbCall('client-log', { action: 'state_get', key: 'test_todo' }); t.todoSaved = r && r.data && Array.isArray(r.data.items) ? r.data.items : []; } catch (e) { t.todoSaved = []; }
+    try { const r = await sbCall('client-log', { action: 'state_get', key: 'video_tags' }); t.vtags = r && r.data && r.data.tags ? r.data.tags : null; } catch (e) { t.vtags = null; }
   }
   const withTodo = r => { r.todoSaved = t.todoSaved || []; const S = admgrReportSummary(r); r.todo = { items: S.todo, prev: S.prev }; return r; };   // 저장본과 합친 할 일을 rep에 고정 (체크 토글이 이 객체를 바꾼다)
-  let rep = withTodo(admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai }));
+  let rep = withTodo(admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai, vtags: t.vtags }));
   t.report = rep;
   admgrRp.cur = { title: `테스트 소재 리포트 ${rep.from}~${rep.to}`, text: () => admgrReportText(rep), textSummary: () => admgrReportText(rep, 'summary'), html: () => admgrReportHtml(rep, t.thumbs) };
   $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs);
@@ -495,7 +508,7 @@ async function admgrTestReport() {
       (r.ads || []).forEach(a => { t.thumbs[a.id] = a.image || a.thumb || ''; t.kinds = t.kinds || new Map(); t.kinds.set(String(a.id), !!a.is_video); });
     }
     rep.all.forEach(a => { if (!(a.id in t.thumbs)) t.thumbs[a.id] = ''; });   // 못 찾은 소재는 재조회 안 함
-    if (need.length && t.report === rep) { rep = withTodo(admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai })); t.report = rep; admgrRp.cur.text = () => admgrReportText(rep); admgrRp.cur.textSummary = () => admgrReportText(rep, 'summary'); admgrRp.cur.html = () => admgrReportHtml(rep, t.thumbs); $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs); }   // 형식(릴스/이미지) 폴백이 채워졌으니 다시 계산
+    if (need.length && t.report === rep) { rep = withTodo(admgrReportBuild(admgrTestRowSets().vis, days, todayStr(0), { ai: t.ai, vtags: t.vtags })); t.report = rep; admgrRp.cur.text = () => admgrReportText(rep); admgrRp.cur.textSummary = () => admgrReportText(rep, 'summary'); admgrRp.cur.html = () => admgrReportHtml(rep, t.thumbs); $('rp-body').innerHTML = admgrReportHtml(rep, t.thumbs); }   // 형식(릴스/이미지) 폴백이 채워졌으니 다시 계산
   } catch (e) { toast('썸네일 조회 실패 (텍스트는 정상): ' + e.message); }
   admgrTodoSave(rep);   // 이번 리포트의 할 일을 저장본에 합쳐 둔다 (addedAt 기록 → 다음 주 '지난주 할 일' 집계)
   // 숫자 리포트 + OFF·우수 소재 목록(썸네일 주소)을 계정 공유 상태에 저장 → 바탕화면 '테스트리포트-해석'이 읽어 AI 태그·해석을 붙인다

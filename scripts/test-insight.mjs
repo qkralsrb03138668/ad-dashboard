@@ -22,6 +22,8 @@ async function api(fn, params, body) {
 }
 const dry = process.argv.includes('--dry');
 const cur = await api('client-log', { action: 'state_get', key: 'test_report' });
+const vt = (await api('client-log', { action: 'state_get', key: 'video_tags' }).catch(() => ({}))).data;
+const vtags = (vt && vt.tags) || {};   // 릴스는 프레임 전체를 본 태그가 있으면 그것을 쓴다 (video-tags.mjs)
 if (!cur.data || !cur.data.text) { console.error('❌ 저장된 리포트가 없어요 — 대시보드 테스트 소재 탭에서 [리포트]를 먼저 열어 주세요'); process.exit(1); }
 const r = cur.data;
 console.log(`📋 리포트 ${r.from}~${r.to} (${r.days}일, ${String(r.at).slice(0, 16).replace('T', ' ')} 저장) — OFF ${r.ads.filter(a => a.group === 'off').length}개 · 우수 ${r.ads.filter(a => a.group === 'good').length}개`);
@@ -60,16 +62,20 @@ fs.rmSync(dir, { recursive: true, force: true });
 
 /* ── 3) 태그 교차표 (그룹 × 컷·자막·사이즈·얼굴·배경) ── */
 const cross = (key, fn) => { const m = { off: {}, good: {} }; r.ads.forEach(a => { const t = tags[a.id]; if (!t) return; const v = fn(t); m[a.group][v] = (m[a.group][v] || 0) + 1; }); const line = g => Object.entries(m[g]).sort((x, y) => y[1] - x[1]).map(([v, n]) => `${v} ${n}`).join(' · ') || '—'; return ` · ${key} — OFF: ${line('off')} | 우수: ${line('good')}`; };
+const vLines = r.ads.filter(a => vtags[a.id]).map(a => { const v = vtags[a.id]; const subs = (v.subtitles || []).map(x => x.text).filter(Boolean).slice(0, 3).join(' / ');
+  return ` - [${a.group === 'good' ? '우수' : 'OFF'}] ${a.name.slice(0, 34)} · ${v.duration}초 · 훅 ${v.hook}(${v.hook_desc || ''}) · 장면 ${(v.scenes || []).map(x => x.kind).join('→')} · 컷 ${v.cuts} · ${v.motion} · 사이즈숫자 ${v.size_number && v.size_number.shown ? (v.size_number.t + '초') : '없음'} · 자막 "${subs}" · 진단 ${a.diag} · ROAS ${a.roas} · 구매 ${a.purchases}`; });
+const vTable = vLines.length ? ['', '[릴스 영상 전체(프레임 0~3초 0.5초 간격 + 이후 3초 간격)를 보고 단 태그 — 이 소재들은 첫 장면이 아니라 구성 전체 기준]', ...vLines].join('\n') : '';
 const table = Object.keys(tags).length ? ['[AI가 썸네일을 보고 단 태그 — 릴스는 첫 장면 기준]',
   cross('컷 유형', t => t.cut), cross('자막·글자', t => t.text ? '있음' : '없음'), cross('사이즈 숫자 노출', t => t.size ? '있음' : '없음'), cross('얼굴 노출', t => t.face ? '있음' : '없음'), cross('배경', t => t.bg),
   '', ...r.ads.filter(a => tags[a.id]).map(a => { const t = tags[a.id]; return ` - [${a.group === 'good' ? '우수' : 'OFF'}] ${a.name.slice(0, 40)} · ${a.fmt} · ${t.cut}${t.text ? '·자막' : ''}${t.size ? '·사이즈숫자' : ''} · ${t.note} · 진단 ${a.diag} · ROAS ${a.roas} · 구매 ${a.purchases}`; })].join('\n')
   : '(썸네일 태그 없음 — 숫자만으로 해석)';
+const tableAll = table + vTable;
 
 /* ── 4) 해석 ── */
 const SYS = `너는 여성 의류 쇼핑몰 '다나로브'의 메타 광고 소재 분석가다. 입력은 테스트 소재 리포트(숫자 비교·실패 이유 분포·규칙으로 만든 방향)와 AI가 썸네일을 보고 단 태그 표다.
 규칙
 - 리포트와 태그에 있는 것만 근거로 쓴다. 표본이 3개 미만인 항목은 "아직 판단하기 이르다"고 말한다. 추측을 사실처럼 쓰지 않는다.
-- 릴스 태그는 첫 장면(썸네일) 기준이라는 걸 알고 말한다. 첫 1초가 3초 재생을 가르므로 첫 장면 공통점은 의미가 있다.
+- 태그 표는 두 종류다: 썸네일 1장 기준(이미지·태그 없는 릴스)과 릴스 영상 전체 기준(프레임 시퀀스). 릴스는 영상 전체 태그를 우선 근거로 쓰고, 첫 1초 훅과 3초 재생율을 연결해 말한다.
 - 직원이 읽는 글: 성과를 먼저 인정하고 다음 행동을 제안하는 톤. 대비형 지적("~보다 못하다"), 단정적 평가, 이모지 금지. 한 줄 한 문장, 짧게. 전체 22줄 이내.
 - 참고 공식(회의 확정): 잘 터진 소재 = 체형커버 상품 + 사이즈 숫자 훅 + 시연 컷.
 출력 형식 — 아래 여섯 제목을 이 글자 그대로 쓰고(괄호 설명은 쓰지 않는다), 제목 아래에 줄만 쓴다. 다른 말은 없이.
@@ -82,11 +88,11 @@ const SYS = `너는 여성 의류 쇼핑몰 '다나로브'의 메타 광고 소�
 분량: OFF 공통점 최대 3줄(숫자·태그 인용) · 실패 이유 최대 3줄(퍼널 단계와 연결) · 우수 공통점 최대 3줄 · 우수 이유 최대 2줄 · 추가소재 방향은 상품별 최대 6줄로 "상품명 — 무엇을 몇 개" 형식 · 주의 최대 2줄.`;
 console.log('🧠 해석 생성 중…');
 let text;
-try { text = (await runClaude(`아래 테스트 소재 리포트와 태그 표를 해석해 줘.\n\n${r.text}\n\n${table}`, ['--append-system-prompt', SYS])).trim(); }
+try { text = (await runClaude(`아래 테스트 소재 리포트와 태그 표를 해석해 줘.\n\n${r.text}\n\n${tableAll}`, ['--append-system-prompt', SYS])).trim(); }
 catch (e) { console.error('❌ ' + e.message); process.exit(1); }
-console.log('\n' + table + '\n\n' + text + '\n');
+console.log('\n' + tableAll + '\n\n' + text + '\n');
 if (dry) { console.log('(--dry: 저장 안 함)'); process.exit(0); }
 const prev = await api('client-log', { action: 'state_get', key: 'test_report_ai' });
-const saved = await api('client-log', { action: 'state_set' }, { key: 'test_report_ai', base: prev.ver || null, data: { text, table, tags, at: new Date().toISOString(), from: r.from, to: r.to } });
+const saved = await api('client-log', { action: 'state_set' }, { key: 'test_report_ai', base: prev.ver || null, data: { text, table: tableAll, tags, at: new Date().toISOString(), from: r.from, to: r.to } });
 if (saved.conflict) { console.error('⚠ 다른 사람이 방금 저장해서 덮어쓰지 않았어요 — 다시 실행해 주세요'); process.exit(1); }
 console.log(`✅ 저장 완료 (태그 ${Object.keys(tags).length}개) — 대시보드에서 테스트 소재 리포트를 다시 열면 붙어요`);

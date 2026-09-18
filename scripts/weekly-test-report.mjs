@@ -79,7 +79,9 @@ await api('client-log', { action: 'state_set' }, { key: 'test_report', base: cur
   out.todo.forEach(x => { const o = m.get(x.key); m.set(x.key, { key: x.key, name: x.name, text: x.text, kind: x.kind, why: x.why || '', done: o ? !!o.done : false, doneAt: o ? (o.doneAt || null) : null, doneBy: o ? (o.doneBy || '') : '', addedAt: (o && o.addedAt) || x.addedAt }); });   // 완료 표시는 서버값 그대로 — 자동 실행이 사람 체크를 지우지 않게
   await api('client-log', { action: 'state_set' }, { key: 'test_todo', base: t.ver || null, data: { items: [...m.values()] } });
 }
-console.log('✅ 테스트 리포트 저장 → AI 태그·해석 시작');
+console.log('✅ 테스트 리포트 저장 → 릴스 영상 프레임 분석 시작');
+spawnSync(process.execPath, [path.join(root, 'scripts/video-tags.mjs'), '20'], { stdio: 'inherit', cwd: root });   // 영상 태그 먼저 (test-insight가 이 태그를 표에 싣는다)
+console.log('✅ 영상 태그 → AI 해석 시작');
 const r = spawnSync(process.execPath, [path.join(root, 'scripts/test-insight.mjs')], { stdio: 'inherit', cwd: root });
 
 /* ── 베스트 소재 리포트 (7일) — 같은 vm 위에서. 순이익(반품률 60일)·추세(스냅샷 8일)·테스트 리포트가 단 AI 태그 재사용 ── */

@@ -222,6 +222,18 @@ Deno.serve(async (req) => {
       const r = await dbRest("product_alias?select=core_name,product_no,product_name");
       return json({ rows: r.ok ? await r.json() : [] });
     }
+    // 영상 원본 주소 (2026-09-18) — 릴스 프레임 분석용. 로컬 스크립트가 받아서 프레임을 뽑는다. source가 막히면 Meta가 만든 썸네일 여러 장으로 대체
+    if (action === "video_src") {
+      const id = url.searchParams.get("video_id") ?? "";
+      if (!/^\d{5,25}$/.test(id)) return json({ error: "video_id 형식 오류" }, 400);
+      let src = "", length = 0, err = "";
+      try { const v = await graph(id, { params: { fields: "source,length,created_time" } }); src = String(v.source ?? ""); length = Number(v.length ?? 0); }
+      catch (e) { err = String((e as Error).message).slice(0, 200); }
+      let thumbs: string[] = [];
+      try { const t = await graph(`${id}/thumbnails`, { params: { fields: "uri,is_preferred", limit: "20" } }); thumbs = ((t.data ?? []) as Rec[]).map((x) => String(x.uri ?? "")).filter(Boolean); }
+      catch { /* 썸네일 목록 실패는 무해 */ }
+      return json({ video_id: id, source: src, length, thumbnails: thumbs, error: err || undefined });
+    }
     if (action === "video_status") {
       const id = url.searchParams.get("video_id") ?? "";
       if (!/^\d{5,25}$/.test(id)) return json({ error: "video_id 형식 오류" }, 400);
