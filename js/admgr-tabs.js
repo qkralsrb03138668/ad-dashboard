@@ -1263,7 +1263,7 @@ function renderAdmgrTest() {
     <button class="filter-tab" style="color:#15803d;" onclick="admgrTestXlsx()" title="지금 보이는 표 그대로 (필터·검색·정렬 반영)"><i class="fa-solid fa-file-arrow-down"></i> 엑셀</button>
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrTestReport()" title="상품팀 전달용 — 기간 내 판정·추가소재 현황을 상품별로 정리 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 리포트</button>
   </div>${judgeBox}
-  <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (60초 캐시)${d.truncated ? ' · 일부 생략(세트가 너무 많아요)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 정렬 안 고르면 <b>판정 필요 순</b></div>`;
+  <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (5분 캐시)${d.truncated ? ' · 일부 생략(세트가 너무 많아요)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 정렬 안 고르면 <b>판정 필요 순</b></div>`;
 
   const tileBtn = (key, label, val, sub) => `<div class="kpi-tile ${t.filter === key && !t.showHidden ? 'kt-hero' : ''}" style="cursor:pointer;" onclick="admgrTestFilter('${key}')" title="누르면 걸러요"><div class="kt-label">${label}</div><div class="kt-value" style="font-size:1.15rem;">${val}</div>${sub ? `<div class="kt-sub">${sub}</div>` : ''}</div>`;
   const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
