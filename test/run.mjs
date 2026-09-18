@@ -362,7 +362,59 @@ test('admgrReportBuild(cmp·dirs): OFF·우수 공통점 비교, 실패 이유 �
   assert.equal(S.kpi.good + ',' + S.kpi.off + ',' + S.kpi.rate, '3,3,50');
   assert.ok(S.todo[0].name === '루즈핏 니트' && S.todo.some(t => t.kind === 'off'));
   const html = g('admgrReportHtml')(rep, {});
-  assert.ok(html.includes('이번 주 할 일') && html.includes('왜 그런가') && html.includes('<details') && html.includes('AI 해석 본문') && html.includes('비교표 전체 보기'));
+  assert.ok(html.includes('이번 주 할 일') && html.includes('왜 안 터졌나') && html.includes('<details') && html.includes('AI 해석 본문') && html.includes('OFF·우수 공통점과 비교표 전체'));
+});
+
+test('admgrReportBuild(pro): 태그 기여도·예산 누수·팀 속도·회고·식음·패턴', () => {
+  vm.runInContext("admgr.products = [{ no: 1, name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);
+  const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: m.set, name: 'ad' + id, reg_date: m.reg || '2026-09-10', gone: false, effective_status: m.es || 'ACTIVE', status: m.es || 'ACTIVE',
+    spend: m.spend ?? 50000, purchases: m.pur ?? 0, value: m.val ?? 0, imp: m.imp ?? 10000, clicks: m.clicks ?? 100, v3: m.v3 ?? 0, lpv: m.lpv ?? 90, atc: m.atc ?? 2, meta: m.meta || {} });
+  const good = { verdict: 'good', verdict_at: '2026-09-11T00:00:00Z' };
+  const rows = [
+    ad('1', { set: '루즈핏 니트_R1_사이즈_28_260910_test', pur: 8, val: 400000, v3: 3500, clicks: 300, lpv: 280, meta: good }),
+    ad('2', { set: '루즈핏 니트_R2_사이즈_28_260910_test', pur: 7, val: 350000, v3: 3200, clicks: 280, lpv: 260, meta: good }),
+    ad('3', { set: '루즈핏 니트_R3_핏_28_260910_test', pur: 6, val: 300000, v3: 3000, clicks: 250, lpv: 240, meta: good }),
+    ad('4', { set: '스커트_P1_20_260910_test', es: 'PAUSED', clicks: 40 }),
+    ad('5', { set: '스커트_P2_20_260910_test', es: 'PAUSED', clicks: 45 }),
+    ad('6', { set: '블라우스_R1_15_260910_test', es: 'PAUSED', v3: 800, clicks: 250, lpv: 240 }),
+    ad('8', { set: '루즈핏 니트_R0_28_260820_test', reg: '2026-08-20', meta: { verdict: 'good', verdict_at: '2026-09-02T00:00:00Z' } }),   // 직전 기간 우수 → 회고 대상 (기간 밖이라 기여도엔 안 들어감)
+  ].map(a => ({ ...a, st: g('admgrTestStatusOf')(a, a.meta) }));
+  const cre = new Map([['1', { kind: 'video', file_name: '루즈핏 니트_R1_사이즈_28_260910_test.mov', created_by_name: '김도희', text: { message: '77사이즈도 편해요' } }],
+    ['2', { kind: 'video', file_name: '루즈핏 니트_R2_사이즈_28_260910_test.mov', created_by_name: '김도희', text: { message: '허리 편함' } }],
+    ['3', { kind: 'video', file_name: '루즈핏 니트_R3_핏_28_260910_test.mov', created_by_name: '박민규', text: { message: '체형커버 굿' } }]]);
+  const trend = new Map([['1', [{ day: '2026-09-03', spend: 10000, purchases: 6, value: 370000 }, { day: '2026-09-04', spend: 15000, purchases: 7, value: 380000 }, { day: '2026-09-10', spend: 30000, purchases: 7, value: 385000 }]]]);
+  const rep = g('admgrReportBuild')(rows, 7, '2026-09-12', { cre, trend });
+  const p = rep.pro;
+  assert.equal(p.attr.n + ',' + p.attr.roasAll, '6,3.5');                      // 기간 안 소재 6개 · 지출 30만 대비 매출 105만
+  const A = Object.fromEntries(p.attr.all.map(x => [x.k + ':' + x.v, x]));
+  assert.equal(A['fmt:릴스'].n + ',' + A['fmt:릴스'].roas.toFixed(2), '4,5.25');
+  assert.equal(A['fmt:이미지'].roas, 0);
+  assert.ok(p.attr.up.some(x => x.v === '릴스') && p.attr.down.some(x => x.v === '이미지'));
+  assert.ok(!p.attr.all.some(x => /미기입|미상|외부 등록/.test(String(x.v))), JSON.stringify(p.attr.all.map(x => x.v)));   // 태그 없는 값은 기여도에서 제외
+  assert.equal(p.leak.n + ',' + p.leak.pct, '3,50');                           // 구매 0 소재 3개에 지출 절반
+  assert.equal([p.pipe.perWeek, p.pipe.rate, p.pipe.costPerWin].join(), '3,50,50000');
+  assert.equal([p.dec.n, p.dec.good, p.dec.prev.n, p.dec.prev.alive, p.dec.prev.held].join(), '3,3,1,1,0');
+  assert.equal(p.fatigue.n, 1);                                                // 최근 7일 ROAS 0.6 < 누적 8.0의 절반
+  assert.ok(p.play.verified.some(x => x.v === '릴스'), JSON.stringify(p.play.verified));
+  assert.equal(p.conf.length, 0);                                              // 평가중(판정 후보) 소재 없음
+  const txt = g('admgrReportText')(rep);
+  assert.ok(txt.includes('■ 지금 손 쓸 것') && txt.includes('■ 성과를 만든 것') && txt.includes('■ 다음 소재 규칙') && txt.includes('식음 1개'), txt.slice(0, 900));
+  assert.ok(g('admgrReportText')(rep, 'summary').includes('■ 지금 손 쓸 것'));       // 경보는 요약 복사에도
+  const html = g('admgrReportHtml')(rep, {});
+  assert.ok(html.includes('지금 손 쓸 것') && html.includes('성과를 만든 것') && html.includes('판정 신뢰도') && html.includes('팀 속도와 결정') && html.includes('다음 소재 규칙') && html.includes('부록 — 지표 정의와 한계'));
+  assert.ok(html.split('산점도').length === 2 && html.includes('내용이 겹쳐 뺐어요'));    // 시안에서 덜어낸 것 — 부록의 '안 넣은 것' 한 줄로만 남는다
+});
+
+test('admgrReportConf: 구매 표본으로 ROAS 범위, 기준선 넘으면 뒤집힐 수 있음', () => {
+  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);   // 손익분기 1.79 · 우수 2.68
+  const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: '루즈핏 니트_R' + id + '_28_260910_test', name: 'ad' + id, reg_date: '2026-09-01', st: 'eval', gone: false,
+    effective_status: 'ACTIVE', spend: 50000, purchases: m.pur, value: m.val, meta: {} });
+  const C = g('admgrReportConf')([ad('1', { pur: 6, val: 150000 }), ad('2', { pur: 30, val: 250000 }), ad('3', { pur: 0, val: 0 })]);
+  const m = Object.fromEntries(C.map(x => [x.a.id, x]));
+  assert.equal(m['1'].lvl + ',' + m['1'].risky, '참고 가능,true');     // ROAS 3.0인데 범위 1.8~4.2 → 우수 기준 2.68 아래까지 걸친다
+  assert.equal(m['2'].lvl + ',' + m['2'].risky, '판정 가능,false');    // 구매 30 → 범위 4.1~5.9, 기준선 위
+  assert.equal(m['3'].lvl + ',' + m['3'].r.k, '구매 없음,off');
+  assert.ok(Math.abs(m['1'].lo - 1.775) < 0.01 && Math.abs(m['1'].hi - 4.225) < 0.01);
 });
 
 test('admgrTodoMerge: 저장본 done 유지 · 지난주 미완료 이어받기 · 지난주 완료율', () => {

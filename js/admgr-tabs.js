@@ -307,12 +307,20 @@ function admgrReportBuild(rows, days, today, opt) {
   };
   const secs = ADMGR_RP_SECS.map(([key, title, short, color, note]) => { const list = rows.filter(pick[key]); return { key, title, short, color, note, n: list.length, groups: group(list) }; });
   const o = opt || {}, cre = o.cre || admgr.test.creatives || new Map();
-  const cmp = admgrReportCompare(rows, pick, admgrFunnelBase(rows), cre, o.ai || null, o.kinds || admgr.test.kinds || null, o.vtags || admgr.test.vtags || null);
+  const base = admgrFunnelBase(rows), ai = o.ai || null, kinds = o.kinds || admgr.test.kinds || null, vtags = o.vtags || admgr.test.vtags || null;
+  const cmp = admgrReportCompare(rows, pick, base, cre, ai, kinds, vtags);
   const dirs = admgrReportDirs(cmp, product, pkey);
   const seen = new Set(); const all = [];
   secs.forEach(s => s.groups.forEach(g => g.ads.forEach(a => { if (!seen.has(a.id)) { seen.add(a.id); all.push(a); } })));
   [...cmp.off.items, ...cmp.good.items].forEach(x => { if (!seen.has(x.a.id)) { seen.add(x.a.id); all.push(x.a); } });   // 썸네일 조회·AI 태그 대상에 포함
-  return { from, to: today, days, secs, all, cmp, dirs, ai: o.ai || null };
+  // 보강 섹션 — 기간에 활동한 소재(기간 안 등록 또는 기간 안 판정) 전체가 대상
+  const secMap = Object.fromEntries(secs.map(s => [s.key, s]));
+  const items = rows.filter(a => inWin(a.reg_date) || inWin(vAt(a))).map(a => ({ a, f: admgrAdFeat(a, base, cre, ai, kinds, vtags) }));
+  const attr = admgrReportAttr(items);
+  const pro = { items, attr, conf: admgrReportConf(rows), fatigue: admgrReportFatigue(rows, o.trend || (admgr.test || {}).trend, today),
+    leak: admgrReportLeak(items), pipe: admgrReportPipe(secMap, cmp, days, secMap.meh.n), dec: admgrReportDec(rows, from, today, days),
+    play: admgrReportPlay(attr), heat: admgrReportHeat(items) };
+  return { from, to: today, days, secs, all, cmp, dirs, pro, ai };
 }
 function admgrReportLine(a) {
   const dp = admgrDPlus(a);
@@ -369,6 +377,222 @@ async function admgrTodoSave(rep, stateKey) {
     } catch (e) { if (tries) toast('할 일 저장 실패: ' + e.message); }
   }
 }
+/* ═══ 대행사급 보강 (2026-09-18) — 시안 8섹션에서 "회의 결정을 바꾸는 것"만 남긴 판.
+   뺀 것: 산점도(CTR×전환율 — 태그 기여도·비교표와 중복) · 지표 스코어카드(비교표의 중앙값 줄이 대신) · 파이프라인 타일 8개→3개.
+   접은 것: 소구점×형식 히트맵 · 식음 소재 목록 · 부록. 신뢰도는 전체 소재가 아니라 판정 후보만.
+   ponytail: 기여도는 가중 ROAS(지출 대비 매출 합계) 비교까지 — 통계 검정은 표본이 쌓이면 */
+const ADMGR_ATTR_AXES = [['tag', '소구점'], ['fmt', '형식'], ['hook', '문구 훅'], ['vhook', '릴스 훅(첫 1초)'], ['cut', '장면 유형'], ['cutsB', '릴스 컷 전환'], ['price', '가격대'], ['text', '자막'], ['size', '사이즈 숫자']];
+const ADMGR_ATTR_MIN_SPEND = 10000;   // 지출이 이보다 적으면 ROAS가 튀어서 기여도 계산에서 제외
+const ADMGR_ATTR_SKIP = /미상|미기입|외부 등록/;
+/* 같은 소재 묶음을 가리키는 태그들(소재 수·지출·매출이 완전히 같음)은 한 줄로 접고 나머지는 '＝' 뒤에 붙인다 — 회의에서 같은 말 5줄을 읽지 않게 */
+const admgrAttrFold = L => {
+  const m = new Map();
+  L.forEach(x => { const k = x.n + '|' + Math.round(x.spend) + '|' + Math.round(x.value); const o = m.get(k);
+    if (o) { if (o.also.length < 3) o.also.push(String(x.v)); else o.more = (o.more || 0) + 1; } else m.set(k, { ...x, also: [] }); });
+  return [...m.values()];
+};
+function admgrReportAttr(items) {   // 태그 축별 기여도 — 값별 가중 ROAS를 전체 ROAS와 비교
+  const S = items.filter(x => (x.a.spend || 0) >= ADMGR_ATTR_MIN_SPEND);
+  const spend = S.reduce((s, x) => s + (x.a.spend || 0), 0), value = S.reduce((s, x) => s + (x.a.value || 0), 0);
+  const roasAll = spend > 0 ? value / spend : 0, all = [];
+  ADMGR_ATTR_AXES.forEach(([k, label]) => {
+    const m = new Map();
+    S.forEach(x => {
+      const v = x.f[k]; if (v == null || ADMGR_ATTR_SKIP.test(String(v))) return;
+      const o = m.get(v) || { v, n: 0, spend: 0, value: 0, purch: 0 };
+      o.n++; o.spend += x.a.spend || 0; o.value += x.a.value || 0; o.purch += x.a.purchases || 0; m.set(v, o);
+    });
+    [...m.values()].forEach(o => { if (o.n < 2 || o.spend <= 0) return; const roas = o.value / o.spend; all.push({ k, label, ...o, roas, lift: roas - roasAll, share: spend > 0 ? o.spend / spend : 0 }); });
+  });
+  all.sort((x, y) => y.lift - x.lift);
+  return { n: S.length, spend, value, roasAll, all, up: admgrAttrFold(all.filter(x => x.lift > 0)).slice(0, 5),
+    down: admgrAttrFold(all.filter(x => x.lift < 0)).reverse().slice(0, 4) };
+}
+/* 판정 신뢰도 — 구매 수가 적으면 ROAS는 우연이 크다. 오차(상대표준오차 1/√구매)로 범위를 보여주고, 범위가 판정 기준선을 넘으면 '뒤집힐 수 있음' */
+function admgrReportConf(rows) {
+  const L = rows.filter(a => a.st === 'eval').map(a => ({ a, r: admgrRecommend(a) })).filter(x => x.r && x.r.k !== 'watch');
+  const rank = { off: 0, good: 0, wait: 1 };
+  L.sort((x, y) => (rank[x.r.k] - rank[y.r.k]) || (y.a.spend || 0) - (x.a.spend || 0));
+  return L.slice(0, 6).map(({ a, r }) => {
+    const p = a.purchases || 0, roas = a.spend > 0 ? (a.value || 0) / a.spend : 0, se = p > 0 ? 1 / Math.sqrt(p) : null;
+    const lo = se ? roas * (1 - se) : null, hi = se ? roas * (1 + se) : null;
+    return { a, r, p, roas, lo, hi,
+      lvl: p >= 10 ? '판정 가능' : p >= 5 ? '참고 가능' : p >= 1 ? '표본 부족' : '구매 없음',
+      cls: p >= 10 ? 'badge-green' : p >= 5 ? 'badge-blue' : p >= 1 ? 'badge-yellow' : 'badge-gray',
+      risky: !!(se && ((r.k === 'good' && lo < r.goodR) || (r.k === 'off' && hi > r.offR))) };
+  });
+}
+/* 식음(피로) 경보 — 일별 스냅샷 기준. 최근 7일 ROAS가 누적의 절반 미만(admgrTrend.tired)이거나, 누적은 손익분기 이상인데 최근 7일이 손익분기 미만 */
+function admgrReportFatigue(rows, trend, today) {
+  if (!trend) return { n: 0, checked: 0, items: [] };
+  const L = rows.filter(a => !a.gone && ['eval', 'good', 'meh'].includes(a.st))
+    .map(a => { const tr = admgrTrend(a, trend, today), be = admgrBreakEven(a); return { a, tr, be, line: be ? be.be : admgrTJudge.offRoas }; })
+    .filter(x => x.tr && x.tr.recent && x.tr.days >= 3);
+  const hit = L.filter(x => x.tr.tired || (x.tr.recent.spend >= admgrTJudge.spend && x.tr.cumRoas >= x.line && x.tr.recentRoas < x.line))
+    .sort((x, y) => y.tr.recent.spend - x.tr.recent.spend);
+  return { n: hit.length, checked: L.length, items: hit };
+}
+/* 예산 누수 — 구매가 0이거나 손해 진단(구매 있어도 손익분기 미만)인 소재에 들어간 지출 */
+function admgrReportLeak(items) {
+  const tot = items.reduce((s, x) => s + (x.a.spend || 0), 0);
+  const bad = items.filter(x => ['loss', 'detail'].includes(x.f.diag.k) || ((x.a.purchases || 0) === 0 && (x.a.spend || 0) >= admgrTJudge.spend));
+  const spend = bad.reduce((s, x) => s + (x.a.spend || 0), 0);
+  return { tot, n: bad.length, spend, pct: tot > 0 ? Math.round(spend / tot * 100) : 0,
+    top: bad.slice().sort((x, y) => (y.a.spend || 0) - (x.a.spend || 0)).slice(0, 3).map(x => ({ name: admgrProductOf(x.a), spend: x.a.spend || 0, diag: x.f.diag.label })) };
+}
+/* 팀 속도 3개 — 주당 테스트 수 · 우수율 · 승자당 지출 (기간 안 등록 소재 누적 지출 ÷ 기간 안 우수 판정 수) */
+function admgrReportPipe(secs, cmp, days, mehN) {
+  const newAds = [...secs.fresh.groups, ...secs.ended.groups].flatMap(g => g.ads);
+  const spendNew = newAds.reduce((s, a) => s + (a.spend || 0), 0);
+  const judged = cmp.off.n + cmp.good.n + (mehN || 0);
+  return { n: newAds.length, perWeek: newAds.length / Math.max(1, days / 7), spendNew,
+    rate: judged ? Math.round(cmp.good.n / judged * 100) : null, costPerWin: cmp.good.n ? spendNew / cmp.good.n : null };
+}
+/* 결정 로그 + 회고 — 이번 기간 판정 건수, 직전 같은 길이 기간의 우수 판정이 지금 어떻게 됐나 */
+function admgrReportDec(rows, from, to, days) {
+  const vAt = a => a.meta.verdict_at || a.meta.updated_at;
+  const win = (iso, a, b) => { const d = String(iso || '').slice(0, 10); return !!d && d >= a && d <= b; };
+  const pFrom = admgrShiftDay(from, -days), pTo = admgrShiftDay(from, -1);
+  const cur = rows.filter(a => a.meta.verdict && win(vAt(a), from, to));
+  const prev = rows.filter(a => a.meta.verdict === 'good' && win(vAt(a), pFrom, pTo)).map(a => {
+    const be = admgrBreakEven(a), line = be ? be.be : admgrTJudge.offRoas, roas = a.spend > 0 ? (a.value || 0) / a.spend : 0;
+    return { name: a.adset_name, prod: admgrProductOf(a), alive: !a.gone && a.effective_status === 'ACTIVE', roas, line, held: roas >= line };
+  }).sort((x, y) => y.roas - x.roas);
+  return { n: cur.length, good: cur.filter(a => a.meta.verdict === 'good').length, meh: cur.filter(a => a.meta.verdict === 'meh').length,
+    prev: { from: pFrom, to: pTo, n: prev.length, alive: prev.filter(x => x.alive).length, held: prev.filter(x => x.held).length, items: prev } };
+}
+/* 검증된 패턴(플레이북) — 기여도에서 표본이 쌓인 것만. 이 기간 기준이라 기간을 30일로 늘리면 더 정확 */
+function admgrReportPlay(attr) {
+  return { verified: admgrAttrFold(attr.all.filter(x => x.n >= 4 && x.lift > 0)).slice(0, 5),
+    watching: admgrAttrFold(attr.all.filter(x => x.n >= 2 && x.n <= 3 && x.lift > 0 && x.roas >= attr.roasAll * 1.2)).slice(0, 4),
+    avoid: admgrAttrFold(attr.all.filter(x => x.n >= 3 && x.lift < 0)).reverse().slice(0, 3) };
+}
+/* 소구점 × 형식 히트맵 (접힘) — 조합별 표본이 아직 적어 첫 화면에서 뺐다 */
+function admgrReportHeat(items) {
+  const S = items.filter(x => (x.a.spend || 0) >= ADMGR_ATTR_MIN_SPEND);
+  const fmts = ['이미지', '릴스'], tags = [...new Set(S.map(x => x.f.tag).filter(t => !ADMGR_ATTR_SKIP.test(t)))];
+  const cells = tags.map(t => ({ tag: t, cells: fmts.map(f => { const L = S.filter(x => x.f.tag === t && x.f.fmt === f); const sp = L.reduce((s, x) => s + (x.a.spend || 0), 0), v = L.reduce((s, x) => s + (x.a.value || 0), 0); return { n: L.length, spend: sp, roas: sp > 0 ? v / sp : null }; }) }));
+  return { fmts, tags, cells, ok: tags.length >= 2 };
+}
+
+/* ── 보강 섹션 화면 (첫 화면 = 기여도 · 신뢰도 · 팀 속도 · 패턴, 나머지는 접힘) ── */
+const admgrRpH3 = (t, n) => `<div style="display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:.92rem;font-weight:800;color:#111827;flex-wrap:wrap;">${t}${n ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;">${n}</span>` : ''}</div>`;
+const admgrRpDet = (title, n, body, open) => `<details ${open ? 'open' : ''} style="border:1px solid #e7e8ee;border-radius:12px;margin-top:8px;background:#fff;"><summary style="cursor:pointer;padding:9px 14px;font-size:.84rem;font-weight:700;color:#374151;display:flex;align-items:center;gap:8px;list-style:none;"><span class="rp-arrow" style="color:#9ca3af;display:inline-block;transition:transform .15s;">▸</span>${esc(title)}${n ? `<span style="color:#6b7280;font-weight:600;font-size:.74rem;">${n}</span>` : ''}</summary><div style="padding:0 14px 12px;font-size:.8rem;color:#4b5563;line-height:1.7;">${body}</div></details>`;
+function admgrProAlerts(rep) {   // 첫 화면 경보 줄 — 지금 손을 써야 하는 것만
+  const p = rep.pro; if (!p) return [];
+  const out = [];
+  if (p.fatigue.n) { const x = p.fatigue.items[0]; out.push(`식음 ${p.fatigue.n}개 — ${admgrProductOf(x.a)} 최근 7일 ROAS ${x.tr.recentRoas.toFixed(1)} (누적 ${x.tr.cumRoas.toFixed(1)}) · 교체 준비`); }
+  if (p.leak.pct >= 20) out.push(`예산 누수 ${won(Math.round(p.leak.spend))} (기간 지출의 ${p.leak.pct}%) — 구매 0·손해 ${p.leak.n}개`);
+  const risky = p.conf.filter(x => x.risky).length;
+  if (risky) out.push(`판정이 뒤집힐 수 있는 소재 ${risky}개 — 구매 표본이 오차 범위를 못 줄였어요`);
+  return out;
+}
+function admgrProAttrHtml(rep) {
+  const A = rep.pro.attr;
+  if (!A.all.length) return admgrRpH3('성과를 만든 것', '표본 부족') + `<div style="font-size:.78rem;color:#9ca3af;">지출 ${comma(ADMGR_ATTR_MIN_SPEND)}원 이상 소재가 ${A.n}개뿐이라 기여도를 못 냈어요 — 기간을 30일로 늘려 보세요</div>`;
+  const max = Math.max(0.1, ...A.all.map(x => Math.abs(x.lift)));
+  const row = x => { const w = Math.round(Math.abs(x.lift) / max * 50);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.8rem;flex-wrap:wrap;" title="${esc(x.label)} ${esc(String(x.v))} — 소재 ${x.n}개 · 지출 ${won(Math.round(x.spend))} (기간의 ${Math.round(x.share * 100)}%) · 구매 ${comma(x.purch)} · ROAS ${x.roas.toFixed(2)} (전체 ${A.roasAll.toFixed(2)}, ${x.lift >= 0 ? '+' : ''}${x.lift.toFixed(2)})">
+      <span style="flex:1 1 auto;min-width:0;color:#4b5563;"><span style="color:#9ca3af;font-size:.68rem;">${esc(x.label)}</span> <b style="color:#1f2937;">${esc(String(x.v))}</b>${x.also && x.also.length ? `<span style="color:#9ca3af;font-size:.66rem;" title="같은 소재들을 가리키는 태그예요"> ＝ ${esc(x.also.join(' · '))}${x.more ? ` +${x.more}` : ''}</span>` : ''} <span style="color:#6b7280;font-size:.7rem;white-space:nowrap;">소재 ${x.n}</span></span>
+      <b style="flex:none;width:34px;text-align:right;color:${x.lift >= 0 ? '#166534' : '#991b1b'};">${x.roas.toFixed(1)}</b>
+      <span style="position:relative;flex:0 1 130px;min-width:54px;height:10px;background:#f3f4f6;border-radius:3px;"><span style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#d1d5db;"></span><span style="position:absolute;top:1px;height:8px;${x.lift >= 0 ? `left:50%;width:${w}%;background:#16a34a;border-radius:0 4px 4px 0;` : `right:50%;width:${w}%;background:#dc2626;border-radius:4px 0 0 4px;`}"></span></span>
+      <span class="m-hide" style="color:#6b7280;font-size:.72rem;flex:none;">지출 ${Math.round(x.share * 100)}%</span></div>`; };
+  const grp = (t, L, empty) => `<div style="margin-top:6px;"><div style="font-size:.74rem;font-weight:800;color:#6b7280;">${t}</div>${L.length ? L.map(row).join('') : `<div style="color:#9ca3af;font-size:.78rem;padding:3px 0;">${empty}</div>`}</div>`;
+  return admgrRpH3('성과를 만든 것', `전체 ROAS ${A.roasAll.toFixed(1)} 기준 · 지출 ${comma(ADMGR_ATTR_MIN_SPEND)}원↑ 소재 ${A.n}개`)
+    + `<div style="border:1px solid #e7e8ee;border-radius:12px;padding:8px 12px;">${grp('ROAS를 올린 태그', A.up, '전체 평균보다 높은 태그가 없어요')}${grp('ROAS를 깎은 태그', A.down, '평균보다 낮은 태그가 없어요')}
+      <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">태그별 ROAS = 그 태그 소재들의 매출 합계 ÷ 지출 합계 (지출 큰 소재가 더 반영) · 소재 2개 미만은 제외</div></div>`
+    + (rep.pro.heat.ok ? admgrRpDet('소구점 × 형식 조합 보기', '조합별 표본이 적어 참고만', admgrProHeatHtml(rep)) : '');
+}
+function admgrProHeatHtml(rep) {
+  const H = rep.pro.heat, A = rep.pro.attr;
+  const cell = c => { if (!c.n) return `<td style="padding:6px 8px;border:2px solid #fff;background:#f8fafc;color:#c4c9d4;text-align:center;font-size:.72rem;">—</td>`;
+    const r = c.roas == null ? 0 : c.roas, k = A.roasAll > 0 ? Math.min(2, r / A.roasAll) : 0;
+    const bg = ['#cde2fb', '#9dc6f7', '#6aa6ee', '#3d82d6', '#1a5bad', '#0d366b'][Math.min(5, Math.floor(k * 3))];
+    return `<td title="소재 ${c.n}개 · 지출 ${won(Math.round(c.spend))} · ROAS ${r.toFixed(2)}" style="padding:6px 8px;border:2px solid #fff;background:${bg};color:${k >= 1 ? '#fff' : '#0d366b'};text-align:center;font-weight:700;font-size:.76rem;">${r.toFixed(1)}<div style="font-weight:500;font-size:.62rem;opacity:.85;">${c.n}개</div></td>`; };
+  return `<table style="border-collapse:collapse;width:100%;font-size:.76rem;"><tr><th style="text-align:left;padding:3px 8px 3px 0;color:#6b7280;">소구점</th>${H.fmts.map(f => `<th style="padding:3px 8px;color:#6b7280;">${esc(f)}</th>`).join('')}</tr>
+    ${H.cells.map(r => `<tr><td style="padding:3px 8px 3px 0;color:#4b5563;">${esc(r.tag)}</td>${r.cells.map(cell).join('')}</tr>`).join('')}</table>
+    <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">칸 색 = 전체 ROAS(${A.roasAll.toFixed(1)}) 대비 · 진할수록 높음 · 아래 숫자는 소재 수</div>`;
+}
+function admgrProConfHtml(rep) {
+  const C = rep.pro.conf;
+  if (!C.length) return admgrRpH3('판정 신뢰도', '판정 후보 없음') + `<div style="font-size:.78rem;color:#9ca3af;">지금 기준(D+${admgrTJudge.days}·${won(admgrTJudge.spend)})을 채운 평가중 소재가 없어요</div>`;
+  const risky = C.filter(x => x.risky).length;
+  return admgrRpH3('판정 신뢰도', `판정 후보 ${C.length}개${risky ? ` · 뒤집힐 수 있음 ${risky}` : ''}`)
+    + `<div style="border:1px solid #e7e8ee;border-radius:12px;overflow:hidden;">
+      <table style="border-collapse:collapse;width:100%;font-size:.78rem;table-layout:fixed;"><colgroup><col><col style="width:88px;"><col style="width:108px;"><col style="width:96px;"></colgroup>
+      <tr style="background:#f8fafc;"><th style="text-align:left;padding:5px 10px;color:#6b7280;font-weight:600;">소재</th><th style="text-align:left;padding:5px 6px;color:#6b7280;font-weight:600;">추천</th><th style="text-align:left;padding:5px 6px;color:#6b7280;font-weight:600;">ROAS 범위</th><th style="text-align:left;padding:5px 6px;color:#6b7280;font-weight:600;">표본</th></tr>
+      ${C.map(x => `<tr title="${esc(x.r.why)}"><td style="padding:5px 10px;border-top:1px solid #f1f2f6;white-space:normal;word-break:break-all;"><b style="color:#1f2937;">${esc(x.a.adset_name)}</b>${x.risky ? '<div style="font-size:.66rem;color:#b45309;font-weight:700;">오차 범위가 기준선을 넘음 — 하루 더</div>' : ''}</td>
+        <td style="padding:5px 6px;border-top:1px solid #f1f2f6;"><span class="status-badge ${x.r.k === 'off' ? 'badge-red' : x.r.k === 'good' ? 'badge-green' : 'badge-yellow'}" style="font-size:.62rem;">${esc(x.r.label)}</span></td>
+        <td style="padding:5px 6px;border-top:1px solid #f1f2f6;"><b>${x.roas.toFixed(1)}</b>${x.lo != null ? `<span style="color:#6b7280;font-size:.7rem;"> (${x.lo.toFixed(1)}~${x.hi.toFixed(1)})</span>` : ''}<div style="font-size:.64rem;color:#9ca3af;">기준 ${x.r.k === 'good' ? '우수 ' + x.r.goodR.toFixed(1) : x.r.k === 'off' ? 'OFF ' + x.r.offR.toFixed(1) : `OFF ${x.r.offR.toFixed(1)} / 우수 ${x.r.goodR.toFixed(1)}`}</div></td>
+        <td style="padding:5px 6px;border-top:1px solid #f1f2f6;"><span class="status-badge ${x.cls}" style="font-size:.62rem;">${x.lvl}</span><div style="font-size:.64rem;color:#9ca3af;">구매 ${x.p}</div></td></tr>`).join('')}</table></div>
+    <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">범위 = ROAS ± ROAS÷√구매수 (구매가 적으면 넓어져요) · 구매 10건이면 판정해도 잘 안 뒤집혀요</div>`;
+}
+function admgrProTeamHtml(rep) {
+  const P = rep.pro.pipe, L = rep.pro.leak, F = rep.pro.fatigue, D = rep.pro.dec;
+  const tile = (label, val, sub) => `<div style="background:#f8fafc;border:1px solid #e7e8ee;border-radius:12px;padding:8px 12px;"><div style="font-size:.68rem;color:#6b7280;">${label}</div><b style="font-size:1.1rem;color:#1e1b4b;">${val}</b><div style="font-size:.66rem;color:#9ca3af;">${sub}</div></div>`;
+  const tiles = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+    ${tile('주당 테스트', P.perWeek.toFixed(1) + '개', `${rep.days}일 ${P.n}개`)}
+    ${tile('우수율', P.rate == null ? '—' : P.rate + '%', `판정 ${rep.cmp.off.n + rep.cmp.good.n}건 기준`)}
+    ${tile('승자당 지출', P.costPerWin == null ? '—' : won(Math.round(P.costPerWin)), P.costPerWin == null ? '우수 판정 없음' : `테스트 ${won(Math.round(P.spendNew))} ÷ 우수 ${rep.cmp.good.n}`)}</div>`;
+  const leak = `<div style="margin-top:10px;border-left:4px solid ${L.pct >= 20 ? '#dc2626' : '#d1d5db'};padding:4px 0 4px 12px;font-size:.84rem;">
+    <b style="color:#1e1b4b;font-size:.74rem;margin-right:6px;">예산 누수</b>기간 지출 ${won(Math.round(L.tot))} 중 <b style="color:${L.pct >= 20 ? '#b91c1c' : '#374151'};">${won(Math.round(L.spend))} (${L.pct}%)</b>은 구매 0·손해 소재 ${L.n}개에 들어갔어요${L.top.length ? `<div style="font-size:.74rem;color:#6b7280;margin-top:2px;">상위 ${L.top.map(t => `${esc(t.name)} ${won(Math.round(t.spend))}(${esc(t.diag)})`).join(' · ')}</div>` : ''}</div>`;
+  const fat = `<div style="margin-top:8px;border-left:4px solid ${F.n ? '#ea580c' : '#d1d5db'};padding:4px 0 4px 12px;font-size:.84rem;">
+    <b style="color:#1e1b4b;font-size:.74rem;margin-right:6px;">식음 경보</b>${F.n ? `가동 ${F.checked}개 중 <b style="color:#c2410c;">${F.n}개</b>가 최근 7일에 꺾였어요 — 교체 소재 준비` : F.checked ? `가동 ${F.checked}개 모두 최근 7일 유지 중` : '일별 스냅샷이 3일치 미만 — 며칠 더 쌓이면 나와요'}</div>`
+    + (F.n ? admgrRpDet('꺾인 소재 보기', `${F.n}개 · 일별 ROAS 막대`, F.items.map(x => `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-top:1px solid #f1f2f6;flex-wrap:wrap;"><span style="flex:1 1 160px;min-width:0;"><b style="color:#1f2937;font-size:.78rem;word-break:break-all;">${esc(x.a.adset_name)}</b></span><span style="flex:none;">${admgrSparkHtml(x.tr, x.be ? x.be.be : null)}</span><span style="flex:none;font-size:.74rem;color:#6b7280;">7일 ROAS <b style="color:#b91c1c;">${x.tr.recentRoas.toFixed(1)}</b> / 누적 ${x.tr.cumRoas.toFixed(1)}${x.be ? ` · 손익분기 ${x.be.be.toFixed(1)}` : ''}</span></div>`).join('')) : '');
+  const dec = `<div style="margin-top:8px;border-left:4px solid #4f46e5;padding:4px 0 4px 12px;font-size:.84rem;">
+    <b style="color:#1e1b4b;font-size:.74rem;margin-right:6px;">결정과 회고</b>이번 기간 판정 ${D.n}건 (우수 ${D.good} · 애매 ${D.meh})${D.prev.n ? ` · 직전 ${rep.days}일 우수 ${D.prev.n}건 중 지금도 가동 ${D.prev.alive} · 손익분기 이상 ${D.prev.held}` : ' · 직전 기간 우수 판정 없음'}</div>`
+    + (D.prev.n ? admgrRpDet('직전 기간 우수 판정이 어떻게 됐나', `${fmtMD(D.prev.from)}~${fmtMD(D.prev.to)} · ${D.prev.n}건`, D.prev.items.map(x => `<div style="display:flex;gap:8px;align-items:center;padding:3px 0;border-top:1px solid #f1f2f6;flex-wrap:wrap;"><span style="flex:1 1 150px;min-width:0;word-break:break-all;">${esc(x.name)}</span><span class="status-badge ${x.alive ? 'badge-green' : 'badge-gray'}" style="font-size:.6rem;flex:none;">${x.alive ? '가동 중' : '꺼짐'}</span><span style="flex:none;font-size:.74rem;color:${x.held ? '#166534' : '#991b1b'};">ROAS ${x.roas.toFixed(1)} / 손익분기 ${x.line.toFixed(1)}</span></div>`).join('')) : '');
+  return admgrRpH3('팀 속도와 결정', '얼마나 빠르게 배우고, 돈이 어디로 갔나') + tiles + leak + fat + dec;
+}
+function admgrProPlayHtml(rep) {   // 기여도 표를 또 그리지 않는다 — 다음 소재에 넣을 것/뺄 것 두 줄
+  const P = rep.pro.play, A = rep.pro.attr;
+  const nm = x => `${esc(String(x.v))}${x.also && x.also.length ? ` ＝ ${esc(x.also.join('·'))}` : ''}`;
+  const chips = (L, cls) => L.map(x => `<span title="${esc(x.label)} · 소재 ${x.n}개 · ROAS ${x.roas.toFixed(2)} (전체 ${A.roasAll.toFixed(2)})" style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:.78rem;font-weight:700;margin:3px 4px 3px 0;background:${cls === 'g' ? '#dcfce7' : '#fee2e2'};color:${cls === 'g' ? '#166534' : '#991b1b'};">${nm(x)}<small style="font-weight:500;opacity:.75;margin-left:4px;">${x.roas.toFixed(1)}·${x.n}개</small></span>`).join('');
+  const inn = P.verified.slice(0, 3), out = P.avoid.slice(0, 2);
+  if (!inn.length && !out.length) return admgrRpH3('다음 소재 규칙', '표본 부족') + `<div style="font-size:.78rem;color:#9ca3af;">소재 4개 이상에서 확인된 패턴이 아직 없어요 — 기간을 30일로 늘리면 나와요</div>`;
+  const line = (t, body, empty) => `<div style="padding:3px 0;font-size:.82rem;"><b style="color:#1e1b4b;font-size:.74rem;margin-right:6px;">${t}</b>${body || `<span style="color:#9ca3af;">${empty}</span>`}</div>`;
+  return admgrRpH3('다음 소재 규칙', '소재 4개 이상에서 확인된 것만 · 칩 안 숫자는 ROAS·소재 수')
+    + `<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:8px 12px;">
+      ${line('넣을 것', chips(inn, 'g'), '아직 없음')}${line('덜 통한 것', chips(out, 'r'), '아직 없음')}
+      <div style="font-size:.68rem;color:#6b7280;margin-top:4px;">이 기간 기준이에요 · 기간을 30일로 늘리면 더 단단해져요 · 소재 2~3개짜리 신호는 위 "성과를 만든 것"에</div></div>`;
+}
+function admgrProAppendixHtml(rep) {
+  const A = rep.pro.attr, P = rep.pro.pipe;
+  const li = (t, d) => `<div style="padding:3px 0;border-top:1px solid #f1f2f6;"><b style="color:#374151;">${t}</b> — ${d}</div>`;
+  return admgrRpDet('부록 — 지표 정의와 한계', '숫자를 의심할 때 열어 보세요',
+    li('기간', `${fmtMD(rep.from)}~${fmtMD(rep.to)} (${rep.days}일). OFF = 이 기간에 등록돼 꺼진 소재, 우수 = 이 기간에 우수로 판정한 소재`)
+    + li('소재 성과', '메타의 누적 값(등록일부터 지금까지). 기간만 잘라낸 값이 아니라 소재 단위 누적이에요')
+    + li('태그별 ROAS', `그 태그 소재들의 매출 합계 ÷ 지출 합계. 지출 ${comma(ADMGR_ATTR_MIN_SPEND)}원 미만 소재와 소재 2개 미만 태그는 제외 (현재 ${A.n}개 소재 기준)`)
+    + li('손익분기 ROAS', '판매가 ÷ (판매가 − 공급가×1.1). 상품을 못 찾으면 고정 기준(OFF 1.0 · 우수 3.0)')
+    + li('ROAS 범위', 'ROAS ± ROAS÷√구매수. 구매 수가 적을 때 얼마나 못 믿을지 보여주는 값이고, 정식 신뢰구간은 아니에요')
+    + li('승자당 지출', `이 기간에 등록된 소재의 누적 지출(${won(Math.round(P.spendNew))}) ÷ 이 기간 우수 판정 수. 우수 판정이 이전에 등록된 소재면 분모·분자 기간이 조금 어긋나요`)
+    + li('식음', '최근 7일 ROAS가 누적의 절반 미만이거나, 누적은 손익분기 이상인데 최근 7일이 미만. 일별 스냅샷이 2026-09-12부터 쌓여 그 전은 판정 불가')
+    + li('퍼널·3초 재생', '테스트 종료 후 보관된 옛 소재는 노출·클릭이 저장 전이라 퍼널 진단이 안 나와요')
+    + li('AI 태그', '릴스는 영상 전체 프레임(0.5초·3초 간격)을 본 결과, 이미지는 썸네일 기준. 태그가 없는 소재는 그 축의 분모에서 빠져요')
+    + li('안 넣은 것', '산점도(CTR×전환율)와 지표 스코어카드는 위 비교표·기여도와 내용이 겹쳐 뺐어요'));
+}
+
+function admgrProText(rep) {   // 복사·인쇄용 텍스트 (전체 모드)
+  const p = rep.pro; if (!p) return [];
+  const A = p.attr, P = p.pipe, D = p.dec, L = [];
+  const tag = x => `${x.label} ${x.v}${x.also && x.also.length ? ' ＝ ' + x.also.join(' · ') : ''} ROAS ${x.roas.toFixed(1)} (${x.lift >= 0 ? '+' : ''}${x.lift.toFixed(1)}, 소재 ${x.n})`;
+  L.push('', `■ 성과를 만든 것 (전체 ROAS ${A.roasAll.toFixed(1)} · 지출 ${comma(ADMGR_ATTR_MIN_SPEND)}원↑ 소재 ${A.n}개)`);
+  if (!A.all.length) L.push('  표본 부족 — 기간을 30일로');
+  else { L.push(` · 올린 것: ${A.up.map(tag).join(' · ') || '없음'}`, ` · 깎은 것: ${A.down.map(tag).join(' · ') || '없음'}`); }
+  L.push('', `■ 판정 신뢰도 (판정 후보 ${p.conf.length}개)`);
+  if (!p.conf.length) L.push('  판정 기준을 채운 소재 없음');
+  p.conf.forEach(x => L.push(` · ${x.a.adset_name} — ${x.r.label} · ROAS ${x.roas.toFixed(1)}${x.lo != null ? ` (${x.lo.toFixed(1)}~${x.hi.toFixed(1)})` : ''} · 구매 ${x.p} · ${x.lvl}${x.risky ? ' · 뒤집힐 수 있음' : ''}`));
+  L.push('', `■ 팀 속도와 결정`,
+    ` · 주당 테스트 ${P.perWeek.toFixed(1)}개 · 우수율 ${P.rate == null ? '—' : P.rate + '%'} · 승자당 지출 ${P.costPerWin == null ? '—' : won(Math.round(P.costPerWin))}`,
+    ` · 예산 누수: 기간 지출 ${won(Math.round(p.leak.tot))} 중 ${won(Math.round(p.leak.spend))} (${p.leak.pct}%) — 구매 0·손해 ${p.leak.n}개${p.leak.top.length ? ` (상위 ${p.leak.top.map(t => `${t.name} ${won(Math.round(t.spend))}`).join(' · ')})` : ''}`,
+    ` · 식음 경보: ${p.fatigue.n ? `가동 ${p.fatigue.checked}개 중 ${p.fatigue.n}개 꺾임 — ${p.fatigue.items.map(x => `${admgrProductOf(x.a)} 7일 ${x.tr.recentRoas.toFixed(1)}/누적 ${x.tr.cumRoas.toFixed(1)}`).join(' · ')}` : p.fatigue.checked ? `가동 ${p.fatigue.checked}개 유지` : '스냅샷 부족'}`,
+    ` · 결정 ${D.n}건 (우수 ${D.good} · 애매 ${D.meh})${D.prev.n ? ` · 직전 ${rep.days}일 우수 ${D.prev.n}건 → 가동 ${D.prev.alive} · 손익분기 이상 ${D.prev.held}` : ''}`);
+  const pl = p.play, nm = x => `${x.v}${x.also && x.also.length ? ' ＝ ' + x.also.join('·') : ''} (ROAS ${x.roas.toFixed(1)} · 소재 ${x.n})`;
+  L.push('', `■ 다음 소재 규칙 (소재 4개 이상에서 확인된 것만)`,
+    ` · 넣을 것: ${pl.verified.slice(0, 3).map(nm).join(' · ') || '아직 없음'}`,
+    ` · 덜 통한 것: ${pl.avoid.slice(0, 2).map(nm).join(' · ') || '아직 없음'}`);
+  return L;
+}
 function admgrReportSummary(rep) {
   const c = rep.cmp, ai = rep.ai, secs = Object.fromEntries(rep.secs.map(s => [s.key, s]));
   const judged = c.off.n + c.good.n + secs.meh.n;
@@ -393,7 +617,10 @@ function admgrReportText(rep, mode) {   // mode: 'summary' = 첫 화면만(플�
     `■ 이번 주 할 일${S.prev.n ? ` (지난주 ${S.prev.n}개 중 완료 ${S.prev.done})` : ''}`];
   if (!S.todo.length) L.push('  없음');
   S.todo.forEach(t => L.push(` ${t.done ? '☑' : '☐'} ${t.name} — ${t.text}${t.why ? ` (${t.why})` : ''}${t.carried ? ' · 지난주부터' : ''}`));
+  const AL = admgrProAlerts(rep);
+  if (AL.length) { L.push('', '■ 지금 손 쓸 것'); AL.forEach(x => L.push(` · ${x}`)); }
   if (mode === 'summary') return L.join('\n').trim();
+  admgrProText(rep).forEach(x => L.push(x));
   if (c) {
     const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
     const dl = d => d.map(([v, n]) => `${v} ${n}`).join(' · ') || '—';
@@ -438,6 +665,8 @@ function admgrReportHtml(rep, thumbs) {
       <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">통한 것</b>${esc(S.win)}</div>
       <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">안 통한 이유</b>${esc(S.why)}</div>
       <div style="padding:3px 0;"><b style="color:#1e1b4b;font-size:.76rem;margin-right:6px;">다음 주</b>${esc(S.next)}</div></div>`;
+  const AL = admgrProAlerts(rep);
+  const alert = AL.length ? `<div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:10px;padding:8px 12px;margin:10px 0 2px;"><div style="font-size:.72rem;font-weight:800;color:#9a3412;margin-bottom:2px;">지금 손 쓸 것 ${AL.length}</div>${AL.map(x => `<div style="font-size:.82rem;color:#7c2d12;">· ${esc(x)}</div>`).join('')}</div>` : '';
   const nG = S.todo.filter(t => t.kind === 'good').length, nO = S.todo.length - nG;
   const doneN = S.todo.filter(t => t.done).length;
   const todo = h3('이번 주 할 일', `컨텐츠팀 ${nG} · MD·CS ${nO}${doneN ? ` · 완료 ${doneN}` : ''}${S.prev.n ? ` · <span style="color:#7c3aed;">지난주 ${S.prev.n}개 중 완료 ${S.prev.done}</span>` : ''}`) + `<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:6px 12px;">
@@ -447,8 +676,10 @@ function admgrReportHtml(rep, thumbs) {
   const box = (title, cls, chips, empty) => `<div style="border:1px solid #e7e8ee;border-radius:12px;padding:10px 12px;"><div style="font-size:.78rem;font-weight:800;color:${cls === 'g' ? '#16a34a' : '#dc2626'};margin-bottom:4px;">${title}</div>${chips.length ? chips.map(s => chip(s, cls)).join('') : `<span style="color:#9ca3af;font-size:.78rem;">${empty}</span>`}</div>`;
   const maxN = Math.max(1, ...c.reasons.map(r => r.n));
   const bars = c.reasons.filter(r => !/특이 없음|퍼널 균형|데이터 없음/.test(r.label)).slice(0, 4).map(r => `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.8rem;"><span style="width:120px;font-weight:700;">${esc(r.label)}</span><span style="width:160px;flex:none;height:9px;background:#f3f4f6;border-radius:999px;overflow:hidden;"><span style="display:block;height:100%;width:${Math.round(r.n / maxN * 100)}%;background:#ef4444;"></span></span><b style="width:24px;">${r.n}</b><span style="color:#6b7280;font-size:.72rem;">${esc(r.fix)}</span></div>`).join('') || '<div style="color:#9ca3af;font-size:.78rem;">막힌 단계가 뚜렷한 OFF 소재가 없어요</div>';
-  const why = h3('왜 그런가', '한쪽에 치우친 항목만') + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="rp-why">${box('우수 소재 공통점', 'g', c.commonGood.slice(0, 3), c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}${box('OFF 소재 공통점', 'r', c.commonOff.slice(0, 3), c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}</div>
-    <div style="margin-top:12px;">${bars}</div>` + det('비교표 전체 보기', '형식·소구점·가격대·등록자·문구 훅·AI 태그 · 중앙값', admgrReportCmpHtml(rep));
+  const why = h3('왜 안 터졌나', '퍼널에서 막힌 단계 — OFF 소재 기준') + `<div>${bars}</div>`
+    + det('OFF·우수 공통점과 비교표 전체', '한쪽에 치우친 항목 · 형식·소구점·가격대·등록자·문구 훅·AI 태그 · 중앙값',
+      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="rp-why">${box('우수 소재 공통점', 'g', c.commonGood.slice(0, 3), c.good.n ? 'OFF보다 두드러진 항목 없음' : '우수 소재 없음')}${box('OFF 소재 공통점', 'r', c.commonOff.slice(0, 3), c.off.n ? '우수보다 두드러진 항목 없음' : 'OFF 소재 없음')}</div>
+      <div style="margin-top:10px;">${admgrReportCmpHtml(rep)}</div>`);
   const adRow = a => { const th = thumbs[a.id]; return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid #f1f2f6;">
         <div style="width:48px;height:48px;flex:none;border-radius:8px;background:#f3f4f6;overflow:hidden;">${th ? `<img src="${esc(th)}" style="width:100%;height:100%;object-fit:cover;" />` : ''}</div>
         <div style="min-width:0;flex:1;"><div style="font-size:.78rem;font-weight:700;color:#1f2937;word-break:break-all;">${esc(a.adset_name)}</div><div style="font-size:.7rem;color:#4b5563;">${esc(admgrReportLine(a))}</div>${a.meta.memo ? `<div style="font-size:.7rem;color:#7c3aed;">메모: ${esc(a.meta.memo)}</div>` : ''}</div></div>`; };
@@ -463,8 +694,7 @@ function admgrReportHtml(rep, thumbs) {
   const aiSec = rep.ai && rep.ai.text
     ? h3('AI 해석 원문', `${fmtMD(String(rep.ai.at || '').slice(0, 10))} 생성`) + det('펼쳐 보기', 'OFF 공통점 · 실패 이유 · 우수 공통점 · 우수 이유 · 방향 · 주의', `<div style="white-space:pre-line;">${esc(rep.ai.text.trim())}</div>`, false)
     : h3('AI 해석', '아직 없음') + `<div style="font-size:.78rem;color:#9ca3af;">이 리포트를 연 뒤 바탕화면의 <b>테스트리포트-해석.command</b>를 실행하면 썸네일을 보고 컷 유형·자막 태그를 달고 결론·할 일에 AI 문장이 들어가요 (이 맥의 Claude Code, 결제 없음)</div>`;
-  const foot = `<div style="font-size:.7rem;color:#9ca3af;margin-top:14px;">OFF = 기간 안 등록돼 꺼진 소재 · 우수 = 기간 안 우수 판정 · 테스트 종료 보관분은 CTR·3초 값 없음 · AI 태그는 썸네일(릴스는 첫 장면) 기준</div>`;
-  return head + todo + why + list + aiSec + foot;
+  return head + alert + todo + admgrProAttrHtml(rep) + why + admgrProConfHtml(rep) + admgrProTeamHtml(rep) + admgrProPlayHtml(rep) + list + aiSec + admgrProAppendixHtml(rep);
 }
 const admgrRp = { kind: 'test', cur: null };   // 모달에 지금 떠 있는 리포트 — cur = { title, text(), html() } (복사·인쇄 공용)
 function admgrReportRefresh() { admgrRp.kind === 'best' ? admgrBestReport() : admgrTestReport(); }
@@ -492,6 +722,7 @@ async function admgrTestReport() {
   if (!admgr.demo) {
     if (!t.creatives) await admgrTestCreativesEnsure();
     if (!admgr.products && !admgr.productsLoading) await admgrLoadProducts();
+    await admgrTrendEnsure();   // 식음 경보는 일별 스냅샷이 있어야 나온다
     try { const r = await sbCall('client-log', { action: 'state_get', key: 'test_report_ai' }); t.ai = r && r.data ? r.data : null; } catch (e) { t.ai = null; }
     try { const r = await sbCall('client-log', { action: 'state_get', key: 'test_todo' }); t.todoSaved = r && r.data && Array.isArray(r.data.items) ? r.data.items : []; } catch (e) { t.todoSaved = []; }
     try { const r = await sbCall('client-log', { action: 'state_get', key: 'video_tags' }); t.vtags = r && r.data && r.data.tags ? r.data.tags : null; } catch (e) { t.vtags = null; }
