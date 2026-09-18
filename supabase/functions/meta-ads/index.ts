@@ -727,6 +727,41 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // 광고 문구 점검(2026-09-18) — 세트 IN 필터로 광고의 본문·제목 텍스트만 뽑는다. 계절 문구(봄/가을)가 철 지나 나가는지 확인용.
+    if (action === "adcopy") {
+      const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
+      if (!ids.length) return json({ ads: [] });
+      const cacheKey = `meta:adcopy:${[...ids].sort().join(",")}`;
+      const pre = await metaPre(cacheKey, 10 * 60 * 1000);
+      if (pre) return pre;
+      const rows = await graphGetAll(`${c.account}/ads`, {
+        filtering: JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]),
+        limit: "500",
+        fields: "id,name,adset_id,status,effective_status,creative{body,title,object_story_spec,asset_feed_spec}",
+      }, c.token);
+      const body = {
+        fetched_at: new Date().toISOString(),
+        ads: rows.map((a) => {
+          const cr = (a.creative ?? {}) as Record<string, unknown>;
+          const oss = (cr.object_story_spec ?? {}) as Record<string, unknown>;
+          const afs = (cr.asset_feed_spec ?? {}) as Record<string, unknown>;
+          const texts: string[] = [];
+          const push = (v: unknown) => { const t = String(v ?? "").trim(); if (t && !texts.includes(t)) texts.push(t); };
+          push(cr.body); push(cr.title);
+          for (const k of ["link_data", "video_data", "photo_data", "template_data"]) {
+            const d = (oss[k] ?? {}) as Record<string, unknown>;
+            push(d.message); push(d.name); push(d.description); push(d.caption);
+          }
+          for (const k of ["bodies", "titles", "descriptions"]) {
+            for (const t of ((afs[k] ?? []) as Record<string, unknown>[])) push(t?.text);
+          }
+          return { id: String(a.id ?? ""), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), status: String(a.status ?? ""), texts };
+        }),
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     // ═══ 이식 3단계 — 기존광고 중 OFF (원본 offsets) ═══
     // Meta 활동 로그(약 90일)의 update_ad_set_run_status 이벤트: new_value 1=활성, 그 외=비활성.
     // activities는 최신순이라 세트별 첫 이벤트 = 기간 내 마지막 상태. 마지막이 비활성인 세트만(껐다 켠 세트 제외), 테스트 세트 제외.
