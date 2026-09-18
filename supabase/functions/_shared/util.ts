@@ -89,7 +89,7 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 export async function dbRest(path: string, init: RequestInit = {}): Promise<Response> {
-  return await fetch(`${SB_URL}/rest/v1/${path}`, {
+  const go = () => fetch(`${SB_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
       apikey: SB_KEY,
@@ -98,6 +98,13 @@ export async function dbRest(path: string, init: RequestInit = {}): Promise<Resp
       ...(init.headers ?? {}),
     },
   });
+  const r = await go();
+  if (r.status !== 401) return r;
+  // PGRST303 "JWT issued at future" (2026-09-18 실사례): 고정 service_role 키(iat 9/2)를 Supabase 쪽이 잠깐 '미래 발급'으로 거절 — 그쪽 시계 문제라 일시적.
+  // 인증 단계 거절 = SQL 실행 전이라 쓰기도 다시 보내 안전. 1초 뒤 한 번만. (호출부 body는 전부 문자열이라 재전송 가능)
+  if (!(await r.clone().text()).includes("PGRST303")) return r;
+  await new Promise((res) => setTimeout(res, 1000));
+  return await go();
 }
 
 const rest = dbRest;   // (아래 캐시 코드가 쓰는 짧은 이름 — dbRest는 meta-ads의 상태 저장 액션도 함께 쓴다)
