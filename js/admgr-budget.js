@@ -173,7 +173,7 @@ function admgrApplyNow(id, level, val) {
 /* ⋯ 메뉴 · 23:55 세팅 메뉴 — 상단 버튼 난립 대신 팝오버 (2026-09-14 리디자인). #admgr-bpop 재사용 */
 function admgrPopAt(ev, html, w) {
   const r0 = ev.currentTarget.getBoundingClientRect();
-  const pop = $('admgr-bpop'); pop.innerHTML = html; pop.style.display = 'block';
+  const pop = $('admgr-bpop'); pop.innerHTML = html; pop.style.display = 'block'; pop.classList.remove('mk-sheet');   // mk-sheet = 폰 '만든 사람' 시트 (admgrMakerPick이 다시 붙임)
   pop.style.left = Math.max(8, Math.min(r0.right - (w || 270), window.innerWidth - (w || 270) - 12)) + 'px';
   pop.style.top = (r0.bottom + 6) + 'px';
 }
