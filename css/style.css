@@ -663,10 +663,15 @@ summary::-webkit-details-marker { display: none; }
   #sec-admgr .ag-judge .ag-muted { display: none; }
   #sec-admgr .mtabs, #sec-admgr .filter-tabs { scrollbar-width: none; }
   #sec-admgr .mtabs::-webkit-scrollbar, #sec-admgr .filter-tabs::-webkit-scrollbar { display: none; }
-  #sec-admgr .ag-sum { display: flex; width: 100%; align-items: center; gap: 10px; min-height: 48px; margin-bottom: 10px; padding: 0 14px; border: 1px solid #e7e8ee; border-radius: 12px; background: #fff; font-family: inherit; font-size: 12px; color: #9ca3af; text-align: left; }
+  #sec-admgr .ag-sum { display: flex; width: 100%; align-items: center; gap: 0; min-height: 48px; margin-bottom: 10px; padding: 0 2px 0 4px; overflow: hidden; border: 1px solid #e7e8ee; border-radius: 12px; background: #fff; font-family: inherit; font-size: 12px; color: #9ca3af; text-align: left; }
   #sec-admgr .ag-sum span { white-space: nowrap; }
   #sec-admgr .ag-sum b { font-size: 14px; font-weight: 800; color: #1c1e21; margin-left: 3px; }
-  #sec-admgr .ag-sum i { margin-left: auto; font-size: 11px; }
+  #sec-admgr .ag-sum i { font-size: 11px; }
+  /* 요약줄 = 정렬 머리글 (2026-09-20): 지출·구매·ROAS 버튼 + 오른쪽 펼치기 */
+  #sec-admgr .ag-sumk { display: inline-flex; align-items: center; gap: 3px; min-height: 40px; padding: 0 6px; border: none; border-radius: 9px; background: transparent; font-family: inherit; font-size: 12px; color: #9ca3af; white-space: nowrap; }
+  #sec-admgr .ag-sumk em { font-style: normal; font-size: 10px; color: #c4c9d4; } #sec-admgr .ag-sumk em i { font-size: 9px; }
+  #sec-admgr .ag-sumk.on { background: #eef2ff; color: #4338ca; font-weight: 700; } #sec-admgr .ag-sumk.on em { color: #4338ca; }
+  #sec-admgr .ag-sumx { margin-left: auto; min-width: 34px; padding: 0; min-height: 40px; border: none; background: transparent; color: #9ca3af; }
   #admgr-bpop .ag-menu-sep { display: block; padding: 8px 10px 2px; font-size: 11px; font-weight: 800; color: #9ca3af; }
   #admgr-bpop .ag-menu-sep:empty { padding: 0; margin: 4px 0; border-top: 1px solid #f0f2f5; }
   #admgr-bpop .ag-item { min-height: 44px; }

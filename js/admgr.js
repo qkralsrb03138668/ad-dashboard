@@ -164,6 +164,12 @@ function admgrPeriodMenu(ev) {   // 폰 기간 드롭다운 — 오늘·어제·
 function admgrSearch(v) { clearTimeout(admgrQTimer); admgrQTimer = setTimeout(() => { admgr.q = v.trim().toLowerCase(); renderAdmgr(true); }, 200); }
 
 /* 정렬: 클릭 = 오름 → 내림 → 해제, 먼저 누른 열이 1순위 (원본 다중 정렬) */
+/* 폰 정렬 — 한 번에 한 기준만: 큰 순 → 작은 순 → 해제 (PC 머리글은 다중 정렬·오름차순부터) */
+function admgrSortM(key) {
+  const cur = admgr.sort.length === 1 && admgr.sort[0].key === key ? admgr.sort[0].dir : 0;
+  admgr.sort = cur === 0 ? [{ key, dir: -1 }] : cur === -1 ? [{ key, dir: 1 }] : [];
+  renderAdmgr();
+}
 function admgrSortClick(key) {
   const i = admgr.sort.findIndex(s => s.key === key);
   if (i < 0) admgr.sort.push({ key, dir: 1 });
@@ -476,9 +482,12 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const tot = { spend: 0, purchases: 0, value: 0, clicks: 0 };
   for (const r of vis) { tot.spend += r.spend || 0; tot.purchases += r.purchases || 0; tot.value += r.value || 0; tot.clicks += r.clicks || 0; }
   const sumRoas = tot.spend ? tot.value / tot.spend : 0;
-  const sumLine = !admgrMobile() ? '' : `<button class="ag-sum" onclick="admgr.sumOpen=!admgr.sumOpen;renderAdmgr(true)" aria-expanded="${admgr.sumOpen ? 'true' : 'false'}">
-    <span>지출 <b>${won(tot.spend)}</b></span><span>구매 <b>${comma(tot.purchases)}</b></span><span>ROAS <b style="color:${!tot.spend ? '#9ca3af' : sumRoas < 1 ? '#dc2626' : sumRoas >= 3 ? '#15803d' : '#1c1e21'};">${tot.spend ? sumRoas.toFixed(2) : '—'}</b></span>
-    <i class="fa-solid fa-chevron-${admgr.sumOpen ? 'up' : 'down'}"></i></button>`;   // 폰 상단 압축 (2026-09-18) — 6칸은 펼쳤을 때만
+  /* 폰 요약줄 = 정렬 머리글 (2026-09-20 사용자 요청): 지출·구매·ROAS를 누르면 큰 순 ▼ → 작은 순 ▲ → 해제. 카드의 숫자 3개와 같은 순서라 표 머리글처럼 읽힌다. 펼치기는 오른쪽 ∨ */
+  const sortBtn = (key, label, val, color) => { const so = admgr.sort.length === 1 && admgr.sort[0].key === key ? admgr.sort[0].dir : 0;
+    return `<button class="ag-sumk ${so ? 'on' : ''}" onclick="admgrSortM('${key}')" aria-label="${label} 순 정렬">${label}<em>${so === -1 ? '▼' : so === 1 ? '▲' : '<i class="fa-solid fa-sort"></i>'}</em> <b${color ? ` style="color:${color};"` : ''}>${val}</b></button>`; };
+  const sumLine = !admgrMobile() ? '' : `<div class="ag-sum">
+    ${sortBtn('spend', '지출', tot.spend >= 1e6 ? (tot.spend / 1e4).toFixed(1) + '만원' : won(tot.spend))}${sortBtn('purch', '구매', comma(tot.purchases))}${sortBtn('roas', 'ROAS', tot.spend ? sumRoas.toFixed(2) : '—', !tot.spend ? '#9ca3af' : sumRoas < 1 ? '#dc2626' : sumRoas >= 3 ? '#15803d' : '')}
+    <button class="ag-sumx" onclick="admgr.sumOpen=!admgr.sumOpen;renderAdmgr(true)" aria-expanded="${admgr.sumOpen ? 'true' : 'false'}" aria-label="요약 펼치기"><i class="fa-solid fa-chevron-${admgr.sumOpen ? 'up' : 'down'}"></i></button></div>`;   // 폰 상단 압축 (2026-09-18) — 6칸은 펼쳤을 때만
   const tiles = !admgrMobile() ? '' : sumLine + (!admgr.sumOpen ? '' : `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
     ${admgrTile('지출 (표시분)', won(tot.spend))}${admgrTile('구매', comma(tot.purchases))}
     ${admgrTile('구매당 비용', admgrCpa(tot))}${admgrTile('구매 전환값', won(tot.value))}
