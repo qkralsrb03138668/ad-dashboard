@@ -729,7 +729,16 @@ async function admgrTestEndRun() {
   if (!plan.length) return;
   const btn = $('ag-testend-go'); btn.disabled = true; btn.textContent = '저장 중…';
   try {
-    const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items: plan.map(p => ({ id: p.id, name: p.name })) });   // 광고도 같은 방식(POST /{id} name)
+    /* 서버는 한 번에 100개까지 — 세트+광고가 100개를 넘으면 "items 1~100개"로 통째로 거절되던 문제 (2026-09-20 실사례) → 40개씩 나눠 차례로 (서버가 하나씩 Meta에 저장해 개당 1초쯤 — 9/12 예산 116개가 150초 제한에 잘린 전례가 있어 한도 100보다 작게).
+       중간 묶음이 실패해도 앞 묶음은 이미 Meta에 반영됐으므로 멈추지 않고, 실패한 묶음만 실패 목록에 넣는다 */
+    const r = { failed: [] };
+    const N = 40;
+    for (let i = 0; i < plan.length; i += N) {
+      const part = plan.slice(i, i + N);
+      btn.textContent = plan.length > N ? `저장 중… ${Math.min(i + N, plan.length)}/${plan.length}` : '저장 중…';
+      try { const x = await sbCall('meta-upload', { action: 'adset_rename' }, { items: part.map(p => ({ id: p.id, name: p.name })) }); r.failed.push(...(x.failed || [])); }   // 광고도 같은 방식(POST /{id} name)
+      catch (e) { r.failed.push(...part.map(p => ({ id: p.id, error: e.message }))); }
+    }
     const failedIds = new Set((r.failed || []).map(f => String(f.id)));
     const ok = plan.filter(p => !failedIds.has(String(p.id)));
     admgr.selSets.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
