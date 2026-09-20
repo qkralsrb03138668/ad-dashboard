@@ -699,12 +699,12 @@ Deno.serve(async (req) => {
       try {
         rows = await graphGetAll(`${c.account}/ads`, {
           ...baseParams,
-          fields: "id,name,adset_id,status,effective_status,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id}",
+          fields: "id,name,adset_id,adset{name},status,effective_status,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id}",
         }, c.token);
       } catch {
         rows = await graphGetAll(`${c.account}/ads`, {
           ...baseParams,
-          fields: "id,name,adset_id,status,effective_status,creative{thumbnail_url,image_url,object_type,video_id}",
+          fields: "id,name,adset_id,adset{name},status,effective_status,creative{thumbnail_url,image_url,object_type,video_id}",
         }, c.token);
       }
       const body = {
@@ -715,6 +715,7 @@ Deno.serve(async (req) => {
             id: String(a.id ?? ""),
             name: String(a.name ?? ""),
             adset_id: String(a.adset_id ?? ""),
+            adset_name: String(((a.adset ?? {}) as Record<string, unknown>).name ?? ""),   // 지금 Meta의 세트명 — 베스트 탭이 담을 때 이름 대신 이걸 따라간다 (2026-09-20)
             status: String(a.status ?? ""),
             effective_status: String(a.effective_status ?? ""),
             thumb: String(cr.thumbnail_url ?? ""),
@@ -934,6 +935,14 @@ Deno.serve(async (req) => {
         body: JSON.stringify(rows),
       });
       if (!r.ok) return json({ error: "DB 저장 실패: " + (await r.text()).slice(0, 200) }, 500);
+      return json({ ok: true, count: rows.length });
+    }
+    /* 베스트에 담은 뒤 Meta에서 세트명을 바꾼 경우 — 저장된 이름만 고친다 (best_add는 담은 날짜·사람까지 덮어써 순서가 바뀌므로 따로 둠) */
+    if (action === "best_rename" && req.method === "POST") {
+      const raw = await req.json();
+      const rows = (Array.isArray(raw) ? raw : [raw]).map((x) => x as Record<string, unknown>)
+        .filter((x) => /^\d{5,25}$/.test(String(x.adset_id ?? "")) && String(x.adset_name ?? "").trim()).slice(0, 100);
+      for (const x of rows) await dbRest(`best_ads?adset_id=eq.${String(x.adset_id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ adset_name: String(x.adset_name).normalize("NFC").slice(0, 300) }) });
       return json({ ok: true, count: rows.length });
     }
     if (action === "best_del" && req.method === "POST") {

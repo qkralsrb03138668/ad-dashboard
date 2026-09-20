@@ -1487,6 +1487,10 @@ async function admgrBestFetch() {
     b.ads = b.rows.length
       ? ((await metaGet({ action: 'creatives', set_ids: b.rows.map(r => r.adset_id).join(',') })).ads || [])
       : [];
+    /* 세트명은 지금 Meta 이름을 따라간다 (2026-09-20) — 담을 때 저장한 이름과 다르면 화면·저장본 둘 다 고침 */
+    const live = new Map(b.ads.filter(a => a.adset_name).map(a => [a.adset_id, a.adset_name]));
+    const renamed = b.rows.filter(r => live.has(r.adset_id) && live.get(r.adset_id) !== r.adset_name).map(r => ({ adset_id: r.adset_id, adset_name: (r.adset_name = live.get(r.adset_id)) }));
+    if (renamed.length) metaPost({ action: 'best_rename' }, renamed).catch(() => {});
     b.loaded = true;
     lsSet('adc_admgr_best', { rows: b.rows, ads: b.ads });
   } catch (e) { toast('조회 실패: ' + e.message); }
