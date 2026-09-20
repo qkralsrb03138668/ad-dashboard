@@ -151,7 +151,7 @@ function admgrTestRowSets() {
   const all = ((t.data || {}).ads || []).map(a => { const meta = t.state.get(a.id) || {}; return { ...a, meta, st: admgrTestStatusOf(a, meta) }; });
   const vis = all.filter(a => !a.meta.hidden);
   const hid = all.filter(a => a.meta.hidden);
-  const pvis = admgr.mk.filter === 'all' ? vis : vis.filter(a => admgrMakerPass(a.id, a.adset_id));   // '만든 사람 ▾' 반영분 — 화면 칩·타일·표용 (vis는 리포트·퍼널 기준선이 쓰므로 그대로)
+  const pvis = admgr.mk.filter === 'all' ? vis : vis.filter(a => admgrMakerPass(a.id, a.adset_id, a.adset_name));   // '만든 사람 ▾' 반영분 — 화면 칩·타일·표용 (vis는 리포트·퍼널 기준선이 쓰므로 그대로)
   let rows = t.showHidden ? hid
     : t.filter === 'all' ? pvis
     : t.filter === 'req' ? pvis.filter(a => a.meta.asset_req_at)
@@ -1583,7 +1583,7 @@ function renderAdmgrBest() {
   setTimeout(() => admgrProfitEnsure(), 0);
   let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; const ta = testAds.find(x => x.id === a.id); return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)), tr: ta ? admgrTrend(ta) : null, pf: admgrProfit(nameOf.get(a.adset_id) || a.name, m) }; });
   if (admgr.q) ads = ads.filter(a => (a.setNm + ' ' + a.name).toLowerCase().includes(admgr.q));
-  if (admgr.mk.filter !== 'all') ads = ads.filter(a => admgrMakerPass(a.id, a.adset_id));   // '만든 사람 ▾'
+  if (admgr.mk.filter !== 'all') ads = ads.filter(a => admgrMakerPass(a.id, a.adset_id, a.setNm || a.name));   // '만든 사람 ▾'
   const allAds = ads;
   const prods = [...new Set(ads.map(a => a.prod))];
   if (b.hideOff) ads = ads.filter(a => a.effective_status === 'ACTIVE');

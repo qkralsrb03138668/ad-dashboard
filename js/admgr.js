@@ -430,7 +430,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   let vis = isCamp ? admgrVisible(R.camps) : isSet ? admgrVisible(setsInSel) : admgrVisible(adsInSel);
   /* 만든 사람 거르기 (2026-09-20): 광고세트 탭 — 평소엔 아무 표시 없고, '만든 사람 ▾'로 골랐을 때만 그 사람 세트 + 알림 한 줄 */
   let mkBan = '';
-  if (isSet && admgr.mk.filter !== 'all') { vis = vis.filter(r => admgrMakerPass(null, r.id)); mkBan = admgrMakerBanner(vis, true); }
+  if (isSet && admgr.mk.filter !== 'all') { vis = vis.filter(r => admgrMakerPass(null, r.id, r.name)); mkBan = admgrMakerBanner(vis, true); }
 
   /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
   const bb = admgr.budget;
@@ -1051,22 +1051,23 @@ function admgrMakerIdx() {
   if (src) for (const c of src.values()) { if (!MAKERS[c.maker]) continue; ad.set(String(c.ad_id), c.maker); if (c.adset_id && !set.has(String(c.adset_id))) set.set(String(c.adset_id), c.maker); }
   m.idxSrc = src; return (m.idx = { ad, set });
 }
-function admgrMakerOf(adId, setId) {
+/* 순서: ② 수동 지정 → ① 등록 기록 → ③ 이름 규칙(2026-09-20 사용자 지정: 세트명에 '다나'가 있으면 다나대표, 나머지는 전부 김도희 — 0017과 같은 규칙). ③ 덕에 미지정은 없다 */
+function admgrMakerOf(adId, setId, name) {
   const v = admgr.mk.sets[setId]; if (MAKERS[v]) return v;
   const ix = admgrMakerIdx();
-  return (adId && ix.ad.get(String(adId))) || ix.set.get(String(setId)) || '';
+  return (adId && ix.ad.get(String(adId))) || ix.set.get(String(setId)) || (String(name || '').normalize('NFC').includes('다나') ? 'dana' : 'dohee');
 }
-function admgrMakerPass(adId, setId) { const f = admgr.mk.filter; if (f === 'all') return true; const k = admgrMakerOf(adId, setId); return f === 'none' ? !k : k === f; }
+function admgrMakerPass(adId, setId, name) { const f = admgr.mk.filter; return f === 'all' || admgrMakerOf(adId, setId, name) === f; }
 function admgrMakerFilter(k) { admgr.mk.filter = k; if (k !== 'all') admgrTestCreativesEnsure(); renderAdmgr(); }
 /* 버튼 하나 — 기존 버튼 줄 끝에 끼운다. 고른 상태면 이름이 보이고 색이 들어온다 */
 function admgrMakerBtn(cls) {
   if (admgr.demo || !admgrCfg()) return '';
   const f = admgr.mk.filter, on = f !== 'all';
-  return `<button class="filter-tab ag-mkbtn ${on ? 'on' : ''} ${cls || ''}" onclick="admgrMakerMenu(event)" title="고른 사람이 만든 소재만 보기 — 평소 화면에는 이름이 표시되지 않아요"><i class="fa-solid fa-user"></i> ${on ? (MAKERS[f] || '미지정') : '만든 사람'} <i class="fa-solid fa-chevron-down" style="font-size:.7em;"></i></button>`;
+  return `<button class="filter-tab ag-mkbtn ${on ? 'on' : ''} ${cls || ''}" onclick="admgrMakerMenu(event)" title="고른 사람이 만든 소재만 보기 — 평소 화면에는 이름이 표시되지 않아요"><i class="fa-solid fa-user"></i> ${on ? MAKERS[f] : '만든 사람'} <i class="fa-solid fa-chevron-down" style="font-size:.7em;"></i></button>`;
 }
 function admgrMakerMenuItems() {
   const f = admgr.mk.filter, it = (k, label, sub) => agItem(f === k ? 'fa-circle-check' : 'fa-circle', label, `admgrMakerFilter('${k}')`, sub);
-  return it('all', '전체') + Object.entries(MAKERS).map(([k, n]) => it(k, n)).join('') + it('none', '미지정', '등록 기록이 없는 것');
+  return it('all', '전체') + Object.entries(MAKERS).map(([k, n]) => it(k, n)).join('');
 }
 function admgrMakerMenu(ev) { admgrPopAt(ev, `<div class="ag-menu">${admgrMakerMenuItems()}</div>`, 200); }
 /* 거른 상태 알림 한 줄 — rows = 거른 뒤 행, stats면 지출·구매·ROAS도 */
@@ -1074,13 +1075,13 @@ function admgrMakerBanner(rows, stats) {
   const f = admgr.mk.filter; if (f === 'all') return '';
   const loading = !admgr.test.creatives;
   const spend = rows.reduce((s0, r) => s0 + (r.spend || 0), 0), value = rows.reduce((s0, r) => s0 + (r.value || 0), 0), pur = rows.reduce((s0, r) => s0 + (r.purchases || 0), 0);
-  return `<div class="ag-mkban"><i class="fa-solid fa-user"></i><b>${f === 'none' ? '만든 사람 미지정' : esc(MAKERS[f]) + ' 소재'}만 보는 중</b>
+  return `<div class="ag-mkban"><i class="fa-solid fa-user"></i><b>${esc(MAKERS[f] || '')} 소재만 보는 중</b>
     <span>${loading ? '등록 기록 불러오는 중…' : `${rows.length}개${stats ? ` · 지출 <b>${won(spend)}</b> · 구매 <b>${comma(pur)}</b> · ROAS <b>${spend ? (value / spend).toFixed(2) : '—'}</b>` : ''}`}</span>
     <span style="flex:1;"></span><button onclick="admgrMakerFilter('all')">✕ 전체 보기</button></div>`;
 }
 /* 광고세트 탭 체크분에 수동 지정 (대시보드 밖에서 올린 광고용) */
 function admgrMakerAssignItems() {
-  return Object.entries(MAKERS).map(([k, n]) => agItem('fa-user', n, `admgrMakerAssign(null,'${k}')`)).join('') + agItem('fa-xmark', '지정 지우기', "admgrMakerAssign(null,'')", '등록 기록 값으로 돌아가요');
+  return Object.entries(MAKERS).map(([k, n]) => agItem('fa-user', n, `admgrMakerAssign(null,'${k}')`)).join('') + agItem('fa-xmark', '지정 지우기', "admgrMakerAssign(null,'')", '등록 기록·이름 규칙으로 돌아가요');
 }
 async function admgrMakerAssign(ev, k) {
   if (ev) { admgrPopAt(ev, `<div class="ag-menu"><div class="ag-menu-sep">체크한 세트 ${admgr.selSets.size}개 — 누가 만들었나요?</div>${admgrMakerAssignItems()}</div>`, 220); return; }
