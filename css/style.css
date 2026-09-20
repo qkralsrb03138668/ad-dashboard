@@ -722,3 +722,12 @@ summary::-webkit-details-marker { display: none; }
   #sec-admgr .mc-links button { flex: 1; min-height: 44px; border: 1.5px solid #e5e7eb; border-radius: 10px; background: #fff; font-family: inherit; font-size: 14px; font-weight: 700; color: #4b5563; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
   #sec-admgr .mc-links button i { font-size: 12px; color: #9ca3af; }
 }
+
+/* ═══ 만든 사람 거르기 (2026-09-20) — 버튼 하나 + 거른 상태 알림 한 줄. 평소 화면엔 이름 표시 없음 ═══ */
+#sec-admgr .ag-mkbtn { display: inline-flex; align-items: center; gap: 6px; }
+#sec-admgr .ag-mkbtn > i:first-child { font-size: .8em; color: #9ca3af; }
+#sec-admgr .ag-mkbtn.on { background: #1e1b4b; border-color: #1e1b4b; color: #fff; } #sec-admgr .ag-mkbtn.on > i:first-child { color: #c7d2fe; }
+#sec-admgr .ag-filters .ag-mkbtn { margin-left: 4px; }
+.ag-mkban { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; margin-bottom: 12px; border: 1px solid #c7d2fe; border-radius: 10px; background: #eef2ff; color: #3730a3; font-size: .78rem; }
+.ag-mkban > i { font-size: .8em; } .ag-mkban > span { color: #4b5563; } .ag-mkban > span b { color: #1e1b4b; }
+.ag-mkban button { border: none; background: transparent; font-family: inherit; font-size: .76rem; font-weight: 700; color: #4338ca; cursor: pointer; padding: 4px 6px; min-height: 0; }

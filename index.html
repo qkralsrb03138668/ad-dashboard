@@ -19,7 +19,7 @@
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
     }, window.DASH_CFG || {});
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=202609181846" />
+  <link rel="stylesheet" href="./css/style.css?v=202609201436" />
 </head>
 <body>
 <!-- ═══ 로그인 게이트 (Supabase Auth) — 세션 없으면 앱을 가린다 ═══ -->
@@ -105,8 +105,9 @@
         <!-- 상품·유형 관리 도구 막대(상품 추가·카페24 불러오기·유형 추가·숨김 해제·삭제)는 2026-09-14 사용자 요청으로 제거 — 상품은 소재 등록 시 자동으로 보드에 추가된다 -->
         <!-- ═══ 소재 등록 (마케터·관리자) — 파일명→상품 매칭, Meta 보관함 업로드, 등록 기록 ═══ -->
         <div style="border:1px solid #e7e8ee;border-radius:12px;padding:16px;background:#fff;margin-bottom:22px;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
             <b style="color:#1e1b4b;"><i class="fa-solid fa-cloud-arrow-up" style="color:#4f46e5;"></i> 소재 등록</b>
+            <span id="reg-maker" class="filter-tabs" style="margin:0;gap:4px;align-items:center;order:3;margin-left:auto;"></span>
             <span style="font-size:.74rem;color:#6b7280;">파일명 앞부분(첫 _ 앞)으로 카페24 상품을 찾아 URL을 자동 기입 · 파일은 Meta 광고 보관함에 올라가고 광고 업로드 탭에서 바로 쓸 수 있어요</span>
           </div>
           <!-- ① 상품 → ② 소구점 → ③ 파일 → ④ 등록 : 단계 표시 + 상품 검색(썸네일 목록·최근 상품) + 소구점 버튼 -->
@@ -550,17 +551,17 @@
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column"></i>판매 성과</button>
   <button class="menu-item" onclick="menuDrawer(true)"><i class="fa-solid fa-bars"></i>더보기</button>
 </nav>
-<script src="./js/core.js?v=202609180200"></script>
-<script src="./js/auth.js?v=202609111942"></script>
-<script src="./js/home.js?v=202609111942"></script>
-<script src="./js/creatives.js?v=202609111942"></script>
-<script src="./js/checkboard.js?v=202609141813"></script>
-<script src="./js/register.js?v=202609171419"></script>
-<script src="./js/upload.js?v=202609151400"></script>
-<script src="./js/admgr.js?v=202609181846"></script>
-<script src="./js/admgr-budget.js?v=202609181846"></script>
-<script src="./js/admgr-tabs.js?v=202609181846"></script>
-<script src="./js/data.js?v=202609111942"></script>
-<script src="./js/perf.js?v=202609111942"></script>
+<script src="./js/core.js?v=202609201436"></script>
+<script src="./js/auth.js?v=202609201436"></script>
+<script src="./js/home.js?v=202609201436"></script>
+<script src="./js/creatives.js?v=202609201436"></script>
+<script src="./js/checkboard.js?v=202609201436"></script>
+<script src="./js/register.js?v=202609201436"></script>
+<script src="./js/upload.js?v=202609201436"></script>
+<script src="./js/admgr.js?v=202609201436"></script>
+<script src="./js/admgr-budget.js?v=202609201436"></script>
+<script src="./js/admgr-tabs.js?v=202609201436"></script>
+<script src="./js/data.js?v=202609201436"></script>
+<script src="./js/perf.js?v=202609201436"></script>
 </body>
 </html>

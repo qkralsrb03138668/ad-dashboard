@@ -240,7 +240,7 @@ function regPick(i, no) {
 function regSearch(i, name) { const p = reg.products.find(p => p.name === name); if (p) { if (!reg.rows[i].cands.find(c => c.product_no === p.product_no)) reg.rows[i].cands.unshift(p); regPick(i, p.product_no); } }
 function regSelBtn() { const n = reg.rows.filter(r => r.sel && !r.done).length, b = $('reg-text-sel'); if (!b) return; b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입${n ? ` (${n})` : ''}`; }
 function regRender() {
-  regStepsRender(); regTagsRender();
+  regStepsRender(); regTagsRender(); regMakerRender();
   const box = $('reg-rows'), bar = $('reg-bar');
   if (!reg.rows.length) { box.innerHTML = ''; bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
@@ -285,10 +285,27 @@ function regLog(msg, cls) {
   box.insertAdjacentHTML('beforeend', `<div style="${cls === 'ok' ? 'color:#4ade80;' : cls === 'err' ? 'color:#f87171;' : ''}">${new Date().toTimeString().slice(0, 8)} ${cls === 'ok' ? '✓' : cls === 'err' ? '✗' : '→'} ${esc(msg)}</div>`);
   box.scrollTop = box.scrollHeight;
 }
+/* 만든 사람 (2026-09-20 사용자 요청) — 등록할 때만 고른다. 기본 = 이 브라우저에서 마지막에 고른 사람 → 없으면 로그인한 사람(이름에 도희/다나).
+   평소 화면에는 표시하지 않고 광고관리자 '만든 사람 ▾'로 골랐을 때만 그 사람 소재를 거른다 */
+function regMakerRender() {
+  const box = $('reg-maker'); if (!box) return;
+  if (!reg.maker) { const n = (typeof AUTH === 'object' && AUTH.me && AUTH.me.name) || ''; reg.maker = lsGet('adc_reg_maker', null) || (/도희/.test(n) ? 'dohee' : /다나/.test(n) ? 'dana' : null); }
+  box.innerHTML = `<span style="font-size:.74rem;font-weight:700;color:${reg.maker ? '#6b7280' : '#dc2626'};">만든 사람</span>` + Object.entries(MAKERS).map(([k, n]) => `<button class="filter-tab ${reg.maker === k ? 'active' : ''}" style="padding:4px 12px;" onclick="regMakerSet('${k}')">${n}</button>`).join('');
+}
+function regMakerSet(k) { reg.maker = k; lsSet('adc_reg_maker', k); regMakerRender(); }
+async function regListMaker(id, k) {
+  try {
+    await uplCall({ action: 'creative_save' }, { id, maker: k || null });
+    const r = (reg.list || []).find(x => x.id === id); if (r) r.maker = k || null;
+    if (typeof admgr === 'object' && admgr.test) admgr.test.creatives = null;   // 광고관리자 거르기가 다음에 새로 읽게
+    toast('만든 사람을 저장했어요');
+  } catch (e) { toast('저장 실패: ' + e.message); regRenderList(); }
+}
 async function regRun() {
   if (reg.running) return;
   const todo = reg.rows.filter(r => !r.done);
   if (!todo.length) return;
+  if (!reg.maker) { toast('만든 사람을 먼저 골라주세요 — 소재 등록 제목 오른쪽'); $('reg-maker').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   const pin = '';   // 등록 PIN 폐지 — 로그인 계정으로 충분
   const noTag = todo.filter(r => !regRowTag(r));
   if (noTag.length) { toast(`소구점이 없는 파일 ${noTag.length}개 — ② 소구점을 고르면 적용돼요 (리포트가 소구점별로 비교하려면 필수)`); $('reg-tags').scrollIntoView({ behavior: 'smooth', block: 'center' }); regRender(); return; }
@@ -308,7 +325,7 @@ async function regRun() {
         if (!r.media) r.media = await uplUploadMedia({ kind: r.kind, file: r.file, name: r.name, _reg: r }, pin);
         r.status = '기록 저장 중'; regRender();
         const p = r.product || (r.multi ? r.cands[0] : null);
-        await uplCall({ action: 'creative_add' }, { file_name: r.fileName || r.file.name, kind: r.kind, core_name: r.core, product_no: p ? p.product_no : null, product_name: p ? p.name : null, url: r.url || null, text: r.text, media: r.media });
+        await uplCall({ action: 'creative_add' }, { file_name: r.fileName || r.file.name, kind: r.kind, core_name: r.core, product_no: p ? p.product_no : null, product_name: p ? p.name : null, url: r.url || null, text: r.text, media: r.media, maker: reg.maker });
         r.done = true; r.status = '등록됨'; ok++; regLog(`${r.fileName || r.file.name}: 등록 완료`, 'ok'); if (p) regRecentPush(p.product_no);
       } catch (e) {
         r.status = '실패: ' + e.message; regLog(`${r.file.name}: ${e.message}`, 'err');
@@ -339,12 +356,13 @@ async function regRefresh(force) {
   reg.listLoading = false; renderPTest();   // renderPTest가 등록 목록도 그린다
 }
 function regRenderList() {
+  regMakerRender();
   const box = $('reg-list'); if (!box || !reg.list) return;
   const all = reg.list, wait = all.filter(r => r.status === 'registered'), made = all.filter(r => r.status === 'ad_created');
   $('reg-tabs').innerHTML = [['registered', `대기 ${wait.length}`], ['ad_created', `광고 생성됨 ${made.length}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="filter-tab ${reg.filter === k ? 'active' : ''}" onclick="reg.filter='${k}';regRenderList()">${l}</button>`).join('');
   const rows = reg.filter === 'all' ? all : all.filter(r => r.status === reg.filter);
   if (!rows.length) { box.innerHTML = '<div style="padding:10px;">없음</div>'; return; }
-  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th class="m-hide">등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th class="m-hide">등록자</th><th></th></tr></thead><tbody>
+  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th class="m-hide">등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th class="m-hide">등록자</th><th class="m-hide" title="올린 사람과 만든 사람이 다르면 여기서 고쳐요">만든 사람</th><th></th></tr></thead><tbody>
     ${rows.slice(0, 200).map(r => `<tr>
       <td class="m-hide" style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
       <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:center;">${mediaThumbHtml(mediaThumbSrc(r.media), r.kind, 40)}<span>${esc(r.file_name)}</span></div></td>
@@ -353,6 +371,7 @@ function regRenderList() {
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
       <td style="font-size:.76rem;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span> <span style="color:#9ca3af;font-size:.68rem;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(whoName(r.ad_created_by_name, r.ad_created_by))}</span>` : '<span class="status-badge badge-blue">대기</span>'}</td>
       <td class="m-hide" style="text-align:center;font-size:.72rem;color:#6b7280;">${esc(whoName(r.created_by_name, r.created_by_email))}</td>
+      <td class="m-hide" style="text-align:center;"><select class="inp" style="padding:2px 4px;font-size:.7rem;min-height:0;width:auto;" onchange="regListMaker('${r.id}',this.value)"><option value="">—</option>${Object.entries(MAKERS).map(([k, n]) => `<option value="${k}" ${r.maker === k ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
       <td>${r.status === 'registered' ? `<button class="btn-ghost btn-danger-ghost" data-act="delete" style="padding:2px 8px;font-size:.7rem;${dnrbCan('delete') ? '' : 'display:none;'}" onclick="regListDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }

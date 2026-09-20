@@ -138,6 +138,7 @@ function admgrSetView(v) {
   renderAdmgr();
 }
 function admgrRefresh() {
+  admgr.test.creatives = null; admgrMakerLoad();   // 만든 사람 기록도 같이 최신으로
   if (admgr.view === 'test') admgrTestFetch();
   else if (admgr.view === 'offad') admgrOffFetch();
   else if (admgr.view === 'best') admgrBestFetch();
@@ -322,6 +323,7 @@ const admgrTile = (label, val) => `<div class="kpi-tile"><div class="kt-label">$
 function renderAdmgr(keepScroll) {
   const body = $('admgr-body');
   const cfg = admgrCfg();
+  if (!admgr.mk.tried) { admgr.mk.tried = true; admgrMakerLoad(); }   // 세트별 수동 지정분 — 첫 렌더에 한 번만
   /* 재렌더 시 표 스크롤 유지 (가이드 §7-10) + 검색창 포커스 유지 */
   const wrap = body.querySelector('.table-wrap');
   const sc = keepScroll && wrap ? { t: wrap.scrollTop, l: wrap.scrollLeft } : null;
@@ -366,7 +368,7 @@ function renderAdmgr(keepScroll) {
     </div>`;
   const filters = `<div class="ag-filters ${admgr.mSearch || admgr.q ? 'm-open' : ''}">
       ${own ? '' : `<span class="ag-seg">${Object.entries(ADMGR_PRESETS).map(([k, t]) => `<button class="${admgr.preset === k ? 'on' : ''}" onclick="admgrSetPreset('${k}')">${t.replace('최근 ', '')}</button>`).join('')}<button class="${admgr.preset === 'custom' ? 'on' : ''}" onclick="admgrRangeModal()" title="기간 직접 지정"><i class="fa-regular fa-calendar"></i>${admgr.preset === 'custom' && admgr.customRange ? ` ${esc(admgr.customRange.since.slice(5))}~${esc(admgr.customRange.until.slice(5))}` : ' 직접'}</button></span>
-      <label class="ag-check" title="켜져 있는 것만 표시"><input type="checkbox" ${admgr.activeOnly ? 'checked' : ''} onchange="admgrToggleActive()" /> 활성만</label>`}
+      <label class="ag-check" title="켜져 있는 것만 표시"><input type="checkbox" ${admgr.activeOnly ? 'checked' : ''} onchange="admgrToggleActive()" /> 활성만</label>${admgr.view === 'set' ? admgrMakerBtn('ag-hide-m') : ''}`}
       <span class="ag-search"><i class="fa-solid fa-magnifying-glass"></i><input class="inp" id="admgr-q" placeholder="${own ? '세트명·소재명 검색' : '이름 검색'}" value="${esc(admgr.q)}" oninput="admgrSearch(this.value)" /></span>
       <span style="flex:1;"></span>
       ${!own ? `<button class="btn-ghost ag-btn ag-hide-m" onclick="admgrColsMenu(event)" title="표시할 열 선택 · 드래그로 순서 변경 (기본은 핵심 열만, 나머지는 행 끝 ∨로 펼치기)"><i class="fa-solid fa-table-columns"></i> 열</button>` : ''}
@@ -426,6 +428,9 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const isCamp = admgr.view === 'camp', isSet = admgr.view === 'set';
   const VIEW_LABEL = isCamp ? '캠페인' : isSet ? '광고세트' : '광고';
   let vis = isCamp ? admgrVisible(R.camps) : isSet ? admgrVisible(setsInSel) : admgrVisible(adsInSel);
+  /* 만든 사람 거르기 (2026-09-20): 광고세트 탭 — 평소엔 아무 표시 없고, '만든 사람 ▾'로 골랐을 때만 그 사람 세트 + 알림 한 줄 */
+  let mkBan = '';
+  if (isSet && admgr.mk.filter !== 'all') { vis = vis.filter(r => admgrMakerPass(null, r.id)); mkBan = admgrMakerBanner(vis, true); }
 
   /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
   const bb = admgr.budget;
@@ -609,6 +614,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${isSet && ns && cfg && !admgr.demo && admgrRows().sets.some(r => admgr.selSets.has(r.id) && admgrIsTest(r)) ? `<button onclick="admgrTestEndModal()" title="체크한 테스트중 세트의 이름 맨 뒤 _test를 세트·광고에서 지워 Meta에 저장 — 그다음부터 일반 판정에 들어가요"><i class="fa-solid fa-flag-checkered"></i> 테스트 종료</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo && admgr.write.daystart && admgr.write.daystart.size ? `<button onclick="admgrRestoreSel()" title="체크한 세트를 오늘 시작 예산(00:10 기록)으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-rotate-left"></i> 시작 예산 복구</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
+      ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrMakerAssign(event)" title="대시보드 밖에서 올려 기록이 없는 세트에 만든 사람을 붙여요 — 화면에는 표시되지 않고 '만든 사람 ▾'로 거를 때만 쓰여요"><i class="fa-solid fa-user-pen"></i> 만든 사람 지정</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
       <span style="flex:1;"></span><button class="ghost" onclick="admgrClearSel()">선택 해제 ✕</button></div>` : '';
   /* 폰 (2026-09-18): 검은 동작바 대신 — 선택 모드면 상단 선택바 + 하단 동작판, 아니면 상위 선택이 필터로 남았을 때 알림줄 */
@@ -621,9 +627,9 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       else if (admgr.view === 'ad' && admgr.selCamps.size) fnotice = admgrFNoticeHtml(nm(R.camps, admgr.selCamps), admgr.selCamps.size);
     }
     const selTop = admgr.mSelect ? admgrSelBarHtml() : '', selPanel = admgr.mSelect ? admgrSelPanelHtml() : '';
-    return selTop + chgChips + judgeChips + fnotice + tiles + table + cards + selPanel;
+    return selTop + chgChips + judgeChips + mkBan + fnotice + tiles + table + cards + selPanel;
   }
-  return chgChips + judgeChips + tiles + table + cards + actbar;
+  return chgChips + judgeChips + mkBan + tiles + table + cards + actbar;
 }
 /* 행 여백 클릭 = 체크박스 토글 (2026-09-15 사용자 요청). 버튼·링크·입력칸·토글·연필 등 조작 요소 위 클릭은 제외 */
 /* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고를 다른 캠페인·광고세트에 꺼진 상태로 복사하고,
@@ -900,7 +906,7 @@ function admgrSelPanelHtml() {
   return `<div class="ag-selpanel">${items.map(([ic, label, fn]) => `<button onclick="${fn}"><i class="fa-solid ${ic}"></i><span>${label}</span></button>`).join('')}</div>`;
 }
 function admgrSelMoreMenu(ev) {
-  admgrPopAt(ev, `<div class="ag-menu">${agItem('fa-eye', '광고 보기', "admgrSetView('ad')")}${agItem('fa-star', '베스트 담기', 'admgrBestAdd()')}</div>`, 200);
+  admgrPopAt(ev, `<div class="ag-menu">${agItem('fa-eye', '광고 보기', "admgrSetView('ad')")}${agItem('fa-star', '베스트 담기', 'admgrBestAdd()')}<div class="ag-menu-sep">만든 사람 지정</div>${admgrMakerAssignItems()}</div>`, 200);
 }
 /* 선택 아닌 상태에서 상위 선택이 필터로 남아 있을 때(D) — 다크 액션바 대신 알림줄 하나 + 해제 버튼 */
 function admgrFNoticeHtml(name, n) {
@@ -1023,4 +1029,71 @@ function admgrRestoreSel() {   // 체크한 세트를 오늘 시작 예산(00:10
 }
 function admgrCutSel() {   // 체크한 광고세트
   if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); admgr.mSelect = false; renderAdmgr(true); }
+}
+
+/* ═══ 만든 사람 거르기 (2026-09-20 사용자 요청 — 9/18 칩·필터 줄 판은 "지저분·복잡"으로 되돌림) ═══
+   원칙: 입력은 소재 등록할 때만(creatives.maker) · 평소 화면엔 이름을 어디에도 안 보임(비교판이 되지 않게) · '만든 사람 ▾'로 골랐을 때만 그 사람 것 + 알림 한 줄.
+   출처 2개: ① creatives.maker (ad_id·adset_id로 연결 — admgr.test.creatives) ② 대시보드 밖에서 올린 세트는 광고세트 탭에서 체크 → '만든 사람 지정' → shared_state 'makers' {sets:{adset_id:key}} (②가 ①보다 우선)
+   ponytail: creatives_list는 최대 500행 — 등록 소재가 500개를 넘으면 오래된 광고가 '미지정'으로 빠진다. 그때 서버에 maker 전용 가벼운 목록 액션을 추가할 것 */
+admgr.mk = { filter: 'all', sets: {}, ver: null, tried: false, loading: false, idx: null, idxSrc: null };
+async function admgrMakerLoad() {
+  const m = admgr.mk;
+  if (m.loading || admgr.demo || !admgrCfg()) return;
+  m.loading = true;
+  try { const r = await sbCall('client-log', { action: 'state_get', key: 'makers' }); m.sets = ((r && r.data) || {}).sets || {}; m.ver = (r && r.ver) || null; }
+  catch (e) { console.warn('만든 사람 지정분 불러오기 실패', e.message); }
+  m.loading = false; if (m.filter !== 'all') renderAdmgr(true);
+}
+function admgrMakerIdx() {
+  const m = admgr.mk, src = admgr.test.creatives;
+  if (m.idx && m.idxSrc === src) return m.idx;
+  const ad = new Map(), set = new Map();
+  if (src) for (const c of src.values()) { if (!MAKERS[c.maker]) continue; ad.set(String(c.ad_id), c.maker); if (c.adset_id && !set.has(String(c.adset_id))) set.set(String(c.adset_id), c.maker); }
+  m.idxSrc = src; return (m.idx = { ad, set });
+}
+function admgrMakerOf(adId, setId) {
+  const v = admgr.mk.sets[setId]; if (MAKERS[v]) return v;
+  const ix = admgrMakerIdx();
+  return (adId && ix.ad.get(String(adId))) || ix.set.get(String(setId)) || '';
+}
+function admgrMakerPass(adId, setId) { const f = admgr.mk.filter; if (f === 'all') return true; const k = admgrMakerOf(adId, setId); return f === 'none' ? !k : k === f; }
+function admgrMakerFilter(k) { admgr.mk.filter = k; if (k !== 'all') admgrTestCreativesEnsure(); renderAdmgr(); }
+/* 버튼 하나 — 기존 버튼 줄 끝에 끼운다. 고른 상태면 이름이 보이고 색이 들어온다 */
+function admgrMakerBtn(cls) {
+  if (admgr.demo || !admgrCfg()) return '';
+  const f = admgr.mk.filter, on = f !== 'all';
+  return `<button class="filter-tab ag-mkbtn ${on ? 'on' : ''} ${cls || ''}" onclick="admgrMakerMenu(event)" title="고른 사람이 만든 소재만 보기 — 평소 화면에는 이름이 표시되지 않아요"><i class="fa-solid fa-user"></i> ${on ? (MAKERS[f] || '미지정') : '만든 사람'} <i class="fa-solid fa-chevron-down" style="font-size:.7em;"></i></button>`;
+}
+function admgrMakerMenuItems() {
+  const f = admgr.mk.filter, it = (k, label, sub) => agItem(f === k ? 'fa-circle-check' : 'fa-circle', label, `admgrMakerFilter('${k}')`, sub);
+  return it('all', '전체') + Object.entries(MAKERS).map(([k, n]) => it(k, n)).join('') + it('none', '미지정', '등록 기록이 없는 것');
+}
+function admgrMakerMenu(ev) { admgrPopAt(ev, `<div class="ag-menu">${admgrMakerMenuItems()}</div>`, 200); }
+/* 거른 상태 알림 한 줄 — rows = 거른 뒤 행, stats면 지출·구매·ROAS도 */
+function admgrMakerBanner(rows, stats) {
+  const f = admgr.mk.filter; if (f === 'all') return '';
+  const loading = !admgr.test.creatives;
+  const spend = rows.reduce((s0, r) => s0 + (r.spend || 0), 0), value = rows.reduce((s0, r) => s0 + (r.value || 0), 0), pur = rows.reduce((s0, r) => s0 + (r.purchases || 0), 0);
+  return `<div class="ag-mkban"><i class="fa-solid fa-user"></i><b>${f === 'none' ? '만든 사람 미지정' : esc(MAKERS[f]) + ' 소재'}만 보는 중</b>
+    <span>${loading ? '등록 기록 불러오는 중…' : `${rows.length}개${stats ? ` · 지출 <b>${won(spend)}</b> · 구매 <b>${comma(pur)}</b> · ROAS <b>${spend ? (value / spend).toFixed(2) : '—'}</b>` : ''}`}</span>
+    <span style="flex:1;"></span><button onclick="admgrMakerFilter('all')">✕ 전체 보기</button></div>`;
+}
+/* 광고세트 탭 체크분에 수동 지정 (대시보드 밖에서 올린 광고용) */
+function admgrMakerAssignItems() {
+  return Object.entries(MAKERS).map(([k, n]) => agItem('fa-user', n, `admgrMakerAssign(null,'${k}')`)).join('') + agItem('fa-xmark', '지정 지우기', "admgrMakerAssign(null,'')", '등록 기록 값으로 돌아가요');
+}
+async function admgrMakerAssign(ev, k) {
+  if (ev) { admgrPopAt(ev, `<div class="ag-menu"><div class="ag-menu-sep">체크한 세트 ${admgr.selSets.size}개 — 누가 만들었나요?</div>${admgrMakerAssignItems()}</div>`, 220); return; }
+  const m = admgr.mk, ids = [...admgr.selSets];
+  if (!ids.length) { toast('먼저 세트를 체크하세요'); return; }
+  const apply = () => ids.forEach(id => { if (k) m.sets[id] = k; else delete m.sets[id]; });
+  for (let tries = 0; tries < 2; tries++) {   // 남이 먼저 저장했으면 최신본 위에 내 지정만 다시 얹어 한 번 더
+    try {
+      apply();
+      const r = await sbCall('client-log', { action: 'state_set' }, { key: 'makers', base: m.ver, data: { sets: m.sets } });
+      if (!r.conflict) { m.ver = r.ver; toast(`세트 ${ids.length}개 — ${k ? MAKERS[k] : '지정 지움'}`); renderAdmgr(true); return; }
+      m.sets = ((r.data || {}).sets) || {}; m.ver = r.ver || null;
+    } catch (e) { toast('만든 사람 저장 실패: ' + e.message); return; }
+  }
+  toast('만든 사람 저장 실패 — 새로고침 후 다시 시도해 주세요');
 }

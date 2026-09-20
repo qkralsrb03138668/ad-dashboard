@@ -4,6 +4,8 @@
 
 /* ═══════════ 유틸 ═══════════ */
 const $ = id => document.getElementById(id);
+const MAKERS = { dohee: '김도희', dana: '다나대표' };   // 만든 사람 (2026-09-20) — creatives.maker 키 → 표시 이름. 사람 추가 = 여기 + 서버 MAKER_KEYS + 0016 check
+const makerName = c => (c && c.maker && MAKERS[c.maker]) || '';
 const whoName = (name, id) => name || (id === 'dash-key' ? '관리자' : String(id || '').replace(/^dnrb:/, '').split('@')[0]);   // 등록자 표시: 이름 우선 (2026-09-14)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';   // href엔 http(s)만 (javascript: 차단)

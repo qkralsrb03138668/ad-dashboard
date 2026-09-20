@@ -151,15 +151,16 @@ function admgrTestRowSets() {
   const all = ((t.data || {}).ads || []).map(a => { const meta = t.state.get(a.id) || {}; return { ...a, meta, st: admgrTestStatusOf(a, meta) }; });
   const vis = all.filter(a => !a.meta.hidden);
   const hid = all.filter(a => a.meta.hidden);
+  const pvis = admgr.mk.filter === 'all' ? vis : vis.filter(a => admgrMakerPass(a.id, a.adset_id));   // '만든 사람 ▾' 반영분 — 화면 칩·타일·표용 (vis는 리포트·퍼널 기준선이 쓰므로 그대로)
   let rows = t.showHidden ? hid
-    : t.filter === 'all' ? vis
-    : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at)
-    : t.filter === 'gone' ? vis.filter(a => a.gone)
-    : t.filter === 'judge' ? vis.filter(a => ['off', 'good'].includes((admgrRecommend(a) || {}).k))
-    : vis.filter(a => a.st === t.filter);
+    : t.filter === 'all' ? pvis
+    : t.filter === 'req' ? pvis.filter(a => a.meta.asset_req_at)
+    : t.filter === 'gone' ? pvis.filter(a => a.gone)
+    : t.filter === 'judge' ? pvis.filter(a => ['off', 'good'].includes((admgrRecommend(a) || {}).k))
+    : pvis.filter(a => a.st === t.filter);
   if (admgr.q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).normalize('NFC').toLowerCase().includes(admgr.q.normalize('NFC')));
   // 정렬을 안 골랐으면 '판정 필요 순': OFF·우수 후보 → 기준 미달 → 지켜보기 → 판정 끝난 것, 같은 급에선 D+ 큰 순
-  return { vis, hid, rows: rows.slice().sort(admgr.sort.length ? admgrCmp : admgrTJudgeCmp) };
+  return { vis, pvis, hid, rows: rows.slice().sort(admgr.sort.length ? admgrCmp : admgrTJudgeCmp) };
 }
 /* 엑셀 추출 — 지금 화면에 보이는 표 그대로 */
 async function admgrTestXlsx() {
@@ -234,12 +235,12 @@ function admgrAdFeat(a, base, cre, ai, kinds, vtags) {   // 소재 하나의 비
   const fmt = c ? (c.kind === 'video' ? '릴스' : '이미지') : kv != null ? (kv ? '릴스' : '이미지') : a.v3 > 0 ? '릴스' : a.imp > 0 ? '이미지' : '미상';
   const msg = c && c.text && c.text.message ? String(c.text.message).normalize('NFC') : '';
   return { fmt, tag: (c && admgrTagOf(c.file_name)) || '미기입', price: admgrPriceBand(admgrPriceOf(a.adset_name || a.name)),
-    who: c ? (whoName(c.created_by_name, c.created_by_email) || '?') : '외부 등록', hook: msg ? (ADMGR_HOOK_RE.test(msg) ? '훅 있음' : '훅 없음') : '문구 미상', vhook: vf ? vf.hook : null,
+    who: c ? (makerName(c) || whoName(c.created_by_name, c.created_by_email) || '?') : '외부 등록', hook: msg ? (ADMGR_HOOK_RE.test(msg) ? '훅 있음' : '훅 없음') : '문구 미상', vhook: vf ? vf.hook : null,
     diag: admgrFunnelDiag(a, base), ctr: r ? r.ctr : null, ts: r ? r.ts : null, cvr: r ? r.cvr : null, roas: a.spend > 0 ? (a.value || 0) / a.spend : 0,
     cut: tg ? (tg.cut || '미상') : null, text: tg ? (tg.text ? '자막 있음' : '자막 없음') : null, size: tg ? (tg.size ? '사이즈 숫자 노출' : '없음') : null,
     cutsB: vf ? vf.cutsB : null, tagSrc: vf ? '영상 전체' : tg ? '썸네일' : null };
 }
-const ADMGR_CMP_AXES = [['fmt', '형식'], ['tag', '소구점'], ['price', '가격대'], ['who', '등록자'], ['hook', '문구 훅(사이즈·체형)'], ['cut', 'AI 장면 유형'], ['text', 'AI 자막'], ['size', 'AI 사이즈 노출'], ['vhook', '릴스 훅(첫 1초)'], ['cutsB', '릴스 컷 전환']];
+const ADMGR_CMP_AXES = [['fmt', '형식'], ['tag', '소구점'], ['price', '가격대'], ['who', '만든 사람'], ['hook', '문구 훅(사이즈·체형)'], ['cut', 'AI 장면 유형'], ['text', 'AI 자막'], ['size', 'AI 사이즈 노출'], ['vhook', '릴스 훅(첫 1초)'], ['cutsB', '릴스 컷 전환']];
 function admgrReportCompare(rows, pick, base, cre, ai, kinds, vtags) {
   const F = list => list.map(a => ({ a, f: admgrAdFeat(a, base, cre, ai, kinds, vtags) }));
   const off = F(rows.filter(pick.offAll)), good = F(rows.filter(pick.goodAll));
@@ -848,7 +849,7 @@ function admgrBestReportBuild(inp, days, today) {
   const good = T.filter(a => a.meta.verdict === 'good' && inWin(vAt(a))).length, meh = T.filter(a => a.meta.verdict === 'meh' && inWin(vAt(a))).length;   // 판정 뒤 꺼져도 판정은 판정 (st 아닌 verdict)
   const off = reg.filter(a => ['off', 'ended', 'rejected'].includes(a.st)).length;
   const who = new Map();
-  reg.forEach(a => { if (!a.c) return; const k = whoName(a.c.created_by_name, a.c.created_by_email) || '?'; const w = who.get(k) || who.set(k, { who: k, n: 0, good: 0 }).get(k); w.n++; if (a.meta.verdict === 'good') w.good++; });
+  reg.forEach(a => { if (!a.c) return; const k = makerName(a.c) || whoName(a.c.created_by_name, a.c.created_by_email) || '?'; const w = who.get(k) || who.set(k, { who: k, n: 0, good: 0 }).get(k); w.n++; if (a.meta.verdict === 'good') w.good++; });
   const eff = { reg: reg.length, good, meh, off, rate: good + meh + off ? good / (good + meh + off) : null, by: [...who.values()].sort((x, y) => y.good - x.good || y.n - x.n) };
   // 다음 주 액션 — 규칙으로. 해석·우선순위는 AI 해석(scripts/weekly-insight.mjs)에서
   const names = v => prods.filter(p => p.v === v).map(p => p.name);
@@ -1227,7 +1228,7 @@ function renderAdmgrTest() {
     return `<div class="empty-state"><p>${t.loading ? '테스트 소재를 불러오는 중… (전체 세트를 훑어서 10초쯤 걸려요)' : '<b>새로고침</b>을 누르면 테스트 소재를 불러와요.'}</p></div>`;
   }
   const d = t.data;
-  const { vis, hid, rows } = admgrTestRowSets();
+  const { vis: visAll, pvis: vis, hid, rows } = admgrTestRowSets();   // vis = '만든 사람 ▾' 반영분, visAll = 전체(퍼널 기준선)
   const cnt = k => vis.filter(a => a.st === k).length;
   const nEval = cnt('eval'), nOff = cnt('off'), nMeh = cnt('meh'), nGood = cnt('good'), nEtc = cnt('review') + cnt('rejected');
   const nReq = vis.filter(a => a.meta.asset_req_at).length;
@@ -1258,11 +1259,12 @@ function renderAdmgrTest() {
     <span style="flex:1;"></span>
     <button class="filter-tab ${t.group ? 'active' : ''}" onclick="admgrTestGroupToggle()" title="세트명 앞 상품명으로 묶어 상품별 소계 표시"><i class="fa-solid fa-layer-group"></i> 상품별 묶기</button>
     <button class="filter-tab ${t.judgeOpen ? 'active' : ''}" onclick="admgrTJudgeToggle()" title="판정 추천 기준 바꾸기"><i class="fa-solid fa-sliders"></i> 기준</button>
+    ${admgrMakerBtn()}
     <button class="filter-tab" style="color:${t.showHidden ? '#4f46e5' : '#dc2626'};border-color:${t.showHidden ? '#a5b4fc' : '#fecaca'};" onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})">${t.showHidden ? '선택 복원' : '목록에서 제거'}</button>
     <button class="filter-tab" onclick="admgrTestToggleHidden()">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>
     <button class="filter-tab" style="color:#15803d;" onclick="admgrTestXlsx()" title="지금 보이는 표 그대로 (필터·검색·정렬 반영)"><i class="fa-solid fa-file-arrow-down"></i> 엑셀</button>
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrTestReport()" title="상품팀 전달용 — 기간 내 판정·추가소재 현황을 상품별로 정리 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 리포트</button>
-  </div>${judgeBox}
+  </div>${admgrMakerBanner(vis, true)}${judgeBox}
   <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (5분 캐시)${d.truncated ? ' · 일부 생략(세트가 너무 많아요)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 정렬 안 고르면 <b>판정 필요 순</b></div>`;
 
   const tileBtn = (key, label, val, sub) => `<div class="kpi-tile ${t.filter === key && !t.showHidden ? 'kt-hero' : ''}" style="cursor:pointer;" onclick="admgrTestFilter('${key}')" title="누르면 걸러요"><div class="kt-label">${label}</div><div class="kt-value" style="font-size:1.15rem;">${val}</div>${sub ? `<div class="kt-sub">${sub}</div>` : ''}</div>`;
@@ -1279,7 +1281,7 @@ function renderAdmgrTest() {
   }
   const allChecked = rows.length && rows.every(r => t.sel.has(r.id));
   const cre = t.creatives || new Map();
-  const fbase = admgrFunnelBase(vis);   // 퍼널 기준선 — 숨긴 것 빼고 전체 테스트 소재의 중앙값 (필터와 무관하게 같은 기준)
+  const fbase = admgrFunnelBase(visAll);   // 퍼널 기준선 — 숨긴 것 빼고 전체 테스트 소재의 중앙값 (필터와 무관하게 같은 기준)
   /* 열: 선택 · 소재(썸네일+세트명+광고명+등록기록) · 등록(MM/DD, D+) · 판정(추천 → 현재 상태 → 버튼) · 지출 · 구매/CPA · ROAS · 추가소재 · 메모 */
   const rowHtml = a => {
     const checked = t.sel.has(a.id), dp = admgrDPlus(a), c = cre.get(String(a.id));
@@ -1581,6 +1583,7 @@ function renderAdmgrBest() {
   setTimeout(() => admgrProfitEnsure(), 0);
   let ads = (b.ads || []).map(a => { const m = admgrBestMetric(a) || { spend: 0, purchases: 0, value: 0, reg: '', src: '' }; const ta = testAds.find(x => x.id === a.id); return { ...a, m, roas: m.spend ? m.value / m.spend : 0, setNm: nameOf.get(a.adset_id) || '', prod: admgrProductOf({ adset_name: nameOf.get(a.adset_id) || a.name }), c: cre.get(String(a.id)), tr: ta ? admgrTrend(ta) : null, pf: admgrProfit(nameOf.get(a.adset_id) || a.name, m) }; });
   if (admgr.q) ads = ads.filter(a => (a.setNm + ' ' + a.name).toLowerCase().includes(admgr.q));
+  if (admgr.mk.filter !== 'all') ads = ads.filter(a => admgrMakerPass(a.id, a.adset_id));   // '만든 사람 ▾'
   const allAds = ads;
   const prods = [...new Set(ads.map(a => a.prod))];
   if (b.hideOff) ads = ads.filter(a => a.effective_status === 'ACTIVE');
@@ -1600,9 +1603,10 @@ function renderAdmgrBest() {
     <span style="width:1px;height:22px;background:#e5e7eb;margin:0 4px;"></span>
     ${chip(b.prod === 'all', `전체 ${allAds.length}`, "admgrBestSet('prod','all')")}${prods.map(pn => chip(b.prod === pn, `${esc(pn)} ${allAds.filter(a => a.prod === pn).length}`, `admgrBestSet('prod','${esc(pn)}')`)).join('')}
     <span style="flex:1;"></span>
+    ${admgrMakerBtn()}
     ${sw(b.hideOff, '꺼진 소재 숨기기', `admgrBestSet('hideOff',${!b.hideOff})`)}
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrBestReport()" title="회의용 — 이번 기간 베스트 성과·전주 대비·패턴(릴스/이미지·소구점·가격대)·상품 판단·테스트 효율·다음 주 액션 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 주간 리포트</button>
-  </div>
+  </div>${admgrMakerBanner(allAds.map(a => a.m), true)}
   <div class="info-bar"><i class="fa-solid fa-star"></i> 담은 세트 ${b.rows.length}개 · 소재 ${allAds.length}개 · 성과는 <b>등록 이후 누적</b>${metricsReady ? '' : ' (불러오는 중…)'} · 타일 클릭 = 큰 미리보기 · 상품 제목의 ✕ = 세트 빼기</div>`;
   const tiles = `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:14px;">
     <div class="kpi-tile kt-hero"><div class="kt-label"><i class="fa-solid fa-star"></i> 베스트 소재</div><div class="kt-value" style="font-size:1.15rem;">${allAds.length}개</div><div class="kt-sub">상품 ${prods.length}개</div></div>
