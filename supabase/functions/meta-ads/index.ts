@@ -741,7 +741,7 @@ Deno.serve(async (req) => {
        · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
     const menus = me.perms ? (me.perms.menus ?? []) : null;
     const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
-    const ADMGR_ONLY = ["hierarchy", "adsets", "adstats", "hourlystats", "budgethistory", "offsets", "adcopy"];
+    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
     const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
     if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
     if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);

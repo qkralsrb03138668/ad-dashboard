@@ -1668,7 +1668,7 @@ async function admgrPreviewExtra(adId) {
   const ta = ((admgr.test.data || {}).ads || []).find(x => x.id === adId) || ((admgr.best.ads || []).find(x => x.id === adId));
   const prod = ta ? admgrProductOf({ adset_name: ta.adset_name || (new Map((admgr.best.rows || []).map(r => [r.adset_id, r.adset_name]))).get(ta.adset_id) || ta.name }) : '';
   box.innerHTML = `<div style="display:flex;gap:6px;margin-top:10px;">
-      <button class="btn-analyze" style="padding:6px 12px;font-size:.74rem;" onclick="closeModal('admgr-preview');admgrBestUseModel('${adId}')"><i class="fa-solid fa-cloud-arrow-up"></i> 이 소재를 모델 광고로</button>
+      <button class="btn-analyze" style="padding:6px 12px;font-size:.74rem;${typeof authIsAdmin === 'function' && !authIsAdmin() ? 'display:none;' : ''}" onclick="closeModal('admgr-preview');admgrBestUseModel('${adId}')"><i class="fa-solid fa-cloud-arrow-up"></i> 이 소재를 모델 광고로</button>
       <button class="btn-ghost" style="padding:6px 12px;font-size:.74rem;" onclick="admgrBestCopyText('${adId}')"><i class="fa-regular fa-copy"></i> 문구 복사</button>
       ${prod ? `<button class="btn-ghost" style="padding:6px 12px;font-size:.74rem;" onclick="closeModal('admgr-preview');admgrTestGoRegister('${esc(prod)}')"><i class="fa-solid fa-upload"></i> 같은 상품 소재 등록</button>` : ''}</div>
     <div id="ap-copy" style="margin-top:10px;font-size:.76rem;line-height:1.6;white-space:pre-line;background:#f8fafc;border:1px solid #e7e8ee;border-radius:10px;padding:10px 12px;color:#374151;max-height:220px;overflow:auto;text-align:left;">문구 불러오는 중…</div>`;
