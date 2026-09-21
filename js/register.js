@@ -289,7 +289,7 @@ function regLog(msg, cls) {
    평소 화면에는 표시하지 않고 광고관리자 '만든 사람 ▾'로 골랐을 때만 그 사람 소재를 거른다 */
 function regMakerRender() {
   const box = $('reg-maker'); if (!box) return;
-  if (!reg.maker) { const n = (typeof AUTH === 'object' && AUTH.me && AUTH.me.name) || ''; reg.maker = lsGet('adc_reg_maker', null) || (/도희/.test(n) ? 'dohee' : /다나/.test(n) ? 'dana' : null); }
+  if (!reg.maker) { const n = (typeof AUTH === 'object' && AUTH.me && AUTH.me.name) || ''; const saved = lsGet('adc_reg_maker', null); reg.maker = (saved && MAKERS[saved] ? saved : '') || makerMine() || null; }
   box.innerHTML = `<span style="font-size:.74rem;font-weight:700;color:${reg.maker ? '#6b7280' : '#dc2626'};">만든 사람</span>` + Object.entries(MAKERS).map(([k, n]) => `<button class="filter-tab ${reg.maker === k ? 'active' : ''}" style="padding:4px 12px;" onclick="regMakerSet('${k}')">${n}</button>`).join('');
 }
 function regMakerSet(k) { reg.maker = k; lsSet('adc_reg_maker', k); regMakerRender(); }

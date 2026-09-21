@@ -101,9 +101,11 @@ async function authChangePw() {
 }
 function authIsAdmin() { return !AUTH.me || AUTH.me.role === 'admin'; }   // me 없음 = 연동 없는 데모 → 제한 없음
 function authApplyRole() {
+  makersLoad();   // 컨텐츠마케터 목록 — 로그인 직후 한 번
   setTimeout(() => { if (typeof uplBadgeRefresh === 'function') uplBadgeRefresh(); }, 0);
   const admin = authIsAdmin();
   document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = admin ? '' : 'none');
+  document.querySelectorAll('[data-role="marketer"]').forEach(el => el.style.display = admin ? 'none' : '');   // 폰 하단 탭의 '내 소재' — 관리자는 왼쪽 메뉴로
   const chip = $('auth-chip');
   if (AUTH.me && chip) $('auth-chip-m').innerHTML = chip.innerHTML = `<i class="fa-solid fa-user" style="color:#4f46e5;"></i> ${esc(AUTH.me.name || AUTH.me.email)} <span style="color:#9ca3af;">(${admin ? '관리자' : '마케터'})</span>`
     + (AUTH.session ? ` · <a href="#" onclick="authChangePw();return false;">비밀번호 변경</a>` : '')
@@ -117,13 +119,37 @@ function dnrbPerms() { const s = dnrbSession(); return s && s.perms ? s.perms : 
 function dnrbCan(action) { const p = dnrbPerms(); return !p || (p.actions || []).includes(action); }
 function dnrbApplyPerms() {
   const p = dnrbPerms(); if (!p) return;
-  const menus = new Set(p.menus || []);
+  const menus = new Set(p.menus || []); menus.add('mycre');   // 내 소재 성과는 워크스페이스 권한표와 무관하게 로그인한 누구나
   document.querySelectorAll('.menu-item[data-menu]').forEach(el => { el.style.display = menus.has(el.dataset.menu) ? '' : 'none'; });
   document.querySelectorAll('a.menu-item[href="shoot-board.html"]').forEach(el => { el.style.display = menus.has('shoot') ? '' : 'none'; });
   document.querySelectorAll('[data-act]').forEach(el => { el.style.display = dnrbCan(el.dataset.act) ? '' : 'none'; });
+  document.querySelectorAll('[data-role="marketer"]').forEach(el => { if (authIsAdmin()) el.style.display = 'none'; });
   if (!menus.has(curMenu)) showMenu([...menus].find(k => k !== 'shoot') || 'home');
 }
 
+/* 컨텐츠마케터 목록 (데이터 관리, 2026-09-21) — 소재 등록의 '만든 사람'·내 소재 성과 탭의 사람 전환에 나오는 이름들.
+   이름을 로그인 계정 이름과 똑같이 적으면 그 사람이 로그인했을 때 '내 소재'가 자동으로 잡힌다. 빼기 = off(옛 소재의 이름 표시는 유지) */
+function mkListRender() {
+  const box = $('mk-list'); if (!box) return;
+  const items = makersState.items || [];
+  box.innerHTML = items.filter(x => !x.off).map(x => `<span class="status-badge badge-blue" style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;padding:4px 10px;">${esc(x.name)}<a href="#" title="목록에서 빼기 (이미 등록된 소재의 기록은 그대로)" style="color:#6b7280;" onclick="mkListOff('${esc(x.key)}');return false;"><i class="fa-solid fa-xmark"></i></a></span>`).join(' ')
+    || '<span style="color:#9ca3af;">아직 없어요</span>';
+}
+async function mkListAdd() {
+  const inp = $('mk-name'), name = String(inp.value || '').trim().normalize('NFC');
+  if (!name) { toast('이름을 입력하세요'); return; }
+  const items = (makersState.items || []).map(x => ({ ...x }));
+  const ex = items.find(x => x.name === name);
+  if (ex && !ex.off) { toast('이미 있는 이름이에요'); return; }
+  if (ex) delete ex.off; else items.push({ key: 'm' + Date.now().toString(36), name });
+  try { await makersSave(items); inp.value = ''; toast(`${name} 님을 추가했어요`); } catch (e) { toast('실패: ' + e.message); }
+}
+async function mkListOff(key) {
+  const items = (makersState.items || []).map(x => ({ ...x })), x = items.find(i => i.key === key);
+  if (!x || !confirm(`${x.name} 님을 목록에서 뺄까요?\n이미 등록된 소재의 기록은 그대로 남아요.`)) return;
+  x.off = true;
+  try { await makersSave(items); toast('목록에서 뺐어요'); } catch (e) { toast('실패: ' + e.message); }
+}
 /* 사용자 관리 (데이터 관리 탭, 관리자) */
 async function umLoad() {
   const box = $('um-list'); if (!box) return;

@@ -501,6 +501,118 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
   return body;
 }
 
+// 내 소재 성과 본문 — mycre 액션과 5분 수집(sync, 하루 두 번)이 같이 쓴다. 응답에 지출·전환값을 넣지 말 것
+async function buildMycre(c: Creds, today: string) {
+  type R = Record<string, unknown>;
+  const tk = `meta:testads:test:${today}`;
+  let t = (await cacheGet(tk, 15 * 60 * 1000)) as { ads: R[] } | null;
+  if (!t) { t = await fetchTestads(c, "test", today) as { ads: R[] }; await cacheSet(tk, t); }
+  const ads = (t.ads ?? []).map((a) => ({ ...a })) as R[];
+
+  // 테스트가 끝난(세트명에서 test를 뗀) 소재 중 마지막에 켜져 있던 것 — 지금도 도는지와 현재 누적 성과를 Meta에서 다시 받는다. 실패하면 보관분 그대로
+  const goneOn = ads.filter((a) => a.gone && a.effective_status === "ACTIVE").map((a) => String(a.id));
+  if (goneOn.length) {
+    try {
+      const live = (await poolMap(chunk(goneOn, 50), 3, (ids) => graphGetAll(`${c.account}/ads`, {
+        filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "100",
+        fields: "id,effective_status,adset{name},insights.date_preset(maximum){spend,actions,action_values,impressions,frequency,inline_link_clicks}",
+      }, c.token))).flat();
+      const byId = new Map(live.map((r) => [String(r.id), r]));
+      for (const a of ads) {
+        const l = byId.get(String(a.id)); if (!a.gone) continue;
+        if (!l) { a.effective_status = "DELETED"; continue; }   // Meta에 더는 없음
+        a.effective_status = String(l.effective_status ?? ""); a.adset_name = String(((l.adset ?? {}) as R).name ?? a.adset_name);
+        const m = (((l.insights ?? {}) as R).data as R[] | undefined)?.[0];
+        if (m) { a.spend = num(m.spend); a.purchases = pickPurchase(m.actions); a.value = pickPurchase(m.action_values); a.imp = num(m.impressions); a.freq = num(m.frequency); a.clicks = num(m.inline_link_clicks);
+          a.v3 = pickAct(m.actions, ["video_view"]); a.lpv = pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]); a.atc = pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]); }
+      }
+    } catch (e) { if (isRateLimit(e)) throw e; }
+    // 테스트가 끝나면 fetchTestads의 일별 스냅샷이 멈춘다 → 계속 도는 소재는 여기서 이어 적어 '최근 7일 추세·식는 중'이 끊기지 않게
+    const onNow = ads.filter((a) => a.gone && a.effective_status === "ACTIVE");
+    if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
+      status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() }))).catch(() => {});
+  }
+
+  const [stR, crR, mkR] = await Promise.all([
+    dbRest("ad_test_state?select=ad_id,hidden,verdict,verdict_at,asset_req_at,asset_done_at"),
+    dbRest("creatives?select=ad_id,adset_id,maker,file_name,kind,product_name&ad_id=not.is.null&limit=5000"),
+    dbRest("shared_state?key=eq.makers&select=data"),
+  ]);
+  const state = new Map(((stR.ok ? await stR.json() : []) as R[]).map((r) => [String(r.ad_id), r]));
+  const cre = (crR.ok ? await crR.json() : []) as R[];
+  const creAd = new Map(cre.map((r) => [String(r.ad_id), r])), creSet = new Map(cre.filter((r) => r.adset_id && r.maker).map((r) => [String(r.adset_id), r]));
+  const manual = ((((mkR.ok ? await mkR.json() : []) as R[])[0]?.data ?? {}) as R).sets as Record<string, string> | undefined ?? {};
+  const KEY = /^[a-z0-9_]{1,30}$/;
+  const makerOf = (a: R) => {   // 화면 admgrMakerOf와 같은 순서: 수동 지정 → 등록 기록 → 이름 규칙('다나' = dana, 나머지 dohee)
+    const v = manual[String(a.adset_id)]; if (v && KEY.test(v)) return v;
+    const m = String(creAd.get(String(a.id))?.maker ?? creSet.get(String(a.adset_id))?.maker ?? "");
+    return m || (String(a.adset_name ?? "").normalize("NFC").includes("다나") ? "dana" : "dohee");
+  };
+
+  // 일별 스냅샷 → 최근 7일 ROAS·일별 ROAS (비율만 내보낸다)
+  const since = addDays(today, -8), dayRows: R[] = [];
+  for (let off = 0; off < 20000; off += 1000) {
+    const r = await dbRest(`test_ad_day?select=ad_id,day,spend,value&day=gte.${since}&order=day.asc&limit=1000&offset=${off}`);
+    if (!r.ok) break; const page = await r.json() as R[]; dayRows.push(...page); if (page.length < 1000) break;
+  }
+  const days = new Map<string, R[]>(); for (const r of dayRows) { const k = String(r.ad_id); (days.get(k) ?? days.set(k, []).get(k)!).push(r); }
+  const from = addDays(today, -7);
+  const trendOf = (a: R) => {
+    const L = days.get(String(a.id)); if (!L || L.length < 3) return null;
+    const cum = { spend: num(a.spend), value: num(a.value) };
+    let base: R | null = null; for (const r of L) if (String(r.day) <= from) base = r;
+    const pts = L.filter((r) => String(r.day) > from).map((r) => ({ spend: num(r.spend), value: num(r.value) }));
+    let prev = base ? { spend: num(base.spend), value: num(base.value) } : null; const daily: number[] = [];
+    for (const pt of pts) { if (prev) { const ds = pt.spend - prev.spend, dv = pt.value - prev.value; daily.push(ds > 0 ? Math.round(dv / ds * 100) / 100 : 0); } prev = pt; }
+    const rs = base ? cum.spend - num(base.spend) : 0, rv = base ? cum.value - num(base.value) : 0;
+    const cumRoas = cum.spend > 0 ? cum.value / cum.spend : 0, recentRoas = rs > 0 ? rv / rs : 0;
+    return { daily: daily.slice(-7), recentRoas: Math.round(recentRoas * 100) / 100, tired: !!base && rs >= 30000 && num(a.purchases) >= 5 && cumRoas > 0 && recentRoas < cumRoas * 0.5 };
+  };
+
+  // 퍼널 진단 — 화면 admgrFunnelDiag의 돈 없는 판 (기준 = 노출 1,000↑ 소재들의 중앙값)
+  const rates = (a: R) => { const imp = num(a.imp); if (!(imp > 0)) return null; const cl = num(a.clicks), lpv = num(a.lpv), atc = num(a.atc), pu = num(a.purchases), v3 = num(a.v3);
+    return { ctr: cl / imp, ts: v3 > 0 ? v3 / imp : null, lpvR: cl > 0 ? lpv / cl : null, cvr: lpv > 0 ? pu / lpv : cl > 0 ? pu / cl : null, cartR: atc >= 3 ? pu / atc : null }; };
+  const med = (arr: (number | null)[]) => { const L = arr.filter((x): x is number => x != null && isFinite(x)).sort((x, y) => x - y); return L.length ? (L.length % 2 ? L[(L.length - 1) / 2] : (L[L.length / 2 - 1] + L[L.length / 2]) / 2) : null; };
+  const RR = ads.filter((a) => num(a.imp) >= 1000).map(rates).filter(Boolean) as NonNullable<ReturnType<typeof rates>>[];
+  const base = { ctr: med(RR.map((r) => r.ctr)), ts: med(RR.map((r) => r.ts)), cvr: med(RR.map((r) => r.cvr)), cartR: med(RR.map((r) => r.cartR)) };
+  const pct = (v: number, d = 0) => (v * 100).toFixed(d) + "%";
+  const diagOf = (a: R) => {
+    const r = rates(a);
+    if (a.imp == null) return { k: "nodata", label: "기록 없음", fix: "예전에 끝난 소재라 노출·클릭 기록이 남아 있지 않아요" };
+    if (!r || num(a.imp) < 1000) return { k: "nodata", label: "아직 판단하기 일러요", fix: "노출이 1,000회가 되기 전이에요 — 조금 더 돌린 뒤에 보여요" };
+    if (r.ts != null && base.ts && r.ts < base.ts * 0.7) return { k: "hook", label: "3초 안에 넘김", fix: `3초 재생 ${pct(r.ts)} (평균 ${pct(base.ts)}) — 첫 1초 장면·자막이 약해요` };
+    if (base.ctr && r.ctr < base.ctr * 0.7) return { k: "click", label: "클릭률이 낮음", fix: `클릭률 ${pct(r.ctr, 2)} (평균 ${pct(base.ctr, 2)}) — 썸네일·첫 장면·문구 첫 줄에서 멈추지 않았어요` };
+    if (r.lpvR != null && num(a.clicks) >= 30 && r.lpvR < 0.6) return { k: "landing", label: "들어오다 나감", fix: `클릭한 사람 중 ${pct(r.lpvR)}만 상세페이지에 도착 — 소재보다 페이지 로딩·링크 쪽 문제` };
+    if (num(a.atc) >= 5 && base.cartR != null && r.cartR != null && r.cartR < base.cartR * 0.5) return { k: "cart", label: "장바구니에서 멈춤", fix: `장바구니 ${num(a.atc)} → 구매 ${num(a.purchases)} — 소재보다 옵션·배송비·결제 쪽 문제` };
+    if (num(a.purchases) === 0 && num(a.spend) >= 30000) return { k: "detail", label: "클릭은 좋은데 구매가 없음", fix: `클릭률 ${pct(r.ctr, 2)}로 클릭은 나왔어요 — 소재보다 상품·가격·상세페이지 쪽 문제일 가능성` };
+    if (base.ctr && base.cvr != null && r.ctr >= base.ctr && r.cvr != null && r.cvr >= base.cvr) return { k: "good", label: "클릭·구매 모두 평균 이상", fix: "클릭률과 구매 전환 모두 평균보다 좋아요 — 같은 컷·소구점으로 추가 소재 추천" };
+    return { k: "ok", label: "평균 근처", fix: "각 단계가 평균 근처예요" };
+  };
+  const stOf = (a: R, v: string) => {
+    const es = String(a.effective_status ?? "");
+    if (a.gone) return es === "ACTIVE" ? (v === "good" ? "good" : v === "meh" ? "meh" : "passed") : (v === "good" ? "good" : v === "meh" ? "meh" : "ended");
+    if (["PENDING_REVIEW", "IN_PROCESS", "PENDING_BILLING_INFO"].includes(es)) return "review";
+    if (["DISAPPROVED", "WITH_ISSUES"].includes(es)) return "rejected";
+    if (es !== "ACTIVE") return "off";
+    return v === "good" ? "good" : v === "meh" ? "meh" : "eval";
+  };
+  const out = ads.map((a) => {
+    const st = state.get(String(a.id)) ?? {}, cr = creAd.get(String(a.id)), r = rates(a), sp = num(a.spend);
+    const tag = String(cr?.file_name ?? a.name ?? "").match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}/);
+    return {
+      id: String(a.id), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(a.adset_name ?? ""), reg_date: String(a.reg_date ?? ""),
+      maker: makerOf(a), tag: tag ? tag[1] : "", kind: String(cr?.kind ?? ""), hidden: !!st.hidden,
+      st: stOf(a, String(st.verdict ?? "")), active: String(a.effective_status ?? "") === "ACTIVE", gone: !!a.gone,
+      promoted: /\[→[^\]]+\]/.test(String(a.adset_name ?? "")),
+      roas: sp > 0 ? Math.round(num(a.value) / sp * 100) / 100 : null, purchases: num(a.purchases),
+      ctr: r ? r.ctr : null, ts: r ? r.ts : null, lpvR: r ? r.lpvR : null, freq: num(a.freq) || null,
+      diag: diagOf(a), trend: trendOf(a),
+      verdict_at: st.verdict_at ?? null, asset_req_at: st.asset_req_at ?? null, asset_done_at: st.asset_done_at ?? null,
+    };
+  });   // hidden(테스트 소재 탭에서 '목록에서 제거')도 그대로 보낸다 — 관리자의 목록 정리일 뿐, 만든 사람에게는 결과 기록이다
+  return { fetched_at: new Date().toISOString(), ads: out };
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -511,7 +623,20 @@ Deno.serve(async (req) => {
   if (action === "sync") {
     const secret = Deno.env.get("CRON_SECRET") ?? "";
     if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
-  } else if (!(await getAuth(req))) return json({ error: "로그인이 필요합니다" }, 401);
+  } else {
+    const me = await getAuth(req);
+    if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+    /* 돈이 보이는 액션 잠금 (2026-09-21 — '내 소재 성과' 탭을 컨텐츠마케터에게 열면서): 지금까지는 로그인만 하면 어떤 액션이든 부를 수 있어
+       화면에 메뉴가 없어도 브라우저 개발자 도구로 지출·매출을 볼 수 있었다. 메뉴 권한이 없는 계정은 서버에서 막는다.
+       · 계층·예산 계열 = 관리자 또는 SSO 메뉴 admgr/upload  · 테스트·베스트 계열 = 관리자 또는 SSO 메뉴 admgr/atest/abest (SSO가 아닌 옛 마케터 계정은 그 두 메뉴가 원래 열려 있어 그대로 허용)
+       · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
+    const menus = me.perms ? (me.perms.menus ?? []) : null;
+    const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
+    const ADMGR_ONLY = ["hierarchy", "adsets", "adstats", "hourlystats", "budgethistory", "offsets", "adcopy"];
+    const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
+    if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
+    if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);
+  }
 
   // Meta 사용량·쿨다운 상태 (우리 서버만 조회 — Meta 호출 없음)
   if (action === "usage") {
@@ -541,6 +666,8 @@ Deno.serve(async (req) => {
       await cacheSet(curKey, b);
       const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
       if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
+      const mk = `meta:mycre:v3:${t}`;   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (살아남은 소재의 일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
+      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; await cacheSet(mk, await buildMycre(c, t)); }
       await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
@@ -658,6 +785,18 @@ Deno.serve(async (req) => {
     // ═══ 이식 2단계 — 테스트 소재 (원본 testads 그대로) ═══
     // 광고세트명에 kw(기본 'test')가 들어간 세트의 광고 전부(꺼진 것 포함) + 등록 이후 누적 성과.
     // 본 소재는 test_ad_snap에 스냅샷으로 남겨, 세트명에서 test를 지워 목록에서 사라져도 60일간 '테스트 종료'(gone)로 함께 돌려준다.
+    /* ═══ 내 소재 성과 (2026-09-21) — 컨텐츠마케터용. 지출·전환값·예산은 계산에만 쓰고 응답에는 절대 넣지 않는다 (ROAS·구매·퍼널 비율·판정만).
+       재료: 테스트 소재 목록(공유 캐시) + 테스트가 끝났지만 계속 도는 소재의 현재 성과(추가 1~수 호출) + 판정·요청 기록 + 등록 기록(만든 사람) + 일별 스냅샷(추세) */
+    if (action === "mycre") {
+      const today = seoulToday();
+      const cacheKey = `meta:mycre:v3:${today}`;
+      const pre = await metaPre(cacheKey, 10 * 60 * 1000);
+      if (pre) return pre;
+      const body = await buildMycre(c, today);
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "testads") {
       const today = seoulToday();
       const kw = (url.searchParams.get("kw") ?? "test").slice(0, 30);

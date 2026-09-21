@@ -27,7 +27,7 @@
 // 필요 secrets: META_WRITE_TOKEN, WRITE_PIN, DASH_KEY, META_AD_ACCOUNT_ID
 // ═══════════════════════════════════════════════
 import { cacheGet, cacheSet, dbRest, getAuth, canAct, denyAct, handleOptions, json } from "../_shared/util.ts";
-const MAKER_KEYS = ["dohee", "dana"];   // creatives.maker 허용값 (0016) — 화면 core.js MAKERS와 같은 키
+const makerKey = (v: unknown) => /^[a-z0-9_]{1,30}$/.test(String(v ?? "")) ? String(v) : null;   // creatives.maker — 목록은 shared_state maker_list(화면에서 관리), 서버는 키 형식만 검사 (0018)
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const MAX_BUDGET = 300_000, MIN_BUDGET = 1_000;
@@ -358,7 +358,7 @@ Deno.serve(async (req) => {
         core_name: body.core_name ? String(body.core_name).normalize("NFC").slice(0, 200) : null,
         product_no: body.product_no ? Number(body.product_no) : null, product_name: body.product_name ? String(body.product_name).normalize("NFC").slice(0, 300) : null,
         url: body.url ? String(body.url).slice(0, 1000) : null, text: body.text ?? null, media,
-        maker: MAKER_KEYS.includes(String(body.maker)) ? String(body.maker) : null,   // 만든 사람 (2026-09-20) — 등록 화면에서 고른 값
+        maker: makerKey(body.maker),   // 만든 사람 (2026-09-20) — 등록 화면에서 고른 값
       };
       if (!row.file_name) return json({ error: "file_name 필요" }, 400);
       const r = await dbRest("creatives", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(row) });
@@ -373,7 +373,7 @@ Deno.serve(async (req) => {
       const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);
       const patch: Rec = {};
       for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name", "regen"]) if (k in body) patch[k] = typeof body[k] === "string" ? String(body[k]).normalize("NFC") : body[k];
-      if ("maker" in body) patch.maker = MAKER_KEYS.includes(String(body.maker)) ? String(body.maker) : null;   // 만든 사람 고치기 (올린 사람 ≠ 만든 사람일 때)
+      if ("maker" in body) patch.maker = makerKey(body.maker);   // 만든 사람 고치기 (올린 사람 ≠ 만든 사람일 때)
       const r = await dbRest(`creatives?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) });
       if (!r.ok) return json({ error: `수정 실패: ${await r.text()}` }, 500);
       const row = (await r.json())[0];

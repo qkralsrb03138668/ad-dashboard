@@ -19,7 +19,7 @@
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
     }, window.DASH_CFG || {});
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=202609201532" />
+  <link rel="stylesheet" href="./css/style.css?v=202609211227" />
 </head>
 <body>
 <!-- ═══ 로그인 게이트 (Supabase Auth) — 세션 없으면 앱을 가린다 ═══ -->
@@ -49,6 +49,7 @@
     <div class="menu-group">소재</div>
     <button class="menu-item" data-menu="ptest" onclick="showMenu('ptest')"><i class="fa-solid fa-upload"></i> 소재 업로드</button>
     <!-- 광고관리자의 테스트 소재·베스트소재 탭을 단독 화면으로 (2026-09-11) — 같은 코드·같은 데이터, 탭 스트립만 숨김. 마케터도 사용 -->
+    <button class="menu-item" data-menu="mycre" onclick="showMenu('mycre')"><i class="fa-solid fa-chart-simple"></i> 내 소재 성과</button>
     <button class="menu-item" data-menu="atest" onclick="showMenu('atest')"><i class="fa-solid fa-flask"></i> 테스트 소재</button>
     <button class="menu-item" data-menu="abest" onclick="showMenu('abest')"><i class="fa-solid fa-star"></i> 베스트소재</button>
     <!-- 분석(CSV 기반 옛 메뉴) — 기본 접힘, 화살표로 펼침 (브라우저에 기억) -->
@@ -218,6 +219,15 @@
       </div>
     </div>
 
+    <!-- ═══ 내 소재 성과 (2026-09-21) — 컨텐츠마케터용. 지출·매출·예산 없이 ROAS·구매·퍼널·판정만 (서버 mycre) ═══ -->
+  <div class="section-card page-sec" id="sec-mycre">
+    <div class="section-header">
+      <h2><i class="fa-solid fa-chart-simple" style="color:#4f46e5;font-size:.9em;"></i> 내 소재 성과</h2>
+      <span class="hdr-note">내가 만든 소재가 지금 어떻게 돌고 있는지 · 지출·매출·예산은 이 화면에 나오지 않아요</span>
+    </div>
+    <div class="section-body"><div id="mycre-body"></div></div>
+  </div>
+
     <!-- ═══ 판매 성과 (카페24) — dnrb-dashboard 이식 패키지 ═══ -->
   <div class="section-card page-sec" id="sec-perf">
     <div class="section-header">
@@ -345,6 +355,16 @@
           </div>
           <div id="um-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
           <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">임시 비밀번호를 본인에게 전달하면, 로그인 후 상단 이름 옆 [비밀번호 변경]으로 바꿀 수 있어요.</div>
+        </div>
+
+        <div class="sub-title">컨텐츠마케터 목록 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— 소재 등록의 '만든 사람'과 '내 소재 성과' 탭에 나오는 사람들</span></div>
+        <div style="border:1px solid #e7e8ee;border-radius:12px;padding:16px;background:#fff;margin-bottom:22px;">
+          <div id="mk-list" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:.82rem;color:#6b7280;">불러오는 중…</div>
+          <div class="control-bar" style="gap:8px;align-items:flex-end;margin:0;">
+            <div class="input-group" style="margin:0;"><label>이름</label><input class="inp" id="mk-name" style="width:160px;background:#fff;" placeholder="예: 홍길동" onkeydown="if(event.key==='Enter')mkListAdd()" /></div>
+            <button class="btn-analyze" onclick="mkListAdd()"><i class="fa-solid fa-user-plus"></i> 추가</button>
+          </div>
+          <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">이름을 그 사람의 <b>로그인 계정 이름과 똑같이</b> 적어주세요 — 그래야 로그인했을 때 '내 소재'가 자동으로 잡혀요.</div>
         </div>
 
         <div class="sub-title">성과 데이터 가져오기</div>
@@ -549,19 +569,21 @@
   <button class="menu-item" data-menu="admgr" onclick="showMenu('admgr')"><i class="fa-brands fa-meta"></i>광고관리자</button>
   <button class="menu-item" data-menu="upload" onclick="showMenu('upload')"><i class="fa-solid fa-cloud-arrow-up"></i>업로드</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column"></i>판매 성과</button>
+  <button class="menu-item" data-menu="mycre" data-role="marketer" onclick="showMenu('mycre')"><i class="fa-solid fa-chart-simple"></i>내 소재</button>
   <button class="menu-item" onclick="menuDrawer(true)"><i class="fa-solid fa-bars"></i>더보기</button>
 </nav>
-<script src="./js/core.js?v=202609201436"></script>
-<script src="./js/auth.js?v=202609201436"></script>
-<script src="./js/home.js?v=202609201436"></script>
-<script src="./js/creatives.js?v=202609201436"></script>
-<script src="./js/checkboard.js?v=202609201436"></script>
-<script src="./js/register.js?v=202609201436"></script>
-<script src="./js/upload.js?v=202609201436"></script>
-<script src="./js/admgr.js?v=202609202220"></script>
-<script src="./js/admgr-budget.js?v=202609211109"></script>
-<script src="./js/admgr-tabs.js?v=202609202254"></script>
-<script src="./js/data.js?v=202609201436"></script>
-<script src="./js/perf.js?v=202609201436"></script>
+<script src="./js/core.js?v=202609211227"></script>
+<script src="./js/auth.js?v=202609211227"></script>
+<script src="./js/home.js?v=202609211227"></script>
+<script src="./js/creatives.js?v=202609211227"></script>
+<script src="./js/checkboard.js?v=202609211227"></script>
+<script src="./js/register.js?v=202609211227"></script>
+<script src="./js/upload.js?v=202609211227"></script>
+<script src="./js/admgr.js?v=202609211227"></script>
+<script src="./js/admgr-budget.js?v=202609211227"></script>
+<script src="./js/admgr-tabs.js?v=202609211227"></script>
+<script src="./js/mycre.js?v=202609211227"></script>
+<script src="./js/data.js?v=202609211227"></script>
+<script src="./js/perf.js?v=202609211227"></script>
 </body>
 </html>

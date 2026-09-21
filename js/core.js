@@ -4,8 +4,34 @@
 
 /* ═══════════ 유틸 ═══════════ */
 const $ = id => document.getElementById(id);
-const MAKERS = { dohee: '김도희', dana: '다나대표' };   // 만든 사람 (2026-09-20) — creatives.maker 키 → 표시 이름. 사람 추가 = 여기 + 서버 MAKER_KEYS + 0016 check
-const makerName = c => (c && c.maker && MAKERS[c.maker]) || '';
+/* 만든 사람 = 컨텐츠마케터 목록 (2026-09-21: 두 명 고정 → 목록 관리. 데이터 관리 › 컨텐츠마케터 목록, shared_state 'maker_list' {items:[{key,name,off?}]})
+   MAKERS = 지금 고를 수 있는 사람(key→이름) · MAKER_NAMES = 뺀 사람 포함(옛 소재 이름 표시용). 아래 두 명은 목록을 아직 못 읽었을 때의 기본값 */
+const MAKERS = { dohee: '김도희', dana: '다나대표' };
+const MAKER_NAMES = { ...MAKERS };
+const makerName = c => (c && c.maker && MAKER_NAMES[c.maker]) || '';
+const makerMine = () => { const n = typeof AUTH === 'object' && AUTH.me ? String(AUTH.me.name || '').trim() : ''; return (n && Object.keys(MAKERS).find(k => MAKERS[k] === n)) || ''; };   // 로그인한 사람 = 목록에서 이름이 같은 사람
+const makersState = { items: null, ver: null, loading: false };
+async function makersLoad(force) {
+  const m = makersState;
+  if (m.loading || (m.items && !force) || typeof sbCall !== 'function' || !admgrCfg()) return;
+  m.loading = true;
+  try {
+    const r = await sbCall('client-log', { action: 'state_get', key: 'maker_list' });
+    const items = r && r.data && Array.isArray(r.data.items) && r.data.items.length ? r.data.items : Object.entries(MAKERS).map(([key, name]) => ({ key, name }));
+    m.items = items; m.ver = (r && r.ver) || null;
+    for (const k in MAKERS) delete MAKERS[k];
+    items.forEach(x => { MAKER_NAMES[x.key] = x.name; if (!x.off) MAKERS[x.key] = x.name; });
+  } catch (e) { console.warn('컨텐츠마케터 목록 불러오기 실패', e.message); }
+  m.loading = false;
+  if (typeof regMakerRender === 'function') regMakerRender();
+  if (typeof mkListRender === 'function') mkListRender();
+}
+async function makersSave(items) {
+  const m = makersState;
+  const r = await sbCall('client-log', { action: 'state_set' }, { key: 'maker_list', base: m.ver, data: { items } });
+  if (r.conflict) { await makersLoad(true); throw new Error('다른 사람이 먼저 바꿨어요 — 최신 목록으로 다시 불러왔어요'); }
+  m.ver = r.ver; await makersLoad(true);
+}
 const whoName = (name, id) => name || (id === 'dash-key' ? '관리자' : String(id || '').replace(/^dnrb:/, '').split('@')[0]);   // 등록자 표시: 이름 우선 (2026-09-14)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';   // href엔 http(s)만 (javascript: 차단)
@@ -126,7 +152,7 @@ function menuDrawer(open) {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) menuDrawer(false); });
 function showMenu(key) {
-  if (typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }
+  if (key !== 'mycre' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
   menuDrawer(false);
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
@@ -140,7 +166,7 @@ function showMenu(key) {
   }
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   // 광고관리자는 Meta 프리셋 기간을 따로 쓰므로 공통 기간 바를 숨긴다
-  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload' || key === 'ptest') ? 'none' : 'flex';   // 소재 업로드도 기간을 안 쓴다 (2026-09-14 사용자 요청: PC·모바일 모두 숨김)
+  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload' || key === 'ptest' || key === 'mycre') ? 'none' : 'flex';   // 소재 업로드도 기간을 안 쓴다 (2026-09-14 사용자 요청: PC·모바일 모두 숨김)
   rerender();
 }
 function rerender() {
@@ -150,6 +176,7 @@ function rerender() {
   else if (curMenu === 'compare') renderCompare(p);
   else if (curMenu === 'admgr') admgrOpen();
   else if (ADMGR_SOLO[curMenu]) admgrSolo(ADMGR_SOLO[curMenu]);
+  else if (curMenu === 'mycre') renderMycre();
   else if (curMenu === 'upload') renderUpload();
   else if (curMenu === 'perf') perfMenuInit();
   else if (curMenu === 'data') renderData();

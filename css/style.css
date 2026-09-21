@@ -736,3 +736,34 @@ summary::-webkit-details-marker { display: none; }
 .ag-mkban { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; margin-bottom: 12px; border: 1px solid #c7d2fe; border-radius: 10px; background: #eef2ff; color: #3730a3; font-size: .78rem; }
 .ag-mkban > i { font-size: .8em; } .ag-mkban > span { color: #4b5563; } .ag-mkban > span b { color: #1e1b4b; }
 .ag-mkban button { border: none; background: transparent; font-family: inherit; font-size: .76rem; font-weight: 700; color: #4338ca; cursor: pointer; padding: 4px 6px; min-height: 0; }
+
+/* ═══ 내 소재 성과 (2026-09-21) — 컨텐츠마케터용 탭 ═══ */
+#sec-mycre .my-who { margin-bottom: 14px; }
+#sec-mycre .my-tiles { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+#sec-mycre .kpi-tile.my-req-tile { background: #fffbeb; border-color: #f5d38a; } #sec-mycre .kpi-tile.my-req-tile .kt-label, #sec-mycre .kpi-tile.my-req-tile .kt-sub { color: #92400e; }
+#sec-mycre .my-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 18px 0 10px; } #sec-mycre .my-h b { font-size: .95rem; color: #1e1b4b; } #sec-mycre .my-h span { font-size: .74rem; color: #6b7280; }
+#sec-mycre .my-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+#sec-mycre .my-card { display: flex; flex-direction: column; background: #fff; border: 1px solid #e7e8ee; border-radius: 12px; overflow: hidden; cursor: pointer; }
+#sec-mycre .my-card.tired { border-color: #fecaca; }
+#sec-mycre .my-thumb { position: relative; aspect-ratio: 4 / 5; max-height: 220px; background: #eef0f5; display: flex; align-items: center; justify-content: center; color: #c4c9d4; font-size: 1.4rem; overflow: hidden; }
+#sec-mycre .my-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#sec-mycre .my-thumb .status-badge { position: absolute; top: 8px; left: 8px; font-size: .62rem; } #sec-mycre .my-thumb .my-tired { left: auto; right: 8px; }
+#sec-mycre .my-cbody { padding: 9px 10px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; } #sec-mycre .my-cbody > b { font-size: .8rem; color: #1e1b4b; }
+#sec-mycre .my-sub { font-size: .68rem; color: #6b7280; }
+#sec-mycre .my-nums { display: flex; gap: 12px; align-items: flex-end; font-size: .66rem; color: #6b7280; } #sec-mycre .my-nums b { display: block; font-size: .92rem; color: #1e1b4b; } #sec-mycre .my-nums .my-sp { margin-left: auto; }
+#sec-mycre .my-warn { font-size: .68rem; font-weight: 700; color: #991b1b; }
+#sec-mycre .my-more { margin-top: 10px; }
+#sec-mycre .my-two { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+#sec-mycre .my-table td { vertical-align: middle; } #sec-mycre .my-why { font-size: .76rem; color: #374151; white-space: normal; min-width: 220px; }
+#sec-mycre .my-why b { color: #374151; } #sec-mycre .my-why-hook, #sec-mycre .my-why-click { color: #991b1b !important; } #sec-mycre .my-why-good { color: #15803d !important; } #sec-mycre .my-why span { color: #6b7280; }
+#sec-mycre .my-reqs { background: #fff; border: 1px solid #f5d38a; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+#sec-mycre .my-req { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid #f0f1f5; } #sec-mycre .my-req:last-child { border-bottom: none; padding-bottom: 0; }
+#sec-mycre .my-req b { font-size: .82rem; color: #1e1b4b; } #sec-mycre .my-req.done { opacity: .75; }
+#sec-mycre .my-tip { margin-top: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 12px; font-size: .76rem; color: #3730a3; line-height: 1.7; }
+@media (max-width: 768px) {
+  #sec-mycre .my-two { grid-template-columns: minmax(0, 1fr); }
+  #sec-mycre .my-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  #sec-mycre .my-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #sec-mycre .my-who { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } #sec-mycre .my-who > * { flex: none; }
+  #sec-mycre .my-why { min-width: 0; }
+}
