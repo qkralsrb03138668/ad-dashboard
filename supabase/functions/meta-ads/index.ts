@@ -517,7 +517,7 @@ async function mycreAce(): Promise<AceRule> {
   const n = (v: unknown, d: number, lo: number, hi: number) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : d; };
   return { top: n(a?.top, ACE_DEFAULT.top, 1, 100), roas: n(a?.roas, ACE_DEFAULT.roas, 0, 100), pur: n(a?.pur, ACE_DEFAULT.pur, 0, 100000) };
 }
-const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v8:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
+const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v9:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
 /* 내 소재 성과의 기간 (2026-09-22 사용자 요청: 누적 대신 오늘·어제·최근 7/14/30일·직접 설정) — 최근 N일은 광고관리자·Meta와 같이 오늘을 빼고 센다 */
 type MyRange = { since: string; until: string; label: string };
 function mycreRange(url: URL, today: string): MyRange {
@@ -534,7 +534,7 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string, range: M
   type R = Record<string, unknown>;
   const filt = JSON.stringify([{ field: "campaign.id", operator: "IN", value: campIds }]);
   const [adRows, insRows] = await Promise.all([
-    graphGetAll(`${c.account}/ads`, { fields: "id,name,status,effective_status,created_time,adset_id,adset{name},campaign{name}", filtering: filt, limit: "500" }, c.token, 20),
+    graphGetAll(`${c.account}/ads`, { fields: "id,name,status,effective_status,created_time,adset_id,adset{name},campaign{name},creative{id,video_id,image_hash}", filtering: filt, limit: "500" }, c.token, 20),
     graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify(range ? { since: range.since, until: range.until } : { since: "2024-01-01", until: today }), level: "ad", filtering: filt, limit: "500",
       fields: "ad_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions" }, c.token, 20),
   ]);
@@ -545,6 +545,9 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string, range: M
     const m = metric.get(String(a.id ?? ""));
     return {
       id: String(a.id ?? ""), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(((a.adset ?? {}) as R).name ?? ""), camp: String(((a.campaign ?? {}) as R).name ?? ""),
+      // 소재 식별 = 실제 영상·이미지 (광고를 복사하면 creative id는 새로 생기기도 해서 미디어로 묶는다)
+      mkey: String(((a.creative ?? {}) as R).video_id ?? "") ? "v:" + String(((a.creative ?? {}) as R).video_id) : String(((a.creative ?? {}) as R).image_hash ?? "") ? "i:" + String(((a.creative ?? {}) as R).image_hash) : "",
+      is_video: !!((a.creative ?? {}) as R).video_id,
       status: String(a.status ?? ""), effective_status: String(a.effective_status ?? ""), reg_date: regDate(String(a.created_time ?? "")),
       spend: m ? num(m.spend) : 0, purchases: m ? pickPurchase(m.actions) : 0, value: m ? pickPurchase(m.action_values) : 0,
       imp: m ? num(m.impressions) : 0, freq: m ? num(m.frequency) : 0, clicks: m ? num(m.inline_link_clicks) : 0,
@@ -603,10 +606,11 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
   }
   }   // (지정 캠페인 없음 = 테스트 소재 전체 경로 끝)
 
-  const [stR, crR, mkR] = await Promise.all([
+  const [stR, crR, mkR, aiR] = await Promise.all([
     dbRest("ad_test_state?select=ad_id,hidden,verdict,verdict_at,asset_req_at,asset_done_at"),
     dbRest("creatives?select=ad_id,adset_id,maker,file_name,kind,product_name&ad_id=not.is.null&limit=5000"),
     dbRest("shared_state?key=eq.makers&select=data"),
+    dbRest("shared_state?key=in.(video_tags,test_report_ai)&select=key,data"),
   ]);
   const state = new Map(((stR.ok ? await stR.json() : []) as R[]).map((r) => [String(r.ad_id), r]));
   const cre = (crR.ok ? await crR.json() : []) as R[];
@@ -618,6 +622,26 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
   const known = (a: R) => { const v = manual[String(a.adset_id)]; if (v && KEY.test(v)) return v; return String(creAd.get(String(a.id))?.maker ?? creSet.get(String(a.adset_id))?.maker ?? ""); };
   const byName = new Map<string, string>(); for (const a of ads) { const k = known(a); if (k && !byName.has(baseName(a.name))) byName.set(baseName(a.name), k); }
   const makerOf = (a: R) => known(a) || byName.get(baseName(a.name)) || ((String(a.adset_name ?? "") + " " + String(a.name ?? "")).normalize("NFC").includes("다나") ? "dana" : "dohee");
+
+  /* 소재 한 개의 전체 생애로 묶기 (2026-09-22): 같은 영상·이미지를 쓰는 광고는 테스트 세트에 있든 CBO 복사본이든 한 소재.
+     성과는 합치고, 상태는 하나라도 켜져 있으면 '도는 중', 대표(제목·미리보기·추세) = 켜져 있는 것 중 지출이 가장 큰 광고. 미디어 식별자가 없으면(캠페인 미지정 경로) 광고 하나가 그대로 한 소재 */
+  const aiRows = (aiR.ok ? await aiR.json() : []) as R[];
+  const aiOf = (k: string) => (((aiRows.find((x) => x.key === k)?.data ?? {}) as R).tags ?? {}) as Record<string, R>;
+  const vtags = aiOf("video_tags"), itags = aiOf("test_report_ai");
+  for (const a of ads) a._maker = makerOf(a);
+  const groups = new Map<string, R[]>();
+  for (const a of ads) { const k = String(a.mkey || "ad:" + String(a.id)); (groups.get(k) ?? groups.set(k, []).get(k)!).push(a); }
+  ads = [...groups.entries()].map(([k, M]) => {
+    const on = M.filter((m) => m.effective_status === "ACTIVE");
+    const lead = (on.length ? on : M).slice().sort((x, y) => num(y.spend) - num(x.spend))[0];
+    const g: R = { ...lead, mkey: k, _m: M, effective_status: on.length ? "ACTIVE" : lead.effective_status, gone: M.every((m) => !!m.gone),
+      reg_date: M.map((m) => String(m.reg_date ?? "")).filter(Boolean).sort()[0] ?? "" };
+    const noFunnel = M.every((m) => m.imp == null);
+    for (const f of ["spend", "purchases", "value", "imp", "clicks", "v3", "lpv", "atc"]) g[f] = M.reduce((s0, m) => s0 + num(m[f]), 0);
+    if (noFunnel) delete g.imp;
+    g._maker = (M.find((m) => known(m)) ?? lead)._maker;
+    return g;
+  });
 
   // 일별 스냅샷 → 최근 7일 ROAS·일별 ROAS (비율만 내보낸다)
   const since = addDays(today, -8), dayRows: R[] = [];
@@ -670,19 +694,27 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
   const ranked = liveAds.map((a) => num(a.spend)).filter((v) => v > 0).sort((x, y) => y - x);
   const cut = ranked.length ? ranked[Math.max(0, Math.ceil(ranked.length * ace.top / 100) - 1)] : Infinity;   // 지출 상위 top% 안에 드는 최소 지출
   const out = ads.map((a) => {
-    const st = state.get(String(a.id)) ?? {}, cr = creAd.get(String(a.id)), r = rates(a), sp = num(a.spend);
+    const M = ((a._m ?? [a]) as R[]), sts = M.map((m) => state.get(String(m.id))).filter(Boolean) as R[];
+    const verdict = sts.some((x) => x.verdict === "good") ? "good" : sts.some((x) => x.verdict === "meh") ? "meh" : "";
+    const cr = M.map((m) => creAd.get(String(m.id))).find(Boolean), r = rates(a), sp = num(a.spend);
     const on = String(a.effective_status ?? "") === "ACTIVE", share = liveSpend > 0 ? Math.round(sp / liveSpend * 1000) / 10 : 0, ro = sp > 0 ? num(a.value) / sp : 0;
     const tag = String(cr?.file_name ?? a.name ?? "").match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}/);
+    const vt = M.map((m) => vtags[String(m.id)]).find(Boolean), it = M.map((m) => itags[String(m.id)]).find(Boolean);
     return {
-      id: String(a.id), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(a.adset_name ?? ""), reg_date: String(a.reg_date ?? ""),
-      maker: makerOf(a), tag: tag ? tag[1] : "", kind: String(cr?.kind ?? ""), hidden: !!st.hidden, camp: String(a.camp ?? ""),
-      st: stOf(a, String(st.verdict ?? "")), active: String(a.effective_status ?? "") === "ACTIVE", gone: !!a.gone,
-      promoted: /\[→[^\]]+\]/.test(String(a.adset_name ?? "")),
+      id: String(a.id), key: String(a.mkey ?? a.id), n: M.length, name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(a.adset_name ?? ""), reg_date: String(a.reg_date ?? ""),
+      maker: String(a._maker ?? makerOf(a)), tag: tag ? tag[1] : "", kind: String(cr?.kind ?? (a.is_video ? "video" : String(a.mkey ?? "").startsWith("i:") ? "image" : "")),
+      hidden: sts.length > 0 && M.every((m) => !!state.get(String(m.id))?.hidden), camp: String(a.camp ?? ""),
+      st: stOf(a, verdict), active: on, gone: !!a.gone,
+      promoted: /\[→[^\]]+\]/.test(M.map((m) => String(m.adset_name ?? "")).join(" ")) || new Set(M.map((m) => String(m.camp ?? ""))).size > 1,
       roas: sp > 0 ? Math.round(num(a.value) / sp * 100) / 100 : null, purchases: num(a.purchases),
       share, ace: on && sp >= cut && ro >= ace.roas && num(a.purchases) >= ace.pur, heavy: on && sp >= cut && ro < ace.roas,   // 주력 = 돈도 실리고 효율도 남 · heavy = 돈은 실리는데 효율이 애매
-      ctr: r ? r.ctr : null, ts: r ? r.ts : null, lpvR: r ? r.lpvR : null, freq: num(a.freq) || null,
+      ctr: r ? r.ctr : null, ts: r ? r.ts : null, lpvR: r ? r.lpvR : null, cvr: r ? r.cvr : null, atc: a.imp == null ? null : num(a.atc), freq: num(a.freq) || null,
       diag: diagOf(a), trend: trendOf(a),
-      verdict_at: st.verdict_at ?? null, asset_req_at: st.asset_req_at ?? null, asset_done_at: st.asset_done_at ?? null,
+      ai: vt || it ? { hook: vt ? String(vt.hook ?? "") : "", cuts: vt ? num(vt.cuts) : null, cut: it ? String(it.cut ?? "") : "", text: it ? !!it.text : null, size: it ? !!it.size : null } : null,
+      // 이 소재가 들어가 있는 곳 (테스트 세트 → CBO …) — 비중·ROAS만, 금액 없음
+      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""),
+        share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases) }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
+      verdict_at: sts.find((x) => x.verdict_at)?.verdict_at ?? null, asset_req_at: sts.find((x) => x.asset_req_at)?.asset_req_at ?? null, asset_done_at: sts.find((x) => x.asset_done_at)?.asset_done_at ?? null,
     };
   });   // hidden(테스트 소재 탭에서 '목록에서 제거')도 그대로 보낸다 — 관리자의 목록 정리일 뿐, 만든 사람에게는 결과 기록이다
   return { fetched_at: new Date().toISOString(), scope: camps.map((x) => x.name || x.id), range: range ? { since: range.since, until: range.until, label: range.label } : null, ads: out };

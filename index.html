@@ -19,7 +19,7 @@
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5ZHhjcWZ6dGpvZ216dHZheXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDEwNzQsImV4cCI6MjEwMzkxNzA3NH0.avyRkwNflDXm3eMygodg7bIf-IIwTrkg5Nv52Uo-c-0",
     }, window.DASH_CFG || {});
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=202609211453" />
+  <link rel="stylesheet" href="./css/style.css?v=202609211659" />
 </head>
 <body>
 <!-- ═══ 로그인 게이트 (Supabase Auth) — 세션 없으면 앱을 가린다 ═══ -->
@@ -523,6 +523,15 @@
   </div>
 </div>
 
+<!-- ═══ 내 소재 성과 — 소재 상세 (2026-09-22) ═══ -->
+<div class="modal" id="mycre-modal" onclick="if(event.target===this)closeModal('mycre-modal')">
+  <div class="modal-box" style="max-width:860px;">
+    <div class="modal-head"><b id="mycre-modal-title" style="word-break:break-all;"></b>
+      <button class="modal-x" onclick="closeModal('mycre-modal')">✕</button></div>
+    <div id="mycre-modal-body"></div>
+  </div>
+</div>
+
 <!-- ═══ 예산 변경 히스토리 모달 (Meta 활동 로그 — 읽기 전용) ═══ -->
 <div class="modal" id="admgr-budget-modal" onclick="if(event.target===this)closeModal('admgr-budget-modal')">
   <div class="modal-box" style="max-width:560px;">
@@ -582,7 +591,7 @@
 <script src="./js/admgr.js?v=202609211227"></script>
 <script src="./js/admgr-budget.js?v=202609211227"></script>
 <script src="./js/admgr-tabs.js?v=202609211227"></script>
-<script src="./js/mycre.js?v=202609211453"></script>
+<script src="./js/mycre.js?v=202609211659"></script>
 <script src="./js/data.js?v=202609211227"></script>
 <script src="./js/perf.js?v=202609211227"></script>
 </body>

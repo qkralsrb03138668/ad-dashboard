@@ -4,7 +4,7 @@
    (index.html의 <script> 순서 — admgr-tabs.js 뒤: admgrProductOf·showMetaPreview·admgrTestGoRegister·metaGet 재사용) */
 'use strict';
 
-const mycre = { data: null, loading: false, err: '', who: null, thumbs: {}, thumbsAsked: new Set(), moreRun: false, moreRes: false, tview: 'live', tsort: { key: 'share', dir: -1 },
+const mycre = { data: null, loading: false, err: '', who: null, thumbs: {}, thumbsAsked: new Set(), moreRun: false, moreRes: false, tview: 'live', tsort: { key: 'share', dir: -1 }, tmode: 'ad', psort: { key: 'share', dir: -1 }, prod: '', prev: null, prevKey: '', prevLoading: false,
   range: lsGet('adc_mycre_range', null) || { preset: 'last_7d' } };   // 기간 (2026-09-22): today·yesterday·last_7d·last_14d·last_30d·custom{since,until} — 누적은 없다
 const MY_PRESETS = { today: '오늘', yesterday: '어제', last_7d: '최근 7일', last_14d: '최근 14일', last_30d: '최근 30일' };
 
@@ -103,8 +103,8 @@ function renderMycre() {
   const card = a => {
     const st = MY_ST[a.st] || ['badge-gray', a.st], dp = myDplus(a), tired = a.trend && a.trend.tired, src = mycre.thumbs[a.id];
     const badge = a.ace ? '<span class="status-badge my-ace-b"><i class="fa-solid fa-star"></i> 주력</span>' : a.heavy ? '<span class="status-badge badge-orange">효율 애매</span>' : `<span class="status-badge ${st[0]}">${st[1]}</span>`;
-    return `<div class="my-card ${a.ace ? 'ace' : a.heavy ? 'heavy' : ''} ${tired ? 'tired' : ''}" onclick="showMetaPreview('${a.id}')" title="누르면 소재 미리보기">
-      <div class="my-thumb">${src ? `<img src="${esc(src)}" loading="lazy" alt="" />` : '<i class="fa-regular fa-image"></i>'}${badge}${tired ? '<span class="status-badge badge-red my-tired">식는 중</span>' : ''}</div>
+    return `<div class="my-card ${a.ace ? 'ace' : a.heavy ? 'heavy' : ''} ${tired ? 'tired' : ''}" onclick="mycreDetail('${a.id}')" title="누르면 자세히">
+      <div class="my-thumb">${src ? `<img src="${esc(src)}" loading="lazy" alt="" />` : '<i class="fa-regular fa-image"></i>'}${badge}${tired ? '<span class="status-badge badge-red my-tired">식는 중</span>' : ''}${a.n > 1 ? `<span class="my-n" title="같은 소재가 광고 ${a.n}곳에서 돌았어요 — 성과를 합쳐서 보여줘요">${a.n}곳</span>` : ''}</div>
       <div class="my-cbody">
         <b class="my-name" title="${esc(a.adset_name)}">${esc(mySet(a))}</b>
         <div class="my-sub ell">${[a.tag, a.kind === 'video' ? '릴스·영상' : a.kind === 'image' ? '이미지' : '', dp == null ? '' : 'D+' + dp, who === 'all' ? (MAKER_NAMES[a.maker] || '') : '', scope.length > 1 ? a.camp : ''].filter(Boolean).map(esc).join(' · ')}</div>
@@ -113,14 +113,16 @@ function renderMycre() {
         ${tired ? '<div class="my-warn">최근 7일이 누적의 절반 아래 — 교체 소재를 준비해 주세요</div>' : a.heavy ? '<div class="my-warn" style="color:#9a3412;">돈은 많이 실리는데 효율이 애매해요</div>' : ''}
       </div></div>`;
   };
-  const aceSec = aces.length ? `<div class="my-h"><b><i class="fa-solid fa-star" style="color:#4f46e5;"></i> 주력 소재</b><span>살아남은 것 중에서 ${esc(rgInfo.label || '')} 동안 돈도 많이 실리고 효율도 제대로 나온 소재</span></div><div class="my-grid my-grid-ace">${aces.map(card).join('')}</div>` : '';
-  const runSec = aceSec + `<div class="my-h"><b>살아남은 ${who === 'all' ? '' : esc(whoLabel) + ' '}소재</b><span>지금 돌고 있는 것 · 지출 비중 큰 순 · 주황 테두리 = 돈은 실리는데 효율이 애매 · 카드를 누르면 미리보기</span></div>
+  const aceSec = aces.length ? `<div class="my-h"><b><i class="fa-solid fa-star" style="color:#4f46e5;"></i> 주력 소재</b><span>살아남은 것 중에서 ${esc(rgInfo.label || '')} 동안 돈도 많이 실리고 효율도 제대로 나온 소재</span></div><div class="my-grid my-grid-ace">${aces.map(card).join('')}</div>${mycreCommonHtml(list)}` : '';
+  const deltaSec = mycreDeltaHtml(list);
+  const runSec = aceSec + deltaSec + `<div class="my-h"><b>살아남은 ${who === 'all' ? '' : esc(whoLabel) + ' '}소재</b><span>지금 돌고 있는 것 · 지출 비중 큰 순 · 주황 테두리 = 돈은 실리는데 효율이 애매 · 카드를 누르면 자세히</span></div>
     ${running.length ? `<div class="my-grid">${runShow.map(card).join('')}</div>${rest.length > runShow.length ? `<button class="btn-ghost my-more" onclick="mycre.moreRun=true;renderMycre()">나머지 ${rest.length - runShow.length}개 더 보기</button>` : ''}`
       : '<div class="empty-state" style="padding:24px;"><p>지금 돌고 있는 소재가 없어요.</p></div>'}`;
 
   /* ③ 광고관리자식 표 — 보기 전용 (켜고 끄기·예산·수정 없음). 살아남은 것 / 꺼진 것 / 전체 전환, 머리글 정렬. 꺼진 것이 보일 때는 '이유'(퍼널 진단) 열이 붙는다 */
   const tv = mycre.tview, ts = mycre.tsort;
-  const pool = tv === 'live' ? running : tv === 'off' ? list.filter(a => !a.active) : list;
+  const pool0 = tv === 'live' ? running : tv === 'off' ? list.filter(a => !a.active) : list;
+  const pool = mycre.prod ? pool0.filter(a => myProd(a) === mycre.prod) : pool0;
   const val = (a, k) => k === 'name' ? mySet(a) : k === 'st' ? ((MY_ST[a.st] || [])[1] || '') : k === 'd' ? (myDplus(a) ?? -1) : (a[k] ?? -1);
   const sorted = pool.slice().sort((x, y) => { const p = val(x, ts.key), q = val(y, ts.key); return (typeof p === 'string' ? p.localeCompare(q) : p - q) * ts.dir; });
   const tShow = mycre.moreRes ? sorted : sorted.slice(0, 30);
@@ -128,18 +130,21 @@ function renderMycre() {
   const th = (k, label, cls) => `<th class="sortable ${cls || ''}" onclick="mycreSort('${k}')" title="누르면 정렬">${label}${ts.key === k ? (ts.dir < 0 ? ' ▼' : ' ▲') : ''}</th>`;
   const tvBtn = (k, label, n) => `<button class="filter-tab ${tv === k ? 'active' : ''}" onclick="mycre.tview='${k}';mycre.moreRes=false;renderMycre()">${label} ${n}</button>`;
   const stCell = a => { const st = MY_ST[a.st] || ['badge-gray', a.st]; return `<span class="status-badge ${a.ace ? 'my-ace-b' : a.heavy ? 'badge-orange' : st[0]}">${a.ace ? '주력' : a.heavy ? '효율 애매' : st[1]}</span>`; };
-  const tRows = tShow.map(a => `<tr onclick="showMetaPreview('${a.id}')" style="cursor:pointer;" title="누르면 소재 미리보기">
+  const tRows = tShow.map(a => `<tr onclick="mycreDetail('${a.id}')" style="cursor:pointer;" title="누르면 자세히">
       <td style="text-align:left;" class="name-cell"><b>${a.ace ? '<i class="fa-solid fa-star" style="color:#4f46e5;font-size:.8em;"></i> ' : ''}${esc(mySet(a))}</b><div class="my-sub ell" title="${esc(a.adset_name)}">${[a.tag, a.reg_date ? fmtMD(a.reg_date) : '', who === 'all' ? (MAKER_NAMES[a.maker] || '') : '', scope.length > 1 ? a.camp : ''].filter(Boolean).map(esc).join(' · ')}</div></td>
       <td class="ctr">${stCell(a)}</td>
       <td class="num"><span class="my-tbar"><em style="width:${Math.min(100, (a.share || 0) / maxShare * 100)}%;"></em></span> ${(a.share || 0).toFixed(1)}%</td>
       <td class="num">${comma(a.purchases || 0)}</td><td class="num"><b style="color:${myRoasColor(a.roas)};">${a.roas == null ? '—' : a.roas.toFixed(2)}</b></td>
       <td class="num m-hide">${myPct(a.ctr, 2)}</td><td class="num m-hide">${myPct(a.ts)}</td><td class="num m-hide">${myDplus(a) == null ? '—' : 'D+' + myDplus(a)}</td>
       ${showWhy ? `<td style="text-align:left;" class="my-why m-hide">${a.active ? '' : `<b class="my-why-${a.diag.k}">${esc(a.diag.label)}</b> <span>— ${esc(a.diag.fix)}</span>`}</td>` : ''}</tr>`).join('');
-  const resSec = `<div class="my-h"><b>전체 표</b><span>광고관리자처럼 한 줄씩 · 머리글을 누르면 정렬 · 보기 전용</span></div>
-    <div class="filter-tabs" style="margin-bottom:10px;">${tvBtn('live', '살아남은 것', running.length)}${tvBtn('off', '꺼진 것 (이유 보기)', list.length - running.length)}${tvBtn('all', '전체', list.length)}</div>
+  const modeBtn = (k, label) => `<button class="${mycre.tmode === k ? 'on' : ''}" onclick="mycre.tmode='${k}';mycre.moreRes=false;renderMycre()">${label}</button>`;
+  const adTable = `<div class="filter-tabs" style="margin-bottom:10px;">${tvBtn('live', '살아남은 것', running.length)}${tvBtn('off', '꺼진 것 (이유 보기)', list.length - running.length)}${tvBtn('all', '전체', list.length)}
+      ${mycre.prod ? `<span class="my-prodchip">상품: ${esc(mycre.prod)} <a href="#" onclick="mycre.prod='';renderMycre();return false;" aria-label="상품 필터 해제"><i class="fa-solid fa-xmark"></i></a></span>` : ''}</div>
     ${pool.length ? `<div class="table-wrap"><table class="my-table"><thead><tr>${th('name', '소재', 'l')}${th('st', '상태')}${th('share', '지출 비중', 'num')}${th('purchases', '구매', 'num')}${th('roas', 'ROAS', 'num')}${th('ctr', '클릭률', 'num m-hide')}${th('ts', '3초 재생', 'num m-hide')}${th('d', '일수', 'num m-hide')}${showWhy ? '<th class="m-hide" style="text-align:left;">이유</th>' : ''}</tr></thead><tbody>${tRows}</tbody></table></div>
       ${sorted.length > tShow.length ? `<button class="btn-ghost my-more" onclick="mycre.moreRes=true;renderMycre()">나머지 ${sorted.length - tShow.length}개 더 보기</button>` : ''}`
       : '<div class="empty-state" style="padding:24px;"><p>해당하는 소재가 없어요.</p></div>'}`;
+  const resSec = `<div class="my-h"><b>전체 표</b><span class="ag-seg my-mode">${modeBtn('ad', '소재별')}${modeBtn('prod', '상품별')}</span><span>${mycre.tmode === 'prod' ? '상품마다 소재가 몇 개 살아 있고 주력이 몇 개인지 · 줄을 누르면 그 상품의 소재만' : '광고관리자처럼 한 줄씩 · 머리글을 누르면 정렬 · 보기 전용'}</span></div>
+    ${mycre.tmode === 'prod' ? mycreProdTable(list) : adTable}`;
 
   /* ④ 만들어 달라는 요청 + 잘 먹힌 것 */
   const reqs = list.filter(a => a.asset_req_at).sort((x, y) => (x.asset_done_at ? 1 : 0) - (y.asset_done_at ? 1 : 0) || String(y.asset_req_at).localeCompare(String(x.asset_req_at))).slice(0, 8);
@@ -196,4 +201,109 @@ async function mycreCfgSave() {
     closeModal('admgr-budget-modal'); toast(campaigns.length ? `캠페인 ${campaigns.length}개로 범위를 정했어요 — 다시 계산 중` : '범위를 풀었어요 — 다시 계산 중');
     mycre.data = null; mycre.thumbsAsked.clear(); mycreFetch(true);
   } catch (e) { btn.disabled = false; btn.textContent = '저장'; toast('저장 실패: ' + e.message); }
+}
+
+/* ═══ 고도화 (2026-09-22): 주력 공통점 · 소재 생애 · 상세 창 · 상품별 · 지난 기간 대비 ═══ */
+function mycreProdSort(k) { const t = mycre.psort; if (t.key === k) t.dir = -t.dir; else { t.key = k; t.dir = k === 'name' ? 1 : -1; } renderMycre(); }
+function mycreProdPick(name) { mycre.prod = name; mycre.tmode = 'ad'; mycre.tview = 'all'; mycre.moreRes = false; renderMycre(); const el = document.querySelector('#sec-mycre .my-mode'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
+/* ② 주력 소재의 공통점 — 주력 vs 꺼진 것에서 어느 쪽에 치우친 특징인지 (형식·소구점·AI 태그). 표본이 적으면 말하지 않는다 */
+function mycreCommonHtml(list) {
+  const A = list.filter(a => a.ace), B = list.filter(a => !a.active && a.st === 'off');
+  if (A.length < 5 || B.length < 5) return '';
+  const axes = [['형식', a => a.kind === 'video' ? '릴스·영상' : a.kind === 'image' ? '이미지' : ''], ['소구점', a => a.tag || ''],
+    ['장면', a => a.ai && a.ai.cut ? a.ai.cut + ' 컷' : ''], ['자막', a => a.ai && a.ai.text != null ? (a.ai.text ? '자막 있음' : '자막 없음') : ''],
+    ['사이즈 표기', a => a.ai && a.ai.size != null ? (a.ai.size ? '사이즈 보임' : '사이즈 안 보임') : ''], ['첫 장면', a => a.ai && a.ai.hook ? '첫 장면 ' + a.ai.hook : '']];
+  const rows = [];
+  for (const [axis, f] of axes) {
+    const ka = A.map(f).filter(Boolean), kb = B.map(f).filter(Boolean);
+    if (ka.length < 5 || kb.length < 5) continue;
+    for (const v of new Set([...ka, ...kb])) { const na = ka.filter(x => x === v).length, nb = kb.filter(x => x === v).length, pa = na / ka.length, pb = nb / kb.length;
+      rows.push({ axis, v, na, ta: ka.length, pa, nb, tb: kb.length, pb, d: pa - pb }); }
+  }
+  const up = rows.filter(r => r.na >= 3 && r.d >= 0.15).sort((x, y) => y.d - x.d).slice(0, 4), upAxes = new Set(up.map(r => r.axis)), down = rows.filter(r => r.nb >= 3 && r.d <= -0.15 && !upAxes.has(r.axis)).sort((x, y) => x.d - y.d).slice(0, 3);   // 같은 항목의 거울상(릴스↑ = 이미지↓)은 한 번만
+  if (!up.length && !down.length) return '';
+  const pc = v => Math.round(v * 100) + '%';
+  const li = (r, good) => `<li><b>${esc(r.v)}</b> <span class="my-sub">${esc(r.axis)}</span> — 주력 ${r.ta}개 중 <b style="color:${good ? '#15803d' : '#374151'};">${r.na}개(${pc(r.pa)})</b> · 꺼진 것 ${r.tb}개 중 <b style="color:${good ? '#374151' : '#b91c1c'};">${r.nb}개(${pc(r.pb)})</b></li>`;
+  return `<div class="my-common"><div class="my-common-h"><i class="fa-solid fa-lightbulb"></i> 주력 소재의 공통점 <span class="my-sub">주력 ${A.length}개와 꺼진 것 ${B.length}개를 비교 · 한쪽에 치우친 특징만</span></div>
+    <div class="my-common-body">${up.length ? `<div><div class="my-common-t" style="color:#15803d;">주력에 많은 것</div><ul>${up.map(r => li(r, true)).join('')}</ul></div>` : ''}
+    ${down.length ? `<div><div class="my-common-t" style="color:#b91c1c;">꺼진 것에 많은 것</div><ul>${down.map(r => li(r, false)).join('')}</ul></div>` : ''}</div></div>`;
+}
+
+/* ⑥ 지난 기간 대비 — 같은 길이의 바로 앞 기간을 뒤에서 조용히 받아와(같은 서버 액션·캐시) 주력에 새로 든 것·빠진 것을 소재 키로 비교 */
+function mycrePrevRange() {
+  const r = (mycre.data || {}).range; if (!r || !r.since) return null;
+  const len = daysBetween(r.since, r.until) + 1, until = admgrShiftDay(r.since, -1), since = admgrShiftDay(until, -(len - 1));
+  return { since, until, key: since + '_' + until };
+}
+async function mycrePrevEnsure() {
+  const pr = mycrePrevRange(); if (!pr || mycre.prevLoading || mycre.prevKey === pr.key) return;
+  mycre.prevLoading = true;
+  try { const d = await metaGet({ action: 'mycre', preset: 'custom', since: pr.since, until: pr.until }); mycre.prev = d; mycre.prevKey = pr.key; }
+  catch (e) { mycre.prev = null; mycre.prevKey = pr.key; }
+  mycre.prevLoading = false; if (curMenu === 'mycre') renderMycre();
+}
+function mycreDeltaHtml(list) {
+  const pr = mycrePrevRange(); if (!pr) return '';
+  if (mycre.prevKey !== pr.key) { setTimeout(mycrePrevEnsure, 0); return `<div class="my-delta my-sub"><i class="fa-solid fa-spinner fa-spin"></i> 지난 기간(${esc(pr.since)} ~ ${esc(pr.until)})과 비교하는 중…</div>`; }
+  if (!mycre.prev) return '';
+  const who = mycre.who, prevAds = (mycre.prev.ads || []).filter(a => who === 'all' || a.maker === who);
+  const was = new Map(prevAds.filter(a => a.ace).map(a => [a.key, a])), now = new Map(list.filter(a => a.ace).map(a => [a.key, a])), cur = new Map(list.map(a => [a.key, a]));
+  const inn = [...now.values()].filter(a => !was.has(a.key)), out = [...was.values()].filter(a => !now.has(a.key));
+  if (!inn.length && !out.length) return `<div class="my-delta my-sub">지난 기간(${esc(pr.since)} ~ ${esc(pr.until)})과 주력 소재가 같아요.</div>`;
+  const whyOut = a => { const c = cur.get(a.key); return !c || !c.active ? '꺼짐' : c.heavy || (c.roas != null && c.roas < (a.roas || 0) * 0.7) ? `효율 하락 (ROAS ${(a.roas || 0).toFixed(1)} → ${c.roas == null ? '—' : c.roas.toFixed(1)})` : '지출 순위에서 밀림'; };
+  const item = (a, sub) => `<button class="my-delta-i" onclick="mycreDetail('${(cur.get(a.key) || a).id}')">${esc(mySet(a))}${sub ? ` <span class="my-sub">${esc(sub)}</span>` : ''}</button>`;
+  return `<div class="my-delta"><div class="my-delta-h">지난 기간 대비 <span class="my-sub">${esc(pr.since)} ~ ${esc(pr.until)} 의 주력과 비교</span></div>
+    ${inn.length ? `<div class="my-delta-row"><span class="status-badge badge-green">새로 주력 ${inn.length}</span>${inn.slice(0, 8).map(a => item(a, `ROAS ${a.roas == null ? '—' : a.roas.toFixed(1)} · 구매 ${a.purchases}`)).join('')}</div>` : ''}
+    ${out.length ? `<div class="my-delta-row"><span class="status-badge badge-gray">주력에서 빠짐 ${out.length}</span>${out.slice(0, 8).map(a => item(a, whyOut(a))).join('')}</div>` : ''}</div>`;
+}
+
+/* ⑤ 상품별 — 소재 몇 개 중 몇 개가 살아 있고 주력이 몇 개인지. ROAS는 (지출 비중 × ROAS)의 가중 평균 — 금액 없이 계산된다 */
+function mycreProdTable(list) {
+  const m = new Map();
+  for (const a of list) { const k = myProd(a), o = m.get(k) || m.set(k, { name: k, n: 0, live: 0, aces: 0, share: 0, purchases: 0, w: 0, wv: 0 }).get(k);
+    o.n++; if (a.active) o.live++; if (a.ace) o.aces++; o.share += a.share || 0; o.purchases += a.purchases || 0; if (a.roas != null && a.share) { o.w += a.share; o.wv += a.share * a.roas; } }
+  const rows = [...m.values()].map(o => ({ ...o, roas: o.w > 0 ? o.wv / o.w : null, short: (o.aces > 0 || (o.w > 0 && o.wv / o.w >= 3 && o.purchases >= 5)) && o.live <= 1 }));
+  const ps = mycre.psort; rows.sort((x, y) => { const p = x[ps.key] ?? -1, q = y[ps.key] ?? -1; return (typeof p === 'string' ? p.localeCompare(q) : p - q) * ps.dir; });
+  const show = mycre.moreRes ? rows : rows.slice(0, 40), maxS = Math.max(1, ...rows.map(r => r.share));
+  const th = (k, label, cls) => `<th class="sortable ${cls || ''}" onclick="mycreProdSort('${k}')" title="누르면 정렬">${label}${ps.key === k ? (ps.dir < 0 ? ' ▼' : ' ▲') : ''}</th>`;
+  return `<div class="table-wrap"><table class="my-table"><thead><tr>${th('name', '상품', 'l')}${th('n', '소재', 'num')}${th('live', '살아 있는 것', 'num')}${th('aces', '주력', 'num')}${th('share', '지출 비중', 'num')}${th('purchases', '구매', 'num')}${th('roas', 'ROAS', 'num')}<th style="text-align:left;" class="m-hide">신호</th></tr></thead><tbody>
+    ${show.map(r => `<tr onclick="mycreProdPick('${esc(r.name).replace(/'/g, '&#39;')}')" style="cursor:pointer;" title="누르면 이 상품의 소재만 보기">
+      <td style="text-align:left;" class="name-cell"><b>${esc(r.name)}</b></td><td class="num">${r.n}</td><td class="num">${r.live}</td><td class="num">${r.aces ? `<b style="color:#4f46e5;">${r.aces}</b>` : '0'}</td>
+      <td class="num"><span class="my-tbar"><em style="width:${Math.min(100, r.share / maxS * 100)}%;"></em></span> ${r.share.toFixed(1)}%</td><td class="num">${comma(r.purchases)}</td>
+      <td class="num"><b style="color:${myRoasColor(r.roas)};">${r.roas == null ? '—' : r.roas.toFixed(2)}</b></td>
+      <td style="text-align:left;" class="m-hide">${r.short ? '<span class="status-badge badge-orange">효율 좋은데 살아 있는 소재 ' + r.live + '개 — 추가 소재 필요</span>' : r.live === 0 ? '<span class="my-sub">지금 도는 소재 없음</span>' : ''}</td></tr>`).join('')}
+    </tbody></table></div>${rows.length > show.length ? `<button class="btn-ghost my-more" onclick="mycre.moreRes=true;renderMycre()">나머지 ${rows.length - show.length}개 더 보기</button>` : ''}`;
+}
+
+/* ④ 상세 창 — 소재 하나의 숫자·진단·추세·AI 태그 + ③ 이 소재가 도는 곳(테스트 → CBO) + 같은 상품의 다른 소재와 비교 */
+function mycreDetail(id) {
+  const all = (mycre.data || {}).ads || [], a = all.find(x => x.id === id); if (!a) return;
+  const st = MY_ST[a.st] || ['badge-gray', a.st], src = mycre.thumbs[a.id], rg = (mycre.data.range || {}).label || '';
+  const cell = (label, val, color) => `<div class="my-dcell"><i>${label}</i><b${color ? ` style="color:${color};"` : ''}>${val}</b></div>`;
+  const sib = all.filter(x => x.id !== a.id && myProd(x) === myProd(a)).sort((x, y) => (y.share || 0) - (x.share || 0)).slice(0, 12);
+  const ai = a.ai ? [a.ai.hook ? '첫 장면 ' + a.ai.hook : '', a.ai.cuts ? '컷 ' + a.ai.cuts + '개' : '', a.ai.cut ? a.ai.cut + ' 컷' : '', a.ai.text == null ? '' : a.ai.text ? '자막 있음' : '자막 없음', a.ai.size == null ? '' : a.ai.size ? '사이즈 보임' : '사이즈 안 보임'].filter(Boolean) : [];
+  $('mycre-modal-title').textContent = mySet(a);
+  $('mycre-modal-body').innerHTML = `<div class="my-dtop">
+      <div class="my-dthumb">${src ? `<img src="${esc(src)}" alt="" />` : '<i class="fa-regular fa-image"></i>'}
+        <button class="btn-analyze" onclick="closeModal('mycre-modal');showMetaPreview('${a.id}')"><i class="fa-solid fa-play"></i> 소재·문구 미리보기</button></div>
+      <div class="my-dmain">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${a.ace ? '<span class="status-badge my-ace-b"><i class="fa-solid fa-star"></i> 주력</span>' : ''}${a.heavy ? '<span class="status-badge badge-orange">효율 애매</span>' : ''}<span class="status-badge ${st[0]}">${st[1]}</span>${a.trend && a.trend.tired ? '<span class="status-badge badge-red">식는 중</span>' : ''}
+          <span class="my-sub">${[MAKER_NAMES[a.maker] || '', a.tag, a.kind === 'video' ? '릴스·영상' : a.kind === 'image' ? '이미지' : '', myDplus(a) == null ? '' : 'D+' + myDplus(a)].filter(Boolean).map(esc).join(' · ')}</span></div>
+        <div class="my-dgrid">${cell('ROAS', a.roas == null ? '—' : a.roas.toFixed(2), myRoasColor(a.roas))}${cell('구매', comma(a.purchases || 0))}${cell('지출 비중', (a.share || 0).toFixed(1) + '%')}
+          ${cell('클릭률', myPct(a.ctr, 2))}${cell('3초 재생', myPct(a.ts))}${cell('랜딩 도착', myPct(a.lpvR))}${cell('장바구니', a.atc == null ? '—' : comma(a.atc))}${cell('방문 → 구매', myPct(a.cvr, 2))}${cell('같은 사람에게', a.freq ? a.freq.toFixed(1) + '회' : '—')}</div>
+        <div class="my-ddiag"><b class="my-why-${a.diag.k}">${esc(a.diag.label)}</b> — ${esc(a.diag.fix)}</div>
+        <div class="my-sub">${esc(rg)} 기준${a.trend && a.trend.daily && a.trend.daily.length >= 3 ? ` · 최근 7일 추세 ${mySpark(a.trend)}` : ''}${ai.length ? ' · ' + ai.map(esc).join(' · ') : ''}</div>
+      </div></div>
+    <div class="my-h" style="margin-top:14px;"><b>이 소재가 도는 곳</b><span>${a.n > 1 ? `같은 영상·이미지가 광고 ${a.n}곳에서 돌았어요 — 위 숫자는 전부 합친 것` : '지금은 한 곳에서만 돌아요'}</span></div>
+    <div class="table-wrap"><table class="my-table"><thead><tr><th style="text-align:left;">광고세트</th><th style="text-align:left;" class="m-hide">캠페인</th><th>상태</th><th class="num">지출 비중</th><th class="num">구매</th><th class="num">ROAS</th></tr></thead><tbody>
+      ${(a.sets || []).map(x => `<tr><td style="text-align:left;" class="name-cell"><b>${esc(typeof admgrBase === 'function' ? admgrBase(x.adset_name) : x.adset_name)}</b><div class="my-sub">${x.reg_date ? fmtMD(x.reg_date) + ' 시작' : ''}</div></td><td style="text-align:left;" class="m-hide my-sub">${esc(x.camp)}</td>
+        <td class="ctr"><span class="status-badge ${x.active ? 'badge-green' : 'badge-gray'}">${x.active ? '도는 중' : '꺼짐'}</span></td><td class="num">${(x.share || 0).toFixed(1)}%</td><td class="num">${comma(x.purchases || 0)}</td><td class="num"><b style="color:${myRoasColor(x.roas)};">${x.roas == null ? '—' : x.roas.toFixed(2)}</b></td></tr>`).join('')}</tbody></table></div>
+    <div class="my-h" style="margin-top:14px;"><b>같은 상품의 다른 소재</b><span>${esc(myProd(a))} · ${sib.length ? `${sib.length}개와 비교` : '다른 소재가 없어요'}</span></div>
+    ${sib.length ? `<div class="table-wrap"><table class="my-table"><thead><tr><th style="text-align:left;">소재</th><th>상태</th><th class="num">지출 비중</th><th class="num">구매</th><th class="num">ROAS</th><th style="text-align:left;" class="m-hide">진단</th></tr></thead><tbody>
+      ${sib.map(x => { const s2 = MY_ST[x.st] || ['badge-gray', x.st]; return `<tr onclick="mycreDetail('${x.id}')" style="cursor:pointer;"><td style="text-align:left;" class="name-cell"><b>${x.ace ? '<i class="fa-solid fa-star" style="color:#4f46e5;font-size:.8em;"></i> ' : ''}${esc(mySet(x))}</b></td>
+        <td class="ctr"><span class="status-badge ${s2[0]}">${s2[1]}</span></td><td class="num">${(x.share || 0).toFixed(1)}%</td><td class="num">${comma(x.purchases || 0)}</td><td class="num"><b style="color:${myRoasColor(x.roas)};">${x.roas == null ? '—' : x.roas.toFixed(2)}</b></td>
+        <td style="text-align:left;" class="m-hide my-sub">${esc(x.diag.label)}</td></tr>`; }).join('')}</tbody></table></div>` : ''}`;
+  $('mycre-modal').classList.add('show');
+  if (mycre.thumbs[a.id] === undefined) mycreThumbsEnsure([a]);
 }
