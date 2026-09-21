@@ -219,7 +219,7 @@ function logError(message, stack) {
   } catch { /* 기록 실패는 무시 */ }
 }
 /* 백업 대상 = 사용자가 만든 데이터(adc_*) — PIN과 서버에서 받아둔 캐시는 제외 */
-const BACKUP_SKIP = /^adc_(admgr_(pin|last|test|off|best|products)|reg_pin)$/;
+const BACKUP_SKIP = /^adc_(admgr_(pin|last|test|off|best|products)|reg_pin|mycre_last)$/;
 function backupPayload() {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('adc_') && !BACKUP_SKIP.test(k)) out[k] = localStorage.getItem(k); }

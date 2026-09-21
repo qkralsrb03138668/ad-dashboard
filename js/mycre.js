@@ -8,14 +8,21 @@ const mycre = { data: null, loading: false, err: '', who: null, thumbs: {}, thum
   range: lsGet('adc_mycre_range', null) || { preset: 'last_7d' } };   // 기간 (2026-09-22): today·yesterday·last_7d·last_14d·last_30d·custom{since,until} — 누적은 없다
 const MY_PRESETS = { today: '오늘', yesterday: '어제', last_7d: '최근 7일', last_14d: '최근 14일', last_30d: '최근 30일' };
 
+/* 브라우저 저장 (2026-09-22, 광고관리자와 같은 방식): 마지막에 본 기간의 결과 한 벌을 저장해 두고, 다음에 열면 그것부터 바로 그린 뒤 뒤에서 새로 받아 바꾼다.
+   같은 날·같은 기간일 때만 쓴다 ('최근 7일'은 날짜가 바뀌면 다른 기간). 용량이 넘치면 조용히 포기 */
+const MY_LS = 'adc_mycre_last';
+const myRangeKey = () => { const r = mycre.range; return r.preset === 'custom' ? `custom:${r.since}:${r.until}` : r.preset; };
+function mycreCacheLoad() { try { const c = JSON.parse(localStorage.getItem(MY_LS) || 'null'); return c && c.key === myRangeKey() && c.day === todayStr(0) && c.data && Array.isArray(c.data.ads) ? c.data : null; } catch (e) { return null; } }
+function mycreCacheSave() { try { localStorage.setItem(MY_LS, JSON.stringify({ key: myRangeKey(), day: todayStr(0), data: mycre.data })); } catch (e) { try { localStorage.removeItem(MY_LS); } catch (e2) { /* 저장 못 해도 화면은 돈다 */ } } }
 async function mycreFetch(force) {
   if (mycre.loading) return;
   if (typeof admgr === 'object' && admgr.mk && !admgr.mk.tried) { admgr.mk.tried = true; admgrMakerLoad(); }   // 만든 사람 수동 지정분 (광고관리자와 같은 저장소)
   if (!admgrCfg()) { mycre.err = '연동 정보가 없어요'; renderMycre(); return; }
   mycre.loading = true; mycre.err = ''; renderMycre();
   const rg = mycre.range, q = { action: 'mycre', preset: rg.preset };
+  if (force === 'fresh') q.fresh = '1';   // 새로고침 버튼 — 서버 보관본이 2분만 지났어도 새로
   if (rg.preset === 'custom') { q.since = rg.since; q.until = rg.until; }
-  try { mycre.data = await metaGet(q); }
+  try { mycre.data = await metaGet(q); mycre.stale = false; mycreCacheSave(); }
   catch (e) { mycre.err = e.message; }
   mycre.loading = false; renderMycre();
 }
@@ -60,7 +67,7 @@ async function mycreThumbsEnsure(ads) {   // 보이는 카드의 썸네일만 �
 
 function renderMycre() {
   const box = $('mycre-body'); if (!box) return;
-  if (!mycre.data && !mycre.loading && !mycre.err) { mycreFetch(); return; }
+  if (!mycre.data && !mycre.loading && !mycre.err) { const c = mycreCacheLoad(); if (c) { mycre.data = c; mycre.stale = true; } mycreFetch(); if (!c) return; }   // 저장본이 있으면 그걸로 바로 그리고, 새 데이터는 뒤에서
   if (!mycre.data) { box.innerHTML = `<div class="empty-state"><p>${mycre.err ? '불러오기 실패: ' + esc(mycre.err) : '내 소재 성과를 불러오는 중… (처음엔 10초쯤 걸려요)'}</p></div>`; return; }
   const mine = makerMine();
   if (mycre.who === null) mycre.who = mine || 'all';
@@ -72,13 +79,13 @@ function renderMycre() {
   const others = Object.keys(MAKERS).filter(k => k !== mine);
   const sw = (k, label) => `<button class="filter-tab ${who === k ? 'active' : ''}" onclick="mycreWho('${k}')">${esc(label)}</button>`;
   const switcher = `<div class="filter-tabs my-who">${mine ? sw(mine, '내 소재') : ''}${sw('all', '전체')}${others.map(k => sw(k, MAKERS[k])).join('')}
-    <span style="flex:1;"></span>${authIsAdmin() ? `<button class="filter-tab" onclick="mycreCfgOpen()" title="컨텐츠마케터에게 보여줄 캠페인을 고릅니다 — 고른 캠페인 안의 세트·광고만 이 화면에 나와요"><i class="fa-solid fa-filter"></i> 보여줄 캠페인${scope.length ? ' ' + scope.length : ''}</button>` : ''}<button class="filter-tab" onclick="mycreFetch(true)" ${mycre.loading ? 'disabled' : ''}><i class="fa-solid ${mycre.loading ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> 새로고침</button></div>`;
+    <span style="flex:1;"></span>${authIsAdmin() ? `<button class="filter-tab" onclick="mycreCfgOpen()" title="컨텐츠마케터에게 보여줄 캠페인을 고릅니다 — 고른 캠페인 안의 세트·광고만 이 화면에 나와요"><i class="fa-solid fa-filter"></i> 보여줄 캠페인${scope.length ? ' ' + scope.length : ''}</button>` : ''}<button class="filter-tab" onclick="mycreFetch('fresh')" ${mycre.loading ? 'disabled' : ''} title="지금 Meta에서 새로 받아와요 (평소엔 저장해 둔 것을 바로 보여줘요)"><i class="fa-solid ${mycre.loading ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> 새로고침</button></div>`;
 
   /* 기간 — 오늘·어제·최근 7/14/30일·직접 (성과 숫자·지출·주력 판정이 전부 이 기간 기준) */
   const rg = mycre.range, rgInfo = mycre.data.range || {};
   const pbtn = (k, label) => `<button class="${rg.preset === k ? 'on' : ''}" onclick="mycreRangeSet('${k}')" ${mycre.loading ? 'disabled' : ''}>${label}</button>`;
   const period = `<div class="my-period"><span class="ag-seg">${Object.entries(MY_PRESETS).map(([k, l]) => pbtn(k, l)).join('')}${pbtn('custom', rg.preset === 'custom' ? `<i class="fa-regular fa-calendar"></i> ${esc(rg.since)} ~ ${esc(rg.until)}` : '<i class="fa-regular fa-calendar"></i> 직접 설정')}</span>
-    ${rgInfo.since ? `<span class="my-sub">${esc(rgInfo.since)}${rgInfo.until !== rgInfo.since ? ' ~ ' + esc(rgInfo.until) : ''}${mycre.loading ? ' · 불러오는 중…' : ''}</span>` : ''}
+    ${rgInfo.since ? `<span class="my-sub">${esc(rgInfo.since)}${rgInfo.until !== rgInfo.since ? ' ~ ' + esc(rgInfo.until) : ''}· <b>${admgrAgo(mycre.data.fetched_at)}</b> 기준${mycre.loading ? ' · <i class="fa-solid fa-spinner fa-spin"></i> 새로 받는 중…' : ''}</span>` : ''}
     ${mycre.customOpen ? `<span class="my-custom"><input type="date" class="inp" id="my-since" value="${esc(rg.since || todayStr(-7))}" max="${todayStr(0)}" /> ~ <input type="date" class="inp" id="my-until" value="${esc(rg.until || todayStr(0))}" max="${todayStr(0)}" /><button class="btn-analyze" style="padding:5px 12px;" onclick="mycreRangeApply()">적용</button></span>` : ''}</div>`;
 
   /* ① 요약 — 개수만 */

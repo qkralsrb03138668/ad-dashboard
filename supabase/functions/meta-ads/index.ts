@@ -776,8 +776,19 @@ Deno.serve(async (req) => {
       await cacheSet(curKey, b);
       const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
       if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
-      const mcamps = await mycreCamps(), mace = await mycreAce(), mrange = mycreRange(new URL("http://x/?preset=last_7d"), t), mk = mycreKey(t, mcamps, mace, mrange);   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
-      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; if (mcamps.length) await snapshotCampAds(c, mcamps.map((x) => x.id), t); await cacheSet(mk, await buildMycre(c, t, mcamps, mace, mrange)); }
+      /* 내 소재 성과 미리 만들기 (2026-09-22): 최근 7·14·30일·어제는 오늘을 빼고 세서 하루 종일 숫자가 거의 같다 → 화면 요청은 3시간 보관본을 쓰고,
+         여기서 2시간 반이 지난 것을 한 번에 하나씩 다시 만들어 늘 데워 둔다 (하루 ≈ 4기간 × 10번 × Meta 2~3호출). 하루 첫 회에는 일별 누적 스냅샷도 같이 */
+      {
+        const mcamps = await mycreCamps(), mace = await mycreAce();
+        for (const preset of ["last_7d", "last_14d", "last_30d", "yesterday"]) {
+          const mrange = mycreRange(new URL("http://x/?preset=" + preset), t), mk = mycreKey(t, mcamps, mace, mrange);
+          if (await cacheGet(mk, 150 * 60_000)) continue;
+          curKey = mk;
+          if (preset === "last_7d" && mcamps.length && !(await cacheGet(`meta:mycre:snapday:${t}`, 86400_000))) { await snapshotCampAds(c, mcamps.map((x) => x.id), t); await cacheSet(`meta:mycre:snapday:${t}`, { at: new Date().toISOString() }); }
+          await cacheSet(mk, await buildMycre(c, t, mcamps, mace, mrange));
+          break;   // 한 번(5분)에 하나만 — 수집 함수가 길어지지 않게
+        }
+      }
       await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
@@ -901,7 +912,8 @@ Deno.serve(async (req) => {
       const today = seoulToday();
       const camps = await mycreCamps(), ace = await mycreAce(), range = mycreRange(url, today);
       const cacheKey = mycreKey(today, camps, ace, range);   // 캠페인 지정·주력 기준·기간이 바뀌면 키가 달라져 바로 새로 만든다
-      const pre = await metaPre(cacheKey, (range.until === today ? 10 : 30) * 60 * 1000);   // 오늘이 낀 기간은 10분, 지난 기간은 30분
+      const fresh = url.searchParams.get("fresh") === "1";   // 새로고침 버튼 — 그래도 2분 안에 만든 것이 있으면 그걸 준다 (연타 방어)
+      const pre = await metaPre(cacheKey, fresh ? 2 * 60_000 : range.until === today ? 10 * 60_000 : 180 * 60_000);   // 오늘이 낀 기간은 10분, 지난 기간은 3시간 (그 사이 5분 수집이 다시 데워 둔다)
       if (pre) return pre;
       const body = await buildMycre(c, today, camps, ace, range);
       await cacheSet(cacheKey, body);
