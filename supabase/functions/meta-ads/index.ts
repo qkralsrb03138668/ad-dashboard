@@ -501,7 +501,7 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
   return body;
 }
 
-// 내 소재 성과 본문 — mycre 액션과 5분 수집(sync, 하루 두 번)이 같이 쓴다. 응답에 지출·전환값을 넣지 말 것
+// 내 소재 성과 본문 — mycre 액션과 5분 수집(sync, 하루 두 번)이 같이 쓴다. 지출 금액은 내보낸다(2026-09-22 사용자 결정: 비중 대신 금액). 전환값(매출)·예산·마진은 넣지 말 것
 /* 내 소재 성과에 보여줄 캠페인 (2026-09-21 사용자 요청) — 관리자가 고른 캠페인 안의 세트·광고만 마케터에게 보인다. shared_state 'mycre_cfg' { campaigns: [{id,name}] } */
 async function mycreCamps(): Promise<{ id: string; name: string }[]> {
   const r = await dbRest("shared_state?key=eq.mycre_cfg&select=data");
@@ -517,7 +517,7 @@ async function mycreAce(): Promise<AceRule> {
   const n = (v: unknown, d: number, lo: number, hi: number) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : d; };
   return { top: n(a?.top, ACE_DEFAULT.top, 1, 100), roas: n(a?.roas, ACE_DEFAULT.roas, 0, 100), pur: n(a?.pur, ACE_DEFAULT.pur, 0, 100000) };
 }
-const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v10:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
+const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v11:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
 /* 내 소재 성과의 기간 (2026-09-22 사용자 요청: 누적 대신 오늘·어제·최근 7/14/30일·직접 설정) — 최근 N일은 광고관리자·Meta와 같이 오늘을 빼고 센다 */
 type MyRange = { since: string; until: string; label: string };
 function mycreRange(url: URL, today: string): MyRange {
@@ -709,12 +709,12 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       st: stOf(a, verdict), active: on, gone: !!a.gone,
       promoted: /\[→[^\]]+\]/.test(M.map((m) => String(m.adset_name ?? "")).join(" ")) || new Set(M.map((m) => String(m.camp ?? ""))).size > 1,
       roas: sp > 0 ? Math.round(num(a.value) / sp * 100) / 100 : null, purchases: num(a.purchases),
-      share, ace: on && sp >= cut && ro >= ace.roas && num(a.purchases) >= ace.pur, heavy: on && sp >= cut && ro < ace.roas,   // 주력 = 돈도 실리고 효율도 남 · heavy = 돈은 실리는데 효율이 애매
+      spend: Math.round(sp), share, ace: on && sp >= cut && ro >= ace.roas && num(a.purchases) >= ace.pur, heavy: on && sp >= cut && ro < ace.roas,   // 주력 = 돈도 실리고 효율도 남 · heavy = 돈은 실리는데 효율이 애매
       ctr: r ? r.ctr : null, ts: r ? r.ts : null, lpvR: r ? r.lpvR : null, cvr: r ? r.cvr : null, atc: a.imp == null ? null : num(a.atc), freq: num(a.freq) || null,
       diag: diagOf(a), trend: trendOf(a),
       ai: vt || it ? { hook: vt ? String(vt.hook ?? "") : "", cuts: vt ? num(vt.cuts) : null, cut: it ? String(it.cut ?? "") : "", text: it ? !!it.text : null, size: it ? !!it.size : null } : null,
       // 이 소재가 들어가 있는 곳 (테스트 세트 → CBO …) — 비중·ROAS만, 금액 없음
-      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""),
+      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""), spend: Math.round(ms),
         share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases) }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
       verdict_at: sts.find((x) => x.verdict_at)?.verdict_at ?? null, asset_req_at: sts.find((x) => x.asset_req_at)?.asset_req_at ?? null, asset_done_at: sts.find((x) => x.asset_done_at)?.asset_done_at ?? null,
     };
