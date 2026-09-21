@@ -24,7 +24,8 @@ const MY_ST = {   // 상태 → [배지 색, 글자]
 const myRoasColor = r => r == null ? '#9ca3af' : r >= 3 ? '#15803d' : r < 1 ? '#dc2626' : '#b45309';
 const myPct = (v, d) => v == null ? '—' : (Math.min(v, 1) * 100).toFixed(d || 0) + '%';
 const myDplus = a => a.reg_date ? Math.max(0, daysBetween(a.reg_date, todayStr(0))) : null;
-const myProd = a => admgrProductOf({ adset_name: a.adset_name || a.name });
+const myProd = a => admgrProductOf({ adset_name: a.adset_name || a.name });   // 상품명 — '만들어 달라는 요청'과 소재 등록 이동에만
+const mySet = a => (typeof admgrBase === 'function' ? admgrBase(a.adset_name || '') : (a.adset_name || '')) || a.name || '(이름 없음)';   // 카드·표 제목 = 광고세트명 (2026-09-22 사용자 요청: 광고관리자에서 보던 이름 그대로여야 찾기 쉽다)
 function mySpark(tr) {   // 최근 7일 일별 ROAS 막대 (비율만 — 금액 없음)
   if (!tr || !tr.daily || tr.daily.length < 3) return '';
   const cap = Math.max(3, ...tr.daily);
@@ -84,7 +85,7 @@ function renderMycre() {
     return `<div class="my-card ${a.ace ? 'ace' : a.heavy ? 'heavy' : ''} ${tired ? 'tired' : ''}" onclick="showMetaPreview('${a.id}')" title="누르면 소재 미리보기">
       <div class="my-thumb">${src ? `<img src="${esc(src)}" loading="lazy" alt="" />` : '<i class="fa-regular fa-image"></i>'}${badge}${tired ? '<span class="status-badge badge-red my-tired">식는 중</span>' : ''}</div>
       <div class="my-cbody">
-        <b class="ell" title="${esc(a.adset_name)}">${esc(myProd(a))}</b>
+        <b class="my-name" title="${esc(a.adset_name)}">${esc(mySet(a))}</b>
         <div class="my-sub ell">${[a.tag, a.kind === 'video' ? '릴스·영상' : a.kind === 'image' ? '이미지' : '', dp == null ? '' : 'D+' + dp, who === 'all' ? (MAKER_NAMES[a.maker] || '') : '', scope.length > 1 ? a.camp : ''].filter(Boolean).map(esc).join(' · ')}</div>
         <div class="my-nums"><span>ROAS<b style="color:${myRoasColor(a.roas)};">${a.roas == null ? '—' : a.roas.toFixed(2)}</b></span><span>구매<b>${comma(a.purchases || 0)}</b></span><span class="my-sp">${mySpark(a.trend)}</span></div>
         ${shareBar(a)}
@@ -99,7 +100,7 @@ function renderMycre() {
   /* ③ 광고관리자식 표 — 보기 전용 (켜고 끄기·예산·수정 없음). 살아남은 것 / 꺼진 것 / 전체 전환, 머리글 정렬. 꺼진 것이 보일 때는 '이유'(퍼널 진단) 열이 붙는다 */
   const tv = mycre.tview, ts = mycre.tsort;
   const pool = tv === 'live' ? running : tv === 'off' ? list.filter(a => !a.active) : list;
-  const val = (a, k) => k === 'name' ? myProd(a) : k === 'st' ? ((MY_ST[a.st] || [])[1] || '') : k === 'd' ? (myDplus(a) ?? -1) : (a[k] ?? -1);
+  const val = (a, k) => k === 'name' ? mySet(a) : k === 'st' ? ((MY_ST[a.st] || [])[1] || '') : k === 'd' ? (myDplus(a) ?? -1) : (a[k] ?? -1);
   const sorted = pool.slice().sort((x, y) => { const p = val(x, ts.key), q = val(y, ts.key); return (typeof p === 'string' ? p.localeCompare(q) : p - q) * ts.dir; });
   const tShow = mycre.moreRes ? sorted : sorted.slice(0, 30);
   const showWhy = tv !== 'live';
@@ -107,7 +108,7 @@ function renderMycre() {
   const tvBtn = (k, label, n) => `<button class="filter-tab ${tv === k ? 'active' : ''}" onclick="mycre.tview='${k}';mycre.moreRes=false;renderMycre()">${label} ${n}</button>`;
   const stCell = a => { const st = MY_ST[a.st] || ['badge-gray', a.st]; return `<span class="status-badge ${a.ace ? 'my-ace-b' : a.heavy ? 'badge-orange' : st[0]}">${a.ace ? '주력' : a.heavy ? '효율 애매' : st[1]}</span>`; };
   const tRows = tShow.map(a => `<tr onclick="showMetaPreview('${a.id}')" style="cursor:pointer;" title="누르면 소재 미리보기">
-      <td style="text-align:left;" class="name-cell"><b>${a.ace ? '<i class="fa-solid fa-star" style="color:#4f46e5;font-size:.8em;"></i> ' : ''}${esc(myProd(a))}</b><div class="my-sub ell" title="${esc(a.adset_name)}">${[a.tag, a.reg_date ? fmtMD(a.reg_date) : '', who === 'all' ? (MAKER_NAMES[a.maker] || '') : '', scope.length > 1 ? a.camp : ''].filter(Boolean).map(esc).join(' · ')}</div></td>
+      <td style="text-align:left;" class="name-cell"><b>${a.ace ? '<i class="fa-solid fa-star" style="color:#4f46e5;font-size:.8em;"></i> ' : ''}${esc(mySet(a))}</b><div class="my-sub ell" title="${esc(a.adset_name)}">${[a.tag, a.reg_date ? fmtMD(a.reg_date) : '', who === 'all' ? (MAKER_NAMES[a.maker] || '') : '', scope.length > 1 ? a.camp : ''].filter(Boolean).map(esc).join(' · ')}</div></td>
       <td class="ctr">${stCell(a)}</td>
       <td class="num"><span class="my-tbar"><em style="width:${Math.min(100, (a.share || 0) / maxShare * 100)}%;"></em></span> ${(a.share || 0).toFixed(1)}%</td>
       <td class="num">${comma(a.purchases || 0)}</td><td class="num"><b style="color:${myRoasColor(a.roas)};">${a.roas == null ? '—' : a.roas.toFixed(2)}</b></td>
