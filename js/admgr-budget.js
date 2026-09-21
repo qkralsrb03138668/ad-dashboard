@@ -175,7 +175,9 @@ function admgrPopAt(ev, html, w) {
   const r0 = ev.currentTarget.getBoundingClientRect();
   const pop = $('admgr-bpop'); pop.innerHTML = html; pop.style.display = 'block';
   pop.style.left = Math.max(8, Math.min(r0.right - (w || 270), window.innerWidth - (w || 270) - 12)) + 'px';
-  pop.style.top = (r0.bottom + 6) + 'px';
+  /* 아래 공간이 모자라면 위로 연다 (2026-09-21: 화면 하단 동작 바의 '만든 사람 지정' 메뉴가 아래로 잘리던 문제) — 위도 모자라면 화면 안에만 들어오게 */
+  const h = pop.offsetHeight, below = r0.bottom + 6;
+  pop.style.top = (below + h <= window.innerHeight - 8 ? below : Math.max(8, Math.min(r0.top - 6 - h, window.innerHeight - h - 8))) + 'px';
 }
 const agItem = (icon, label, onclick, sub) => `<button class="ag-item" onclick="document.getElementById('admgr-bpop').style.display='none';${onclick}"><i class="fa-solid ${icon}"></i><span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
 function admgrMoreMenu(ev) {
