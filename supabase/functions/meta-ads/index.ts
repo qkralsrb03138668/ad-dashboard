@@ -517,14 +517,25 @@ async function mycreAce(): Promise<AceRule> {
   const n = (v: unknown, d: number, lo: number, hi: number) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : d; };
   return { top: n(a?.top, ACE_DEFAULT.top, 1, 100), roas: n(a?.roas, ACE_DEFAULT.roas, 0, 100), pur: n(a?.pur, ACE_DEFAULT.pur, 0, 100000) };
 }
-const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v7:${today}:${camps.length}-${h.toString(36)}`; };
-// 지정 캠페인 안의 광고 전부 + 등록 이후 누적 성과 (fetchTestads와 같은 모양) — 꺼진 지 오래된 것은 빼고: 켜져 있거나 최근 60일 안에 만든 것
-async function fetchCampAds(c: Creds, campIds: string[], today: string) {
+const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v8:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
+/* 내 소재 성과의 기간 (2026-09-22 사용자 요청: 누적 대신 오늘·어제·최근 7/14/30일·직접 설정) — 최근 N일은 광고관리자·Meta와 같이 오늘을 빼고 센다 */
+type MyRange = { since: string; until: string; label: string };
+function mycreRange(url: URL, today: string): MyRange {
+  const p = url.searchParams.get("preset") ?? "last_7d";
+  const ymd = (k: string) => { const v = url.searchParams.get(k) ?? ""; return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ""; };
+  if (p === "today") return { since: today, until: today, label: "오늘" };
+  if (p === "yesterday") { const y = addDays(today, -1); return { since: y, until: y, label: "어제" }; }
+  if (p === "custom") { let a = ymd("since"), b = ymd("until"); if (a && b) { if (a > b) [a, b] = [b, a]; if (b > today) b = today; if (a < addDays(b, -400)) a = addDays(b, -400); return { since: a, until: b, label: `${a} ~ ${b}` }; } }
+  const n = p === "last_14d" ? 14 : p === "last_30d" ? 30 : 7;
+  return { since: addDays(today, -n), until: addDays(today, -1), label: `최근 ${n}일` };
+}
+// 지정 캠페인 안의 광고 전부 + 그 기간 성과 (range 없으면 등록 이후 누적 — 일별 스냅샷용) (fetchTestads와 같은 모양) — 꺼진 지 오래된 것은 빼고: 켜져 있거나 최근 60일 안에 만든 것
+async function fetchCampAds(c: Creds, campIds: string[], today: string, range: MyRange | null = null) {
   type R = Record<string, unknown>;
   const filt = JSON.stringify([{ field: "campaign.id", operator: "IN", value: campIds }]);
   const [adRows, insRows] = await Promise.all([
     graphGetAll(`${c.account}/ads`, { fields: "id,name,status,effective_status,created_time,adset_id,adset{name},campaign{name}", filtering: filt, limit: "500" }, c.token, 20),
-    graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: "2024-01-01", until: today }), level: "ad", filtering: filt, limit: "500",
+    graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify(range ? { since: range.since, until: range.until } : { since: "2024-01-01", until: today }), level: "ad", filtering: filt, limit: "500",
       fields: "ad_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions" }, c.token, 20),
   ]);
   const metric = new Map(insRows.map((r) => [String(r.ad_id ?? ""), r]));
@@ -542,14 +553,17 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string) {
     } as R;
   }).filter((a) => a.effective_status === "ACTIVE" || String(a.reg_date) >= cutoff);
 }
-async function buildMycre(c: Creds, today: string, camps: { id: string; name: string }[] = [], ace: AceRule = ACE_DEFAULT) {
+// 일별 누적 스냅샷 (추세·'식는 중'용) — 지정 캠페인의 켜져 있는 광고를 등록 이후 누적으로. 5분 수집이 12시간마다 부른다 (화면 요청은 기간 성과라 여기에 적으면 안 된다)
+async function snapshotCampAds(c: Creds, campIds: string[], today: string) {
+  const onNow = (await fetchCampAds(c, campIds, today, null)).filter((a) => a.effective_status === "ACTIVE");
+  if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
+    status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() })));
+}
+async function buildMycre(c: Creds, today: string, camps: { id: string; name: string }[] = [], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) {
   type R = Record<string, unknown>;
   let ads: R[];
   if (camps.length) {
-    ads = await fetchCampAds(c, camps.map((x) => x.id), today);
-    const onNow = ads.filter((a) => a.effective_status === "ACTIVE");   // 일별 스냅샷 — 추세·'식는 중'용 (테스트 세트가 아니어도 쌓이게)
-    if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
-      status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() }))).catch(() => {});
+    ads = await fetchCampAds(c, camps.map((x) => x.id), today, range);
   } else {
   const tk = `meta:testads:test:${today}`;
   let t = (await cacheGet(tk, 15 * 60 * 1000)) as { ads: R[] } | null;
@@ -579,6 +593,14 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
     if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
       status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() }))).catch(() => {});
   }
+  if (range) {   // 성과만 그 기간 것으로 (계정 전체를 광고 단위로 한 번 — 기간 안에 돈 광고만 행이 온다)
+    const ins = await graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: range.since, until: range.until }), level: "ad", limit: "500",
+      fields: "ad_id,spend,actions,action_values,impressions,frequency,inline_link_clicks" }, c.token, 20);
+    const byAd = new Map(ins.map((r) => [String(r.ad_id ?? ""), r]));
+    for (const a of ads) { const m = byAd.get(String(a.id));
+      a.spend = m ? num(m.spend) : 0; a.purchases = m ? pickPurchase(m.actions) : 0; a.value = m ? pickPurchase(m.action_values) : 0; a.imp = m ? num(m.impressions) : 0; a.freq = m ? num(m.frequency) : 0; a.clicks = m ? num(m.inline_link_clicks) : 0;
+      a.v3 = m ? pickAct(m.actions, ["video_view"]) : 0; a.lpv = m ? pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]) : 0; a.atc = m ? pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]) : 0; }
+  }
   }   // (지정 캠페인 없음 = 테스트 소재 전체 경로 끝)
 
   const [stR, crR, mkR] = await Promise.all([
@@ -600,21 +622,21 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
   // 일별 스냅샷 → 최근 7일 ROAS·일별 ROAS (비율만 내보낸다)
   const since = addDays(today, -8), dayRows: R[] = [];
   for (let off = 0; off < 20000; off += 1000) {
-    const r = await dbRest(`test_ad_day?select=ad_id,day,spend,value&day=gte.${since}&order=day.asc&limit=1000&offset=${off}`);
+    const r = await dbRest(`test_ad_day?select=ad_id,day,spend,value,purchases&day=gte.${since}&order=day.asc&limit=1000&offset=${off}`);
     if (!r.ok) break; const page = await r.json() as R[]; dayRows.push(...page); if (page.length < 1000) break;
   }
   const days = new Map<string, R[]>(); for (const r of dayRows) { const k = String(r.ad_id); (days.get(k) ?? days.set(k, []).get(k)!).push(r); }
   const from = addDays(today, -7);
   const trendOf = (a: R) => {
     const L = days.get(String(a.id)); if (!L || L.length < 3) return null;
-    const cum = { spend: num(a.spend), value: num(a.value) };
+    const last = L[L.length - 1], cum = { spend: num(last.spend), value: num(last.value) };   // 누적 = 가장 최근 스냅샷 (a.spend는 고른 기간의 값)
     let base: R | null = null; for (const r of L) if (String(r.day) <= from) base = r;
     const pts = L.filter((r) => String(r.day) > from).map((r) => ({ spend: num(r.spend), value: num(r.value) }));
     let prev = base ? { spend: num(base.spend), value: num(base.value) } : null; const daily: number[] = [];
     for (const pt of pts) { if (prev) { const ds = pt.spend - prev.spend, dv = pt.value - prev.value; daily.push(ds > 0 ? Math.round(dv / ds * 100) / 100 : 0); } prev = pt; }
     const rs = base ? cum.spend - num(base.spend) : 0, rv = base ? cum.value - num(base.value) : 0;
     const cumRoas = cum.spend > 0 ? cum.value / cum.spend : 0, recentRoas = rs > 0 ? rv / rs : 0;
-    return { daily: daily.slice(-7), recentRoas: Math.round(recentRoas * 100) / 100, tired: !!base && rs >= 30000 && num(a.purchases) >= 5 && cumRoas > 0 && recentRoas < cumRoas * 0.5 };
+    return { daily: daily.slice(-7), recentRoas: Math.round(recentRoas * 100) / 100, tired: !!base && rs >= 30000 && num(last.purchases) >= 5 && cumRoas > 0 && recentRoas < cumRoas * 0.5 };
   };
 
   // 퍼널 진단 — 화면 admgrFunnelDiag의 돈 없는 판 (기준 = 노출 1,000↑ 소재들의 중앙값)
@@ -663,7 +685,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       verdict_at: st.verdict_at ?? null, asset_req_at: st.asset_req_at ?? null, asset_done_at: st.asset_done_at ?? null,
     };
   });   // hidden(테스트 소재 탭에서 '목록에서 제거')도 그대로 보낸다 — 관리자의 목록 정리일 뿐, 만든 사람에게는 결과 기록이다
-  return { fetched_at: new Date().toISOString(), scope: camps.map((x) => x.name || x.id), ads: out };
+  return { fetched_at: new Date().toISOString(), scope: camps.map((x) => x.name || x.id), range: range ? { since: range.since, until: range.until, label: range.label } : null, ads: out };
 }
 
 Deno.serve(async (req) => {
@@ -719,8 +741,8 @@ Deno.serve(async (req) => {
       await cacheSet(curKey, b);
       const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
       if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
-      const mcamps = await mycreCamps(), mace = await mycreAce(), mk = mycreKey(t, mcamps, mace);   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
-      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; await cacheSet(mk, await buildMycre(c, t, mcamps, mace)); }
+      const mcamps = await mycreCamps(), mace = await mycreAce(), mrange = mycreRange(new URL("http://x/?preset=last_7d"), t), mk = mycreKey(t, mcamps, mace, mrange);   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
+      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; if (mcamps.length) await snapshotCampAds(c, mcamps.map((x) => x.id), t); await cacheSet(mk, await buildMycre(c, t, mcamps, mace, mrange)); }
       await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
@@ -842,11 +864,11 @@ Deno.serve(async (req) => {
        재료: 테스트 소재 목록(공유 캐시) + 테스트가 끝났지만 계속 도는 소재의 현재 성과(추가 1~수 호출) + 판정·요청 기록 + 등록 기록(만든 사람) + 일별 스냅샷(추세) */
     if (action === "mycre") {
       const today = seoulToday();
-      const camps = await mycreCamps(), ace = await mycreAce();
-      const cacheKey = mycreKey(today, camps, ace);   // 캠페인 지정이 바뀌면 키가 달라져 바로 새로 만든다
-      const pre = await metaPre(cacheKey, 20 * 60 * 1000);
+      const camps = await mycreCamps(), ace = await mycreAce(), range = mycreRange(url, today);
+      const cacheKey = mycreKey(today, camps, ace, range);   // 캠페인 지정·주력 기준·기간이 바뀌면 키가 달라져 바로 새로 만든다
+      const pre = await metaPre(cacheKey, (range.until === today ? 10 : 30) * 60 * 1000);   // 오늘이 낀 기간은 10분, 지난 기간은 30분
       if (pre) return pre;
-      const body = await buildMycre(c, today, camps, ace);
+      const body = await buildMycre(c, today, camps, ace, range);
       await cacheSet(cacheKey, body);
       return json(body);
     }

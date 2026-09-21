@@ -780,3 +780,11 @@ summary::-webkit-details-marker { display: none; }
 @media (max-width: 768px) { #sec-mycre .my-grid-ace { grid-template-columns: repeat(2, minmax(0, 1fr)); } #sec-mycre .my-tbar { width: 28px; } }
 #sec-mycre .my-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; line-height: 1.35; min-height: 2.7em; }   /* 카드 제목 = 광고세트명 (길어서 두 줄까지) */
 #sec-mycre .my-table .name-cell b { word-break: break-all; }
+/* 내 소재 성과 — 기간 줄 (2026-09-22) */
+#sec-mycre .my-period { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+#sec-mycre .my-period .ag-seg { display: inline-flex; background: #eef0f5; border-radius: 8px; padding: 3px; gap: 2px; }
+#sec-mycre .my-period .ag-seg button { border: none; background: transparent; padding: 6px 12px; border-radius: 6px; font-family: inherit; font-size: .8rem; font-weight: 600; color: #4b5563; cursor: pointer; white-space: nowrap; }
+#sec-mycre .my-period .ag-seg button.on { background: #fff; color: #1e1b4b; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+#sec-mycre .my-period .ag-seg button:disabled { opacity: .6; cursor: default; }
+#sec-mycre .my-custom { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: #6b7280; } #sec-mycre .my-custom .inp { padding: 4px 8px; background: #fff; }
+@media (max-width: 768px) { #sec-mycre .my-period .ag-seg { overflow-x: auto; max-width: 100%; scrollbar-width: none; } #sec-mycre .my-period .ag-seg button { min-height: 36px; } }

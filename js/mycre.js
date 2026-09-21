@@ -4,15 +4,29 @@
    (index.html의 <script> 순서 — admgr-tabs.js 뒤: admgrProductOf·showMetaPreview·admgrTestGoRegister·metaGet 재사용) */
 'use strict';
 
-const mycre = { data: null, loading: false, err: '', who: null, thumbs: {}, thumbsAsked: new Set(), moreRun: false, moreRes: false, tview: 'live', tsort: { key: 'share', dir: -1 } };
+const mycre = { data: null, loading: false, err: '', who: null, thumbs: {}, thumbsAsked: new Set(), moreRun: false, moreRes: false, tview: 'live', tsort: { key: 'share', dir: -1 },
+  range: lsGet('adc_mycre_range', null) || { preset: 'last_7d' } };   // 기간 (2026-09-22): today·yesterday·last_7d·last_14d·last_30d·custom{since,until} — 누적은 없다
+const MY_PRESETS = { today: '오늘', yesterday: '어제', last_7d: '최근 7일', last_14d: '최근 14일', last_30d: '최근 30일' };
 
 async function mycreFetch(force) {
   if (mycre.loading) return;
   if (!admgrCfg()) { mycre.err = '연동 정보가 없어요'; renderMycre(); return; }
   mycre.loading = true; mycre.err = ''; renderMycre();
-  try { mycre.data = await metaGet({ action: 'mycre' }); }
+  const rg = mycre.range, q = { action: 'mycre', preset: rg.preset };
+  if (rg.preset === 'custom') { q.since = rg.since; q.until = rg.until; }
+  try { mycre.data = await metaGet(q); }
   catch (e) { mycre.err = e.message; }
   mycre.loading = false; renderMycre();
+}
+function mycreRangeSet(preset) {
+  if (preset === 'custom') { mycre.customOpen = !mycre.customOpen; renderMycre(); return; }
+  mycre.range = { preset }; mycre.customOpen = false; lsSet('adc_mycre_range', mycre.range); mycreFetch(true);
+}
+function mycreRangeApply() {
+  let a = $('my-since').value, b = $('my-until').value;
+  if (!a || !b) { toast('시작일과 종료일을 골라주세요'); return; }
+  if (a > b) [a, b] = [b, a];
+  mycre.range = { preset: 'custom', since: a, until: b }; mycre.customOpen = false; lsSet('adc_mycre_range', mycre.range); mycreFetch(true);
 }
 function mycreWho(k) { mycre.who = k; mycre.moreRun = mycre.moreRes = false; renderMycre(); }
 function mycreSort(k) { const t = mycre.tsort; if (t.key === k) t.dir = -t.dir; else { t.key = k; t.dir = k === 'name' || k === 'st' ? 1 : -1; } renderMycre(); }
@@ -56,6 +70,13 @@ function renderMycre() {
   const switcher = `<div class="filter-tabs my-who">${mine ? sw(mine, '내 소재') : ''}${sw('all', '전체')}${others.map(k => sw(k, MAKERS[k])).join('')}
     <span style="flex:1;"></span>${authIsAdmin() ? `<button class="filter-tab" onclick="mycreCfgOpen()" title="컨텐츠마케터에게 보여줄 캠페인을 고릅니다 — 고른 캠페인 안의 세트·광고만 이 화면에 나와요"><i class="fa-solid fa-filter"></i> 보여줄 캠페인${scope.length ? ' ' + scope.length : ''}</button>` : ''}<button class="filter-tab" onclick="mycreFetch(true)" ${mycre.loading ? 'disabled' : ''}><i class="fa-solid ${mycre.loading ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> 새로고침</button></div>`;
 
+  /* 기간 — 오늘·어제·최근 7/14/30일·직접 (성과 숫자·지출 비중·주력 판정이 전부 이 기간 기준) */
+  const rg = mycre.range, rgInfo = mycre.data.range || {};
+  const pbtn = (k, label) => `<button class="${rg.preset === k ? 'on' : ''}" onclick="mycreRangeSet('${k}')" ${mycre.loading ? 'disabled' : ''}>${label}</button>`;
+  const period = `<div class="my-period"><span class="ag-seg">${Object.entries(MY_PRESETS).map(([k, l]) => pbtn(k, l)).join('')}${pbtn('custom', rg.preset === 'custom' ? `<i class="fa-regular fa-calendar"></i> ${esc(rg.since)} ~ ${esc(rg.until)}` : '<i class="fa-regular fa-calendar"></i> 직접 설정')}</span>
+    ${rgInfo.since ? `<span class="my-sub">${esc(rgInfo.since)}${rgInfo.until !== rgInfo.since ? ' ~ ' + esc(rgInfo.until) : ''}${mycre.loading ? ' · 불러오는 중…' : ''}</span>` : ''}
+    ${mycre.customOpen ? `<span class="my-custom"><input type="date" class="inp" id="my-since" value="${esc(rg.since || todayStr(-7))}" max="${todayStr(0)}" /> ~ <input type="date" class="inp" id="my-until" value="${esc(rg.until || todayStr(0))}" max="${todayStr(0)}" /><button class="btn-analyze" style="padding:5px 12px;" onclick="mycreRangeApply()">적용</button></span>` : ''}</div>`;
+
   /* ① 요약 — 개수만 */
   const running = list.filter(a => a.active), judged = list.filter(a => ['good', 'meh', 'off', 'ended', 'passed'].includes(a.st) && !(a.st === 'passed' && a.active && false));
   const good = list.filter(a => a.st === 'good' || a.st === 'passed').length;
@@ -66,7 +87,7 @@ function renderMycre() {
     ${tile('살아남아 돌고 있는 소재', running.length + '개', `그중 주력 ${running.filter(a => a.ace).length} · 효율 애매 ${running.filter(a => a.heavy).length}`, 'kt-hero')}
     ${tile('만든 소재 (최근 60일)', list.length + '개', `이번 달 +${thisMonth}`)}
     ${tile('테스트 통과·우수', `<span style="color:#15803d;">${good}개</span>`, judged.length ? `결과 나온 ${judged.length}개 중 ${Math.round(good / judged.length * 100)}%` : '')}
-    ${tile('이 소재들로 나온 구매', comma(list.reduce((s0, a) => s0 + (a.purchases || 0), 0)) + '건', '등록 이후 누적')}
+    ${tile('이 소재들로 나온 구매', comma(list.reduce((s0, a) => s0 + (a.purchases || 0), 0)) + '건', esc(rgInfo.label || '') + ' 기준')}
     ${tile('만들어 달라는 요청', `<span style="color:${reqOpen.length ? '#92400e' : '#374151'};">${reqOpen.length}건</span>`, reqOpen.length ? '아래에서 확인' : '지금은 없어요', reqOpen.length ? 'my-req-tile' : '')}
   </div>`;
 
@@ -92,7 +113,7 @@ function renderMycre() {
         ${tired ? '<div class="my-warn">최근 7일이 누적의 절반 아래 — 교체 소재를 준비해 주세요</div>' : a.heavy ? '<div class="my-warn" style="color:#9a3412;">돈은 많이 실리는데 효율이 애매해요</div>' : ''}
       </div></div>`;
   };
-  const aceSec = aces.length ? `<div class="my-h"><b><i class="fa-solid fa-star" style="color:#4f46e5;"></i> 주력 소재</b><span>살아남은 것 중에서 돈도 많이 실리고 효율도 제대로 나오는 소재</span></div><div class="my-grid my-grid-ace">${aces.map(card).join('')}</div>` : '';
+  const aceSec = aces.length ? `<div class="my-h"><b><i class="fa-solid fa-star" style="color:#4f46e5;"></i> 주력 소재</b><span>살아남은 것 중에서 ${esc(rgInfo.label || '')} 동안 돈도 많이 실리고 효율도 제대로 나온 소재</span></div><div class="my-grid my-grid-ace">${aces.map(card).join('')}</div>` : '';
   const runSec = aceSec + `<div class="my-h"><b>살아남은 ${who === 'all' ? '' : esc(whoLabel) + ' '}소재</b><span>지금 돌고 있는 것 · 지출 비중 큰 순 · 주황 테두리 = 돈은 실리는데 효율이 애매 · 카드를 누르면 미리보기</span></div>
     ${running.length ? `<div class="my-grid">${runShow.map(card).join('')}</div>${rest.length > runShow.length ? `<button class="btn-ghost my-more" onclick="mycre.moreRun=true;renderMycre()">나머지 ${rest.length - runShow.length}개 더 보기</button>` : ''}`
       : '<div class="empty-state" style="padding:24px;"><p>지금 돌고 있는 소재가 없어요.</p></div>'}`;
@@ -133,8 +154,8 @@ function renderMycre() {
   const tips = [rate('tag', '소구점'), rate('kind', '형식')].filter(Boolean);
   const tipSec = tips.length ? `<div class="my-tip"><b>${who === 'all' ? '전체에서' : esc(whoLabel) + ' 소재에서'} 잘 먹힌 것</b><br/>${tips.join(' · ')}</div>` : '';
 
-  box.innerHTML = switcher + tiles + runSec + resSec + `<div class="my-two"><div>${reqSec}</div><div>${tipSec ? '<div class="my-h"><b>패턴</b></div>' + tipSec : ''}</div></div>
-    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(mycre.data.fetched_at)} 기준 · 10분마다 갱신 · 성과는 등록 이후 누적 · 이 화면에는 지출·매출·예산이 나오지 않아요${scope.length ? ` · 보는 범위: ${scope.map(esc).join(', ')}` : ''}</div>`;
+  box.innerHTML = switcher + period + tiles + runSec + resSec + `<div class="my-two"><div>${reqSec}</div><div>${tipSec ? '<div class="my-h"><b>패턴</b></div>' + tipSec : ''}</div></div>
+    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(mycre.data.fetched_at)} 기준 · 성과·지출 비중·주력은 <b>${esc(rgInfo.label || '')}</b> 기준 (최근 N일은 광고관리자처럼 오늘 제외) · 이 화면에는 지출·매출·예산이 나오지 않아요${scope.length ? ` · 보는 범위: ${scope.map(esc).join(', ')}` : ''}</div>`;
 }
 
 /* ── 보여줄 캠페인 (관리자, 2026-09-21) — 고른 캠페인 안의 세트·광고만 이 화면에 나온다. shared_state 'mycre_cfg' (저장은 서버가 관리자만 허용).
