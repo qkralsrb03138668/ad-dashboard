@@ -767,3 +767,14 @@ summary::-webkit-details-marker { display: none; }
   #sec-mycre .my-who { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } #sec-mycre .my-who > * { flex: none; }
   #sec-mycre .my-why { min-width: 0; }
 }
+
+/* 내 소재 성과 — 주력·효율 애매·지출 비중 (2026-09-21) */
+#sec-mycre .my-card.ace { border: 2px solid #4f46e5; } #sec-mycre .my-card.heavy { border-color: #fdba74; }
+#sec-mycre .my-ace-b { background: #4f46e5; color: #fff; } #sec-mycre .my-ace-b i { font-size: .85em; }
+#sec-mycre .my-grid-ace { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin-bottom: 4px; }
+#sec-mycre .my-share { display: flex; flex-direction: column; gap: 3px; font-size: .66rem; color: #6b7280; } #sec-mycre .my-share b { color: #1e1b4b; }
+#sec-mycre .my-share i, #sec-mycre .my-tbar { display: block; height: 5px; border-radius: 3px; background: #eef0f5; overflow: hidden; }
+#sec-mycre .my-share em, #sec-mycre .my-tbar em { display: block; height: 100%; background: #4f46e5; border-radius: 3px; }
+#sec-mycre .my-tbar { display: inline-block; width: 46px; vertical-align: middle; margin-right: 4px; }
+#sec-mycre .my-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; } #sec-mycre .my-table th.l { text-align: left; }
+@media (max-width: 768px) { #sec-mycre .my-grid-ace { grid-template-columns: repeat(2, minmax(0, 1fr)); } #sec-mycre .my-tbar { width: 28px; } }

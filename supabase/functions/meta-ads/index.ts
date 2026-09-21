@@ -508,7 +508,16 @@ async function mycreCamps(): Promise<{ id: string; name: string }[]> {
   const d = r.ok ? ((await r.json()) as Record<string, unknown>[])[0]?.data as Record<string, unknown> | undefined : undefined;
   return (((d?.campaigns ?? []) as Record<string, unknown>[])).map((x) => ({ id: String(x.id ?? ""), name: String(x.name ?? "") })).filter((x) => /^\d{5,25}$/.test(x.id)).slice(0, 50);
 }
-const mycreKey = (today: string, camps: { id: string }[]) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",")) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v5:${today}:${camps.length}-${h.toString(36)}`; };
+/* 주력 소재 기준 (2026-09-21) — 지출 상위 몇 %(top)·ROAS·구매. (처음엔 '지출 비중 6%↑'였는데 살아남은 소재가 142개면 1등도 4%대라 아무도 안 걸림 → 개수에 흔들리지 않게 순위 기준으로) 관리자만 바꾼다 (mycre_cfg.ace). 기준 숫자는 서버에만 있고 화면에는 '주력/효율 애매' 표시만 내려간다 */
+type AceRule = { top: number; roas: number; pur: number };
+const ACE_DEFAULT: AceRule = { top: 20, roas: 3, pur: 5 };
+async function mycreAce(): Promise<AceRule> {
+  const r = await dbRest("shared_state?key=eq.mycre_cfg&select=data");
+  const a = (r.ok ? ((await r.json()) as Record<string, unknown>[])[0]?.data as Record<string, unknown> | undefined : undefined)?.ace as Record<string, unknown> | undefined;
+  const n = (v: unknown, d: number, lo: number, hi: number) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : d; };
+  return { top: n(a?.top, ACE_DEFAULT.top, 1, 100), roas: n(a?.roas, ACE_DEFAULT.roas, 0, 100), pur: n(a?.pur, ACE_DEFAULT.pur, 0, 100000) };
+}
+const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v7:${today}:${camps.length}-${h.toString(36)}`; };
 // 지정 캠페인 안의 광고 전부 + 등록 이후 누적 성과 (fetchTestads와 같은 모양) — 꺼진 지 오래된 것은 빼고: 켜져 있거나 최근 60일 안에 만든 것
 async function fetchCampAds(c: Creds, campIds: string[], today: string) {
   type R = Record<string, unknown>;
@@ -533,7 +542,7 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string) {
     } as R;
   }).filter((a) => a.effective_status === "ACTIVE" || String(a.reg_date) >= cutoff);
 }
-async function buildMycre(c: Creds, today: string, camps: { id: string; name: string }[] = []) {
+async function buildMycre(c: Creds, today: string, camps: { id: string; name: string }[] = [], ace: AceRule = ACE_DEFAULT) {
   type R = Record<string, unknown>;
   let ads: R[];
   if (camps.length) {
@@ -635,8 +644,12 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
     if (es !== "ACTIVE") return "off";
     return v === "good" ? "good" : v === "meh" ? "meh" : /test/i.test(String(a.adset_name ?? "")) ? "eval" : "passed";   // 테스트 세트가 아닌데 켜져 있음 = 통과해서 계속 도는 중 (CBO 등)
   };
+  const liveAds = ads.filter((a) => String(a.effective_status ?? "") === "ACTIVE"), liveSpend = liveAds.reduce((s0, a) => s0 + num(a.spend), 0);
+  const ranked = liveAds.map((a) => num(a.spend)).filter((v) => v > 0).sort((x, y) => y - x);
+  const cut = ranked.length ? ranked[Math.max(0, Math.ceil(ranked.length * ace.top / 100) - 1)] : Infinity;   // 지출 상위 top% 안에 드는 최소 지출
   const out = ads.map((a) => {
     const st = state.get(String(a.id)) ?? {}, cr = creAd.get(String(a.id)), r = rates(a), sp = num(a.spend);
+    const on = String(a.effective_status ?? "") === "ACTIVE", share = liveSpend > 0 ? Math.round(sp / liveSpend * 1000) / 10 : 0, ro = sp > 0 ? num(a.value) / sp : 0;
     const tag = String(cr?.file_name ?? a.name ?? "").match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}/);
     return {
       id: String(a.id), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(a.adset_name ?? ""), reg_date: String(a.reg_date ?? ""),
@@ -644,6 +657,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       st: stOf(a, String(st.verdict ?? "")), active: String(a.effective_status ?? "") === "ACTIVE", gone: !!a.gone,
       promoted: /\[→[^\]]+\]/.test(String(a.adset_name ?? "")),
       roas: sp > 0 ? Math.round(num(a.value) / sp * 100) / 100 : null, purchases: num(a.purchases),
+      share, ace: on && sp >= cut && ro >= ace.roas && num(a.purchases) >= ace.pur, heavy: on && sp >= cut && ro < ace.roas,   // 주력 = 돈도 실리고 효율도 남 · heavy = 돈은 실리는데 효율이 애매
       ctr: r ? r.ctr : null, ts: r ? r.ts : null, lpvR: r ? r.lpvR : null, freq: num(a.freq) || null,
       diag: diagOf(a), trend: trendOf(a),
       verdict_at: st.verdict_at ?? null, asset_req_at: st.asset_req_at ?? null, asset_done_at: st.asset_done_at ?? null,
@@ -705,8 +719,8 @@ Deno.serve(async (req) => {
       await cacheSet(curKey, b);
       const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
       if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
-      const mcamps = await mycreCamps(), mk = mycreKey(t, mcamps);   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
-      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; await cacheSet(mk, await buildMycre(c, t, mcamps)); }
+      const mcamps = await mycreCamps(), mace = await mycreAce(), mk = mycreKey(t, mcamps, mace);   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
+      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; await cacheSet(mk, await buildMycre(c, t, mcamps, mace)); }
       await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
@@ -828,11 +842,11 @@ Deno.serve(async (req) => {
        재료: 테스트 소재 목록(공유 캐시) + 테스트가 끝났지만 계속 도는 소재의 현재 성과(추가 1~수 호출) + 판정·요청 기록 + 등록 기록(만든 사람) + 일별 스냅샷(추세) */
     if (action === "mycre") {
       const today = seoulToday();
-      const camps = await mycreCamps();
-      const cacheKey = mycreKey(today, camps);   // 캠페인 지정이 바뀌면 키가 달라져 바로 새로 만든다
+      const camps = await mycreCamps(), ace = await mycreAce();
+      const cacheKey = mycreKey(today, camps, ace);   // 캠페인 지정이 바뀌면 키가 달라져 바로 새로 만든다
       const pre = await metaPre(cacheKey, 20 * 60 * 1000);
       if (pre) return pre;
-      const body = await buildMycre(c, today, camps);
+      const body = await buildMycre(c, today, camps, ace);
       await cacheSet(cacheKey, body);
       return json(body);
     }
