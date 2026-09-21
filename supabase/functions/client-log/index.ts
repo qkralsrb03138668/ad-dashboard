@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
     if (action === "state_set" && req.method === "POST") {
       const key = String(body.key ?? "");
       if (!STATE_KEY.test(key)) return json({ error: "key 형식 오류" }, 400);
+      if (["mycre_cfg"].includes(key) && me.role !== "admin") return json({ error: "관리자만 바꿀 수 있어요" }, 403);   // 마케터에게 보여줄 캠페인 범위 — 마케터가 스스로 넓히지 못하게
       if (!body.data || typeof body.data !== "object") return json({ error: "data 필요" }, 400);
       const text = JSON.stringify(body.data);
       if (text.length > MAX_STATE_BYTES) return json({ error: `데이터가 너무 커요 (${Math.round(text.length / 1048576)}MB, 최대 2MB)` }, 413);

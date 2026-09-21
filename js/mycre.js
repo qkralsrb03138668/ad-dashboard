@@ -44,7 +44,7 @@ function renderMycre() {
   if (!mycre.data) { box.innerHTML = `<div class="empty-state"><p>${mycre.err ? '불러오기 실패: ' + esc(mycre.err) : '내 소재 성과를 불러오는 중… (처음엔 10초쯤 걸려요)'}</p></div>`; return; }
   const mine = makerMine();
   if (mycre.who === null) mycre.who = mine || 'all';
-  const who = mycre.who, all = mycre.data.ads || [];
+  const who = mycre.who, all = mycre.data.ads || [], scope = mycre.data.scope || [];
   const list = who === 'all' ? all : all.filter(a => a.maker === who);
   const whoLabel = who === 'all' ? '전체' : (MAKER_NAMES[who] || who);
 
@@ -52,7 +52,7 @@ function renderMycre() {
   const others = Object.keys(MAKERS).filter(k => k !== mine);
   const sw = (k, label) => `<button class="filter-tab ${who === k ? 'active' : ''}" onclick="mycreWho('${k}')">${esc(label)}</button>`;
   const switcher = `<div class="filter-tabs my-who">${mine ? sw(mine, '내 소재') : ''}${sw('all', '전체')}${others.map(k => sw(k, MAKERS[k])).join('')}
-    <span style="flex:1;"></span><button class="filter-tab" onclick="mycreFetch(true)" ${mycre.loading ? 'disabled' : ''}><i class="fa-solid ${mycre.loading ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> 새로고침</button></div>`;
+    <span style="flex:1;"></span>${authIsAdmin() ? `<button class="filter-tab" onclick="mycreCfgOpen()" title="컨텐츠마케터에게 보여줄 캠페인을 고릅니다 — 고른 캠페인 안의 세트·광고만 이 화면에 나와요"><i class="fa-solid fa-filter"></i> 보여줄 캠페인${scope.length ? ' ' + scope.length : ''}</button>` : ''}<button class="filter-tab" onclick="mycreFetch(true)" ${mycre.loading ? 'disabled' : ''}><i class="fa-solid ${mycre.loading ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> 새로고침</button></div>`;
 
   /* ① 요약 — 개수만 */
   const running = list.filter(a => a.active), judged = list.filter(a => ['good', 'meh', 'off', 'ended', 'passed'].includes(a.st) && !(a.st === 'passed' && a.active && false));
@@ -80,7 +80,7 @@ function renderMycre() {
         <span class="status-badge ${st[0]}">${a.promoted ? '우수 · CBO로 올라감' : st[1]}</span>${tired ? '<span class="status-badge badge-red my-tired">식는 중</span>' : ''}</div>
       <div class="my-cbody">
         <b class="ell" title="${esc(a.adset_name)}">${esc(myProd(a))}</b>
-        <div class="my-sub ell">${[a.tag, a.kind === 'video' ? '릴스·영상' : a.kind === 'image' ? '이미지' : '', dp == null ? '' : 'D+' + dp, who === 'all' ? (MAKER_NAMES[a.maker] || '') : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="my-sub ell">${[a.tag, a.kind === 'video' ? '릴스·영상' : a.kind === 'image' ? '이미지' : '', dp == null ? '' : 'D+' + dp, who === 'all' ? (MAKER_NAMES[a.maker] || '') : '', scope.length > 1 ? a.camp : ''].filter(Boolean).map(esc).join(' · ')}</div>
         <div class="my-nums"><span>ROAS<b style="color:${myRoasColor(a.roas)};">${a.roas == null ? '—' : a.roas.toFixed(2)}</b></span><span>구매<b>${comma(a.purchases || 0)}</b></span><span class="my-sp">${mySpark(a.trend)}</span></div>
         ${tired ? '<div class="my-warn">최근 7일이 누적의 절반 아래 — 교체 소재를 준비해 주세요</div>' : a.st === 'eval' ? '<div class="my-sub">판정까지 표본 모으는 중</div>' : ''}
       </div></div>`;
@@ -119,5 +119,36 @@ function renderMycre() {
   const tipSec = tips.length ? `<div class="my-tip"><b>${who === 'all' ? '전체에서' : esc(whoLabel) + ' 소재에서'} 잘 먹힌 것</b><br/>${tips.join(' · ')}</div>` : '';
 
   box.innerHTML = switcher + tiles + runSec + `<div class="my-two"><div>${resSec}</div><div>${reqSec}${tipSec}</div></div>
-    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(mycre.data.fetched_at)} 기준 · 10분마다 갱신 · 성과는 등록 이후 누적 · 이 화면에는 지출·매출·예산이 나오지 않아요</div>`;
+    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(mycre.data.fetched_at)} 기준 · 10분마다 갱신 · 성과는 등록 이후 누적 · 이 화면에는 지출·매출·예산이 나오지 않아요${scope.length ? ` · 보는 범위: ${scope.map(esc).join(', ')}` : ''}</div>`;
+}
+
+/* ── 보여줄 캠페인 (관리자, 2026-09-21) — 고른 캠페인 안의 세트·광고만 이 화면에 나온다. shared_state 'mycre_cfg' (저장은 서버가 관리자만 허용).
+   아무것도 안 고르면 예전처럼 테스트 소재 전체(세트명에 test) 기준 ── */
+async function mycreCfgOpen() {
+  $('abm-title').textContent = '내 소재 성과 — 보여줄 캠페인'; $('abm-sub').textContent = '고른 캠페인 안의 광고세트·광고만 컨텐츠마케터에게 보여요';
+  $('abm-body').innerHTML = '<div style="padding:16px;color:#6b7280;font-size:.8rem;">캠페인 목록을 불러오는 중…</div>';
+  $('admgr-budget-modal').classList.add('show');
+  try {
+    const [cfg, h] = await Promise.all([sbCall('client-log', { action: 'state_get', key: 'mycre_cfg' }), (typeof admgr === 'object' && admgr.data) ? admgr.data : metaGet({ action: 'hierarchy', preset: 'today' })]);
+    const picked = new Set((((cfg || {}).data || {}).campaigns || []).map(x => String(x.id)));
+    mycre.cfgVer = (cfg && cfg.ver) || null;
+    const camps = (h.campaigns || []).slice().sort((x, y) => (x.status === 'ACTIVE' ? 0 : 1) - (y.status === 'ACTIVE' ? 0 : 1) || String(x.name).localeCompare(String(y.name)));
+    $('abm-body').innerHTML = `<div style="max-height:52vh;overflow:auto;border:1px solid #e7e8ee;border-radius:10px;">${camps.map(c => `<label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f0f1f5;cursor:pointer;font-size:.8rem;">
+        <input type="checkbox" class="mycre-camp" value="${esc(c.id)}" data-name="${esc(c.name)}" ${picked.has(String(c.id)) ? 'checked' : ''} style="margin:0;" />
+        <span style="flex:1;min-width:0;" class="ell"><b style="color:#1e1b4b;">${esc(c.name)}</b></span>
+        <span class="status-badge ${c.status === 'ACTIVE' ? 'badge-green' : 'badge-gray'}" style="font-size:.62rem;">${c.status === 'ACTIVE' ? '켜짐' : '꺼짐'}</span>
+        <span style="font-size:.68rem;color:#9ca3af;white-space:nowrap;">세트 ${(c.adsets || []).length}</span></label>`).join('')}</div>
+      <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">아무것도 안 고르면 세트명에 test가 든 소재 전체가 기준이에요. 저장하면 1~2분 안에 새 범위로 다시 계산돼요.</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button><button class="btn-analyze" id="mycre-cfg-go" onclick="mycreCfgSave()">저장</button></div>`;
+  } catch (e) { $('abm-body').innerHTML = `<div style="padding:16px;color:#dc2626;font-size:.8rem;">불러오기 실패: ${esc(e.message)}</div>`; }
+}
+async function mycreCfgSave() {
+  const campaigns = [...document.querySelectorAll('.mycre-camp:checked')].map(el => ({ id: el.value, name: el.dataset.name }));
+  const btn = $('mycre-cfg-go'); btn.disabled = true; btn.textContent = '저장 중…';
+  try {
+    const r = await sbCall('client-log', { action: 'state_set' }, { key: 'mycre_cfg', base: mycre.cfgVer, data: { campaigns } });
+    if (r.conflict) throw new Error('다른 사람이 먼저 바꿨어요 — 창을 닫고 다시 열어주세요');
+    closeModal('admgr-budget-modal'); toast(campaigns.length ? `캠페인 ${campaigns.length}개로 범위를 정했어요 — 다시 계산 중` : '범위를 풀었어요 — 다시 계산 중');
+    mycre.data = null; mycre.thumbsAsked.clear(); mycreFetch(true);
+  } catch (e) { btn.disabled = false; btn.textContent = '저장'; toast('저장 실패: ' + e.message); }
 }

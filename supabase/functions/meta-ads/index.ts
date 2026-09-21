@@ -502,12 +502,50 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
 }
 
 // 내 소재 성과 본문 — mycre 액션과 5분 수집(sync, 하루 두 번)이 같이 쓴다. 응답에 지출·전환값을 넣지 말 것
-async function buildMycre(c: Creds, today: string) {
+/* 내 소재 성과에 보여줄 캠페인 (2026-09-21 사용자 요청) — 관리자가 고른 캠페인 안의 세트·광고만 마케터에게 보인다. shared_state 'mycre_cfg' { campaigns: [{id,name}] } */
+async function mycreCamps(): Promise<{ id: string; name: string }[]> {
+  const r = await dbRest("shared_state?key=eq.mycre_cfg&select=data");
+  const d = r.ok ? ((await r.json()) as Record<string, unknown>[])[0]?.data as Record<string, unknown> | undefined : undefined;
+  return (((d?.campaigns ?? []) as Record<string, unknown>[])).map((x) => ({ id: String(x.id ?? ""), name: String(x.name ?? "") })).filter((x) => /^\d{5,25}$/.test(x.id)).slice(0, 50);
+}
+const mycreKey = (today: string, camps: { id: string }[]) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",")) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v5:${today}:${camps.length}-${h.toString(36)}`; };
+// 지정 캠페인 안의 광고 전부 + 등록 이후 누적 성과 (fetchTestads와 같은 모양) — 꺼진 지 오래된 것은 빼고: 켜져 있거나 최근 60일 안에 만든 것
+async function fetchCampAds(c: Creds, campIds: string[], today: string) {
   type R = Record<string, unknown>;
+  const filt = JSON.stringify([{ field: "campaign.id", operator: "IN", value: campIds }]);
+  const [adRows, insRows] = await Promise.all([
+    graphGetAll(`${c.account}/ads`, { fields: "id,name,status,effective_status,created_time,adset_id,adset{name},campaign{name}", filtering: filt, limit: "500" }, c.token, 20),
+    graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: "2024-01-01", until: today }), level: "ad", filtering: filt, limit: "500",
+      fields: "ad_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions" }, c.token, 20),
+  ]);
+  const metric = new Map(insRows.map((r) => [String(r.ad_id ?? ""), r]));
+  const cutoff = addDays(today, -60);
+  const regDate = (ct: string) => { const d = new Date(ct); return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d); };
+  return adRows.map((a) => {
+    const m = metric.get(String(a.id ?? ""));
+    return {
+      id: String(a.id ?? ""), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(((a.adset ?? {}) as R).name ?? ""), camp: String(((a.campaign ?? {}) as R).name ?? ""),
+      status: String(a.status ?? ""), effective_status: String(a.effective_status ?? ""), reg_date: regDate(String(a.created_time ?? "")),
+      spend: m ? num(m.spend) : 0, purchases: m ? pickPurchase(m.actions) : 0, value: m ? pickPurchase(m.action_values) : 0,
+      imp: m ? num(m.impressions) : 0, freq: m ? num(m.frequency) : 0, clicks: m ? num(m.inline_link_clicks) : 0,
+      v3: m ? pickAct(m.actions, ["video_view"]) : 0, lpv: m ? pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]) : 0,
+      atc: m ? pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]) : 0,
+    } as R;
+  }).filter((a) => a.effective_status === "ACTIVE" || String(a.reg_date) >= cutoff);
+}
+async function buildMycre(c: Creds, today: string, camps: { id: string; name: string }[] = []) {
+  type R = Record<string, unknown>;
+  let ads: R[];
+  if (camps.length) {
+    ads = await fetchCampAds(c, camps.map((x) => x.id), today);
+    const onNow = ads.filter((a) => a.effective_status === "ACTIVE");   // 일별 스냅샷 — 추세·'식는 중'용 (테스트 세트가 아니어도 쌓이게)
+    if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
+      status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() }))).catch(() => {});
+  } else {
   const tk = `meta:testads:test:${today}`;
   let t = (await cacheGet(tk, 15 * 60 * 1000)) as { ads: R[] } | null;
   if (!t) { t = await fetchTestads(c, "test", today) as { ads: R[] }; await cacheSet(tk, t); }
-  const ads = (t.ads ?? []).map((a) => ({ ...a })) as R[];
+  ads = (t.ads ?? []).map((a) => ({ ...a })) as R[];
 
   // 테스트가 끝난(세트명에서 test를 뗀) 소재 중 마지막에 켜져 있던 것 — 지금도 도는지와 현재 누적 성과를 Meta에서 다시 받는다. 실패하면 보관분 그대로
   const goneOn = ads.filter((a) => a.gone && a.effective_status === "ACTIVE").map((a) => String(a.id));
@@ -532,6 +570,7 @@ async function buildMycre(c: Creds, today: string) {
     if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
       status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() }))).catch(() => {});
   }
+  }   // (지정 캠페인 없음 = 테스트 소재 전체 경로 끝)
 
   const [stR, crR, mkR] = await Promise.all([
     dbRest("ad_test_state?select=ad_id,hidden,verdict,verdict_at,asset_req_at,asset_done_at"),
@@ -543,11 +582,11 @@ async function buildMycre(c: Creds, today: string) {
   const creAd = new Map(cre.map((r) => [String(r.ad_id), r])), creSet = new Map(cre.filter((r) => r.adset_id && r.maker).map((r) => [String(r.adset_id), r]));
   const manual = ((((mkR.ok ? await mkR.json() : []) as R[])[0]?.data ?? {}) as R).sets as Record<string, string> | undefined ?? {};
   const KEY = /^[a-z0-9_]{1,30}$/;
-  const makerOf = (a: R) => {   // 화면 admgrMakerOf와 같은 순서: 수동 지정 → 등록 기록 → 이름 규칙('다나' = dana, 나머지 dohee)
-    const v = manual[String(a.adset_id)]; if (v && KEY.test(v)) return v;
-    const m = String(creAd.get(String(a.id))?.maker ?? creSet.get(String(a.adset_id))?.maker ?? "");
-    return m || (String(a.adset_name ?? "").normalize("NFC").includes("다나") ? "dana" : "dohee");
-  };
+  // 만든 사람 — 화면 admgrMakerOf와 같은 순서: 수동 지정 → 등록 기록 → (CBO 복사본: 같은 이름 원본의 기록) → 이름 규칙('다나' = dana, 나머지 dohee)
+  const baseName = (n: unknown) => String(n ?? "").normalize("NFC").replace(/\s*-\s*사본(\s*\d+)?\s*$/, "").trim();
+  const known = (a: R) => { const v = manual[String(a.adset_id)]; if (v && KEY.test(v)) return v; return String(creAd.get(String(a.id))?.maker ?? creSet.get(String(a.adset_id))?.maker ?? ""); };
+  const byName = new Map<string, string>(); for (const a of ads) { const k = known(a); if (k && !byName.has(baseName(a.name))) byName.set(baseName(a.name), k); }
+  const makerOf = (a: R) => known(a) || byName.get(baseName(a.name)) || ((String(a.adset_name ?? "") + " " + String(a.name ?? "")).normalize("NFC").includes("다나") ? "dana" : "dohee");
 
   // 일별 스냅샷 → 최근 7일 ROAS·일별 ROAS (비율만 내보낸다)
   const since = addDays(today, -8), dayRows: R[] = [];
@@ -594,14 +633,14 @@ async function buildMycre(c: Creds, today: string) {
     if (["PENDING_REVIEW", "IN_PROCESS", "PENDING_BILLING_INFO"].includes(es)) return "review";
     if (["DISAPPROVED", "WITH_ISSUES"].includes(es)) return "rejected";
     if (es !== "ACTIVE") return "off";
-    return v === "good" ? "good" : v === "meh" ? "meh" : "eval";
+    return v === "good" ? "good" : v === "meh" ? "meh" : /test/i.test(String(a.adset_name ?? "")) ? "eval" : "passed";   // 테스트 세트가 아닌데 켜져 있음 = 통과해서 계속 도는 중 (CBO 등)
   };
   const out = ads.map((a) => {
     const st = state.get(String(a.id)) ?? {}, cr = creAd.get(String(a.id)), r = rates(a), sp = num(a.spend);
     const tag = String(cr?.file_name ?? a.name ?? "").match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}/);
     return {
       id: String(a.id), name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(a.adset_name ?? ""), reg_date: String(a.reg_date ?? ""),
-      maker: makerOf(a), tag: tag ? tag[1] : "", kind: String(cr?.kind ?? ""), hidden: !!st.hidden,
+      maker: makerOf(a), tag: tag ? tag[1] : "", kind: String(cr?.kind ?? ""), hidden: !!st.hidden, camp: String(a.camp ?? ""),
       st: stOf(a, String(st.verdict ?? "")), active: String(a.effective_status ?? "") === "ACTIVE", gone: !!a.gone,
       promoted: /\[→[^\]]+\]/.test(String(a.adset_name ?? "")),
       roas: sp > 0 ? Math.round(num(a.value) / sp * 100) / 100 : null, purchases: num(a.purchases),
@@ -610,7 +649,7 @@ async function buildMycre(c: Creds, today: string) {
       verdict_at: st.verdict_at ?? null, asset_req_at: st.asset_req_at ?? null, asset_done_at: st.asset_done_at ?? null,
     };
   });   // hidden(테스트 소재 탭에서 '목록에서 제거')도 그대로 보낸다 — 관리자의 목록 정리일 뿐, 만든 사람에게는 결과 기록이다
-  return { fetched_at: new Date().toISOString(), ads: out };
+  return { fetched_at: new Date().toISOString(), scope: camps.map((x) => x.name || x.id), ads: out };
 }
 
 Deno.serve(async (req) => {
@@ -666,8 +705,8 @@ Deno.serve(async (req) => {
       await cacheSet(curKey, b);
       const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
       if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
-      const mk = `meta:mycre:v3:${t}`;   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (살아남은 소재의 일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
-      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; await cacheSet(mk, await buildMycre(c, t)); }
+      const mcamps = await mycreCamps(), mk = mycreKey(t, mcamps);   // 내 소재 성과 — 12시간에 한 번은 미리 만들어 둔다 (일별 스냅샷이 끊기지 않게 + 첫 화면이 빠르게)
+      if (!(await cacheGet(mk, 12 * 3600_000))) { curKey = mk; await cacheSet(mk, await buildMycre(c, t, mcamps)); }
       await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
@@ -789,10 +828,11 @@ Deno.serve(async (req) => {
        재료: 테스트 소재 목록(공유 캐시) + 테스트가 끝났지만 계속 도는 소재의 현재 성과(추가 1~수 호출) + 판정·요청 기록 + 등록 기록(만든 사람) + 일별 스냅샷(추세) */
     if (action === "mycre") {
       const today = seoulToday();
-      const cacheKey = `meta:mycre:v3:${today}`;
-      const pre = await metaPre(cacheKey, 10 * 60 * 1000);
+      const camps = await mycreCamps();
+      const cacheKey = mycreKey(today, camps);   // 캠페인 지정이 바뀌면 키가 달라져 바로 새로 만든다
+      const pre = await metaPre(cacheKey, 20 * 60 * 1000);
       if (pre) return pre;
-      const body = await buildMycre(c, today);
+      const body = await buildMycre(c, today, camps);
       await cacheSet(cacheKey, body);
       return json(body);
     }
