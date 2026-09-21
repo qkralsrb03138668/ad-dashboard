@@ -10,6 +10,7 @@ const AUTH = { sb: null, session: null, me: null, mode: 'login' };
    ad-dashboard 전용 7일 토큰과 바꿔 저장하고 자체 로그인을 건너뛴다. 권한은 워크스페이스 서버(verify)가 매 요청 강제. */
 const DNRB_AUTH_URL = 'https://eeffmbusaqaadeojjlnc.supabase.co/functions/v1/auth';
 const DNRB_KEY = 'dnrb_sso';
+const DNRB_RELOGIN = '워크스페이스 로그인이 만료됐어요 — 워크스페이스에서 광고 대시보드 메뉴를 다시 눌러 들어오세요';
 // 워크스페이스 공개 anon 키(공개 레포 danarobe/dnrb-dashboard config.js) — 게이트웨이 통과용일 뿐, 권한은 토큰이 결정
 const DNRB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlZmZtYnVzYXFhYWRlb2pqbG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDExOTIsImV4cCI6MjEwMDMxNzE5Mn0.P5Zxh1qrxpNU-SM_dpNz58xT6OWVk5Fq8l0c4WuuF2w';
 async function dnrbApi(body) {
@@ -29,9 +30,9 @@ async function dnrbInit() {
     catch (e) { toast('워크스페이스 자동 로그인 실패: ' + e.message); }
   }
   let s = dnrbSession();
-  if (!s) return false;
+  if (!s) { if (localStorage.getItem(DNRB_KEY)) AUTH.ssoExpired = true; return false; }   // 저장본은 있는데 7일 기한이 지남 → 로그인 화면에 안내
   try { const v = await dnrbApi({ action: 'verify', token: s.token }); s = { ...s, ...v, token: s.token }; localStorage.setItem(DNRB_KEY, JSON.stringify(s)); }   // 권한(perms)은 관리자가 바꾸는 즉시 → 진입마다 새로 받음
-  catch (e) { if (e.status === 401 || e.status === 403) { localStorage.removeItem(DNRB_KEY); toast('워크스페이스 권한이 없어요: ' + e.message); return false; } }   // 네트워크 오류면 저장본으로 진행
+  catch (e) { if (e.status === 401 || e.status === 403) { localStorage.removeItem(DNRB_KEY); AUTH.ssoExpired = true; toast(e.status === 401 ? DNRB_RELOGIN : '워크스페이스 권한이 없어요: ' + e.message); return false; } }   // 네트워크 오류면 저장본으로 진행
   AUTH.me = { email: s.id, name: s.name, role: s.role === 'admin' ? 'admin' : 'marketer', dnrb: true };   // 워크스페이스 관리자만 관리자
   $('login-gate').style.display = 'none'; authApplyRole();
   return true;
@@ -70,7 +71,9 @@ async function authGate(msg) {
   $('lg-sub').textContent = AUTH.mode === 'bootstrap' ? '아직 계정이 없어요 — 최초 관리자 계정을 만드세요' : '계정으로 로그인하세요';
   $('lg-btn').textContent = AUTH.mode === 'bootstrap' ? '관리자 계정 만들기' : '로그인';
   $('lg-note').textContent = AUTH.mode === 'bootstrap' ? '이 이메일·비밀번호로 앞으로 로그인해요. 다른 사람 계정은 로그인 후 데이터 관리 › 사용자 관리에서 만듭니다.'
-    : (boot ? '아직 관리자 계정이 없어요 — 연동 키가 있는 로컬 파일에서 먼저 만들어야 해요.' : '계정이 없으면 관리자에게 등록을 요청하세요.');
+    : (boot ? '아직 관리자 계정이 없어요 — 연동 키가 있는 로컬 파일에서 먼저 만들어야 해요.' : '계정이 없으면 관리자에게 등록을 요청하세요.')
+    + ' 워크스페이스 계정은 여기서 로그인하지 않아요 — 워크스페이스의 광고 대시보드 메뉴를 눌러 들어오세요.';
+  if (AUTH.ssoExpired && !msg) msg = DNRB_RELOGIN;
   $('lg-skip').style.display = 'none'; authErr(msg || ''); $('login-gate').style.display = 'flex';
   setTimeout(() => $(AUTH.mode === 'bootstrap' ? 'lg-name' : 'lg-email').focus(), 0);
 }

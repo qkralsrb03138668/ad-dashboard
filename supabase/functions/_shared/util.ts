@@ -46,17 +46,25 @@ export function denyAct(action: string): Response { return json({ error: `이 �
 const DNRB_AUTH_URL = "https://eeffmbusaqaadeojjlnc.supabase.co/functions/v1/auth";
 const DNRB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlZmZtYnVzYXFhYWRlb2pqbG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDExOTIsImV4cCI6MjEwMDMxNzE5Mn0.P5Zxh1qrxpNU-SM_dpNz58xT6OWVk5Fq8l0c4WuuF2w";   // 워크스페이스 공개 anon 키 — 게이트웨이 통과용
 const dnrbCache = new Map<string, { at: number; u: AuthUser }>();
+/* 거절(401 위조·만료 / 403 허용 목록에서 빠짐)과 일시 장애(네트워크·5xx·429)를 구분한다 (2026-09-21).
+   예전엔 둘 다 null → 우리 함수가 401 → 브라우저가 로그인 세션을 지워, 워크스페이스 인증 서버가 잠깐 느려도 전원 로그아웃됐다.
+   일시 장애면 10분 안의 확인 결과를 그대로 쓰고, 그것도 없으면 오류를 던진다(호출부에서 5xx → 세션은 유지, "잠시 후 다시"). */
+const DNRB_STALE_MS = 10 * 60_000;
 async function dnrbVerify(token: string): Promise<AuthUser | null> {
   const c = dnrbCache.get(token);
   if (c && Date.now() - c.at < 60_000) return c.u;
+  const stale = () => { if (c && Date.now() - c.at < DNRB_STALE_MS) return c.u; throw new Error("워크스페이스 인증 서버가 잠시 응답하지 않아요 — 잠시 후 다시 시도하세요"); };
+  let r: Response;
   try {
-    const r = await fetch(DNRB_AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json", apikey: DNRB_ANON, Authorization: `Bearer ${DNRB_ANON}` }, body: JSON.stringify({ action: "verify", token }) });
-    if (!r.ok) return null;
-    const d = await r.json();
-    const u: AuthUser = { id: "dnrb:" + d.id, email: String(d.id), name: String(d.name ?? d.id), role: d.role === "admin" ? "admin" : "marketer", perms: d.perms };
-    dnrbCache.set(token, { at: Date.now(), u });
-    return u;
-  } catch { return null; }
+    r = await fetch(DNRB_AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json", apikey: DNRB_ANON, Authorization: `Bearer ${DNRB_ANON}` }, body: JSON.stringify({ action: "verify", token }), signal: AbortSignal.timeout(8000) });
+  } catch { return stale(); }
+  if (r.status === 401 || r.status === 403) { dnrbCache.delete(token); return null; }
+  if (!r.ok) return stale();
+  const d = await r.json().catch(() => null);
+  if (!d || !d.id) return stale();
+  const u: AuthUser = { id: "dnrb:" + d.id, email: String(d.id), name: String(d.name ?? d.id), role: d.role === "admin" ? "admin" : "marketer", perms: d.perms };
+  dnrbCache.set(token, { at: Date.now(), u });
+  return u;
 }
 export async function getAuth(req: Request): Promise<AuthUser | null> {
   const key = Deno.env.get("DASH_KEY") ?? "";

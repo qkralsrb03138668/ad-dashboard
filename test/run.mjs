@@ -70,6 +70,22 @@ console.log('서버 호출 (sbCall) — 오류가 항상 사람이 읽는 문장
     ctx.fetch = async () => { throw new TypeError('Failed to fetch'); }; await rejects(() => sbCall('f', {}), /연결할 수 없어요 \(Failed to fetch\)/);
     n++; console.log('  ✓ sbCall: 정상 JSON·HTML 응답·함수 오류·미배포 404·401·5xx·네트워크 끊김');
   })();
+  await (async () => {   // 워크스페이스(SSO) 세션 — 우리 서버 응답과 워크스페이스 verify 응답을 따로 흉내
+    const sso = () => localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', id: 'u', role: 'staff', exp: Date.now() + 60000 }));
+    const two = (ours, ws) => { ctx.fetch = async (url) => { const [st, tx] = String(url).includes('/functions/v1/auth') ? ws : ours; return { ok: st < 300, status: st, text: async () => tx, json: async () => JSON.parse(tx) }; }; };
+    sso(); two([403, '{"error":"이 화면을 볼 권한이 없습니다"}'], [200, '{}']);
+    await rejects(() => sbCall('meta-ads', {}), /권한이 없습니다/); assert.ok(localStorage.getItem('dnrb_sso'));          // 403 = 그 동작만 거절, 로그인은 그대로 (9/22 사고)
+    two([401, '{"error":"로그인이 필요합니다"}'], [200, '{"id":"u"}']);
+    await rejects(() => sbCall('meta-ads', {}), /잠시 안 됐어요/); assert.ok(localStorage.getItem('dnrb_sso'));           // 워크스페이스는 유효하다고 함 → 세션 유지
+    two([401, '{"error":"로그인이 필요합니다"}'], [503, '']);
+    await rejects(() => sbCall('meta-ads', {}), /잠시 안 됐어요/); assert.ok(localStorage.getItem('dnrb_sso'));           // 워크스페이스 장애 → 세션 유지
+    two([401, '{"error":"로그인이 필요합니다"}'], [401, '{"error":"유효하지 않은 토큰"}']);
+    await rejects(() => sbCall('meta-ads', {}), /워크스페이스 로그인이 만료/); assert.equal(localStorage.getItem('dnrb_sso'), null);   // 진짜 거절일 때만 폐기 + 다시 들어오는 길 안내
+    localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', exp: Date.now() - 1 }));
+    await rejects(() => sbCall('meta-ads', {}), /워크스페이스에서 광고 대시보드 메뉴/);                                     // 화면 켜둔 채 7일 만료
+    localStorage.removeItem('dnrb_sso');
+    n++; console.log('  ✓ sbCall(SSO): 403은 세션 유지 · 401은 워크스페이스에 다시 확인 후에만 폐기 · 만료 안내');
+  })();
   ctx.fetch = async () => { throw new Error('테스트에선 네트워크 없음'); };
 }
 

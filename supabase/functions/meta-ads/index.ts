@@ -733,7 +733,8 @@ Deno.serve(async (req) => {
     const secret = Deno.env.get("CRON_SECRET") ?? "";
     if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
   } else {
-    const me = await getAuth(req);
+    let me;
+    try { me = await getAuth(req); } catch (e) { return json({ error: String((e as Error).message ?? e) }, 503); }   // 워크스페이스 인증 서버 일시 장애 — 401이 아니라 503 (브라우저가 로그인 세션을 지우지 않게)
     if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     /* 돈이 보이는 액션 잠금 (2026-09-21 — '내 소재 성과' 탭을 컨텐츠마케터에게 열면서): 지금까지는 로그인만 하면 어떤 액션이든 부를 수 있어
        화면에 메뉴가 없어도 브라우저 개발자 도구로 지출·매출을 볼 수 있었다. 메뉴 권한이 없는 계정은 서버에서 막는다.
@@ -1151,8 +1152,14 @@ Deno.serve(async (req) => {
     // 원본은 별도 db 프록시 함수를 썼지만(가이드 §5-2 어댑터 지점) 이 프로젝트는 함수 하나로 — DASH_KEY 인증 뒤에서만 접근.
     // ⚠ DASH_KEY를 안 설정하면 anon key만으로 판정 기록을 바꿀 수 있으니 반드시 설정할 것.
     if (action === "state_list") {
-      const r = await dbRest("ad_test_state?select=*");
-      return json(r.ok ? await r.json() : []);
+      const rows: unknown[] = [];
+      for (let off = 0; off < 20000; off += 1000) {   // 2026-09-21 기준 500행 — PostgREST 1,000행 한도를 넘으면 판정·숨김이 조용히 빠지므로 페이지로
+        const r = await dbRest(`ad_test_state?select=*&order=ad_id.asc&limit=1000&offset=${off}`);
+        if (!r.ok) break;
+        const page = await r.json() as unknown[]; rows.push(...page);
+        if (page.length < 1000) break;
+      }
+      return json(rows);
     }
     if (action === "state_save" && req.method === "POST") {
       const raw = await req.json();
