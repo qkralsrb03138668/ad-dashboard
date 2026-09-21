@@ -1053,14 +1053,15 @@ function admgrCutSel() {   // 체크한 광고세트
    원칙: 입력은 소재 등록할 때만(creatives.maker) · 평소 화면엔 이름을 어디에도 안 보임(비교판이 되지 않게) · '만든 사람 ▾'로 골랐을 때만 그 사람 것 + 알림 한 줄.
    출처 2개: ① creatives.maker (ad_id·adset_id로 연결 — admgr.test.creatives) ② 대시보드 밖에서 올린 세트는 광고세트 탭에서 체크 → '만든 사람 지정' → shared_state 'makers' {sets:{adset_id:key}} (②가 ①보다 우선)
    ponytail: creatives_list는 최대 500행 — 등록 소재가 500개를 넘으면 오래된 광고가 '미지정'으로 빠진다. 그때 서버에 maker 전용 가벼운 목록 액션을 추가할 것 */
-admgr.mk = { filter: 'all', sets: {}, ver: null, tried: false, loading: false, idx: null, idxSrc: null };
+admgr.mk = { filter: 'all', sets: {}, ads: {}, ver: null, tried: false, loading: false, idx: null, idxSrc: null };   // ads = 광고 단위 지정 (내 소재 성과의 '만든 사람 바꾸기'가 적는다 — 2026-09-22)
 async function admgrMakerLoad() {
   const m = admgr.mk;
   if (m.loading || admgr.demo || !admgrCfg()) return;
   m.loading = true;
-  try { const r = await sbCall('client-log', { action: 'state_get', key: 'makers' }); m.sets = ((r && r.data) || {}).sets || {}; m.ver = (r && r.ver) || null; }
+  try { const r = await sbCall('client-log', { action: 'state_get', key: 'makers' }); m.sets = ((r && r.data) || {}).sets || {}; m.ads = ((r && r.data) || {}).ads || {}; m.ver = (r && r.ver) || null; }
   catch (e) { console.warn('만든 사람 지정분 불러오기 실패', e.message); }
   m.loading = false; if (m.filter !== 'all') renderAdmgr(true);
+  if (typeof curMenu !== 'undefined' && curMenu === 'mycre' && typeof renderMycre === 'function') renderMycre();
 }
 function admgrMakerIdx() {
   const m = admgr.mk, src = admgr.test.creatives;
@@ -1071,7 +1072,8 @@ function admgrMakerIdx() {
 }
 /* 순서: ② 수동 지정 → ① 등록 기록 → ③ 이름 규칙(2026-09-20 사용자 지정: 세트명에 '다나'가 있으면 다나대표, 나머지는 전부 김도희 — 0017과 같은 규칙). ③ 덕에 미지정은 없다 */
 function admgrMakerOf(adId, setId, name) {
-  const v = admgr.mk.sets[setId]; if (MAKERS[v]) return v;
+  const w = adId && admgr.mk.ads[adId]; if (MAKER_NAMES[w]) return w;   // 광고 단위 지정이 최우선 (CBO처럼 한 세트에 여러 사람 소재가 섞인 경우)
+  const v = admgr.mk.sets[setId]; if (MAKER_NAMES[v]) return v;
   const ix = admgrMakerIdx();
   return (adId && ix.ad.get(String(adId))) || ix.set.get(String(setId)) || (String(name || '').normalize('NFC').includes('다나') ? 'dana' : 'dohee');
 }
@@ -1109,9 +1111,9 @@ async function admgrMakerAssign(ev, k) {
   for (let tries = 0; tries < 2; tries++) {   // 남이 먼저 저장했으면 최신본 위에 내 지정만 다시 얹어 한 번 더
     try {
       apply();
-      const r = await sbCall('client-log', { action: 'state_set' }, { key: 'makers', base: m.ver, data: { sets: m.sets } });
+      const r = await sbCall('client-log', { action: 'state_set' }, { key: 'makers', base: m.ver, data: { sets: m.sets, ads: m.ads || {} } });
       if (!r.conflict) { m.ver = r.ver; toast(`세트 ${ids.length}개 — ${k ? MAKERS[k] : '지정 지움'}`); renderAdmgr(true); return; }
-      m.sets = ((r.data || {}).sets) || {}; m.ver = r.ver || null;
+      m.sets = ((r.data || {}).sets) || {}; m.ads = ((r.data || {}).ads) || {}; m.ver = r.ver || null;
     } catch (e) { toast('만든 사람 저장 실패: ' + e.message); return; }
   }
   toast('만든 사람 저장 실패 — 새로고침 후 다시 시도해 주세요');

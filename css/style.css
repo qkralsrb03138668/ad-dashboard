@@ -813,3 +813,5 @@ summary::-webkit-details-marker { display: none; }
 #mycre-modal .my-why-hook, #mycre-modal .my-why-click { color: #991b1b; } #mycre-modal .my-why-good { color: #15803d; }
 #mycre-modal .my-ace-b { background: #4f46e5; color: #fff; }
 @media (max-width: 768px) { #mycre-modal .my-dtop { grid-template-columns: minmax(0, 1fr); } #mycre-modal .my-dthumb img, #mycre-modal .my-dthumb > i { max-height: 260px; } }
+
+#mycre-modal .my-mksel { display: inline-flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 700; color: #4b5563; } #mycre-modal .my-mksel select { padding: 3px 6px; font-size: .74rem; min-height: 0; width: auto; background: #fff; }

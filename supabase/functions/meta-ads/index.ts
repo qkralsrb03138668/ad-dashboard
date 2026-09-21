@@ -517,7 +517,7 @@ async function mycreAce(): Promise<AceRule> {
   const n = (v: unknown, d: number, lo: number, hi: number) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : d; };
   return { top: n(a?.top, ACE_DEFAULT.top, 1, 100), roas: n(a?.roas, ACE_DEFAULT.roas, 0, 100), pur: n(a?.pur, ACE_DEFAULT.pur, 0, 100000) };
 }
-const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v9:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
+const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v10:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
 /* 내 소재 성과의 기간 (2026-09-22 사용자 요청: 누적 대신 오늘·어제·최근 7/14/30일·직접 설정) — 최근 N일은 광고관리자·Meta와 같이 오늘을 빼고 센다 */
 type MyRange = { since: string; until: string; label: string };
 function mycreRange(url: URL, today: string): MyRange {
@@ -615,11 +615,13 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
   const state = new Map(((stR.ok ? await stR.json() : []) as R[]).map((r) => [String(r.ad_id), r]));
   const cre = (crR.ok ? await crR.json() : []) as R[];
   const creAd = new Map(cre.map((r) => [String(r.ad_id), r])), creSet = new Map(cre.filter((r) => r.adset_id && r.maker).map((r) => [String(r.adset_id), r]));
-  const manual = ((((mkR.ok ? await mkR.json() : []) as R[])[0]?.data ?? {}) as R).sets as Record<string, string> | undefined ?? {};
+  const mkRows = (mkR.ok ? await mkR.json() : []) as R[];
+  const manual = ((mkRows[0]?.data ?? {}) as R).sets as Record<string, string> | undefined ?? {};
   const KEY = /^[a-z0-9_]{1,30}$/;
   // 만든 사람 — 화면 admgrMakerOf와 같은 순서: 수동 지정 → 등록 기록 → (CBO 복사본: 같은 이름 원본의 기록) → 이름 규칙('다나' = dana, 나머지 dohee)
   const baseName = (n: unknown) => String(n ?? "").normalize("NFC").replace(/\s*-\s*사본(\s*\d+)?\s*$/, "").trim();
-  const known = (a: R) => { const v = manual[String(a.adset_id)]; if (v && KEY.test(v)) return v; return String(creAd.get(String(a.id))?.maker ?? creSet.get(String(a.adset_id))?.maker ?? ""); };
+  const manualAds = (((mkRows[0]?.data ?? {}) as R).ads ?? {}) as Record<string, string>;   // 광고 단위 지정 (2026-09-22: 내 소재 성과에서 '만든 사람 바꾸기') — 세트 지정보다 먼저
+  const known = (a: R) => { const w = manualAds[String(a.id)]; if (w && KEY.test(w)) return w; const v = manual[String(a.adset_id)]; if (v && KEY.test(v)) return v; return String(creAd.get(String(a.id))?.maker ?? creSet.get(String(a.adset_id))?.maker ?? ""); };
   const byName = new Map<string, string>(); for (const a of ads) { const k = known(a); if (k && !byName.has(baseName(a.name))) byName.set(baseName(a.name), k); }
   const makerOf = (a: R) => known(a) || byName.get(baseName(a.name)) || ((String(a.adset_name ?? "") + " " + String(a.name ?? "")).normalize("NFC").includes("다나") ? "dana" : "dohee");
 
@@ -712,7 +714,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       diag: diagOf(a), trend: trendOf(a),
       ai: vt || it ? { hook: vt ? String(vt.hook ?? "") : "", cuts: vt ? num(vt.cuts) : null, cut: it ? String(it.cut ?? "") : "", text: it ? !!it.text : null, size: it ? !!it.size : null } : null,
       // 이 소재가 들어가 있는 곳 (테스트 세트 → CBO …) — 비중·ROAS만, 금액 없음
-      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""),
+      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""),
         share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases) }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
       verdict_at: sts.find((x) => x.verdict_at)?.verdict_at ?? null, asset_req_at: sts.find((x) => x.asset_req_at)?.asset_req_at ?? null, asset_done_at: sts.find((x) => x.asset_done_at)?.asset_done_at ?? null,
     };
