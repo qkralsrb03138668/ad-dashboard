@@ -65,7 +65,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 details{margin-top:18px}
 summary{cursor:pointer;color:var(--ink2);font-size:13.5px;font-weight:500}
 .art{padding:8px 0;border-top:1px dashed var(--line);font-size:13px}
-.art .t{font-weight:500} .art .d{color:var(--ink3);font-size:12px;margin-left:6px} .art .x{color:var(--ink2);white-space:pre-wrap;margin-top:2px;max-height:4.6em;overflow:hidden}
+.art .t{font-weight:500} .art .d{color:var(--ink3);font-size:12px;margin-left:6px} .art .x{color:var(--ink2);white-space:pre-wrap;margin-top:2px;max-height:30em;overflow:auto}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:13.5px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
 .toast.on{opacity:1}
 </style>
@@ -121,14 +121,17 @@ function delayFor(item){
   const arts=(S.delays&&S.delays.articles)||[]; const pn=norm(item.product_name);
   // 상품명에서 괄호 꼬리표((made)·(2 colors) 등)를 뺀 핵심 이름으로도 찾는다 — 글에는 보통 짧게 적으므로
   const core=norm(item.product_name.replace(/\([^)]*\)/g,' ').trim());
+  // 옵션값(컬러=베이지, 사이즈=L → 베이지, L) — 같은 상품이 여러 줄이면 옵션이 맞는 줄을 고른다
+  const opts=String(item.option||'').split(',').map(x=>norm(x.split('=').pop())).filter(x=>x.length>=1);
   for(const a of arts){
     const lines=String(a.text||'').split('\n');
-    const hit=k=>k.length>=4&&(norm(a.title).includes(k)||lines.some(l=>norm(l).includes(k)));
     const byNo=a.product_no&&String(a.product_no)===String(item.product_no);
-    const k=[pn,core].find(hit);
+    const k=[pn,core].find(k=>k.length>=4&&(norm(a.title).includes(k)||lines.some(l=>norm(l).includes(k))));
     if(byNo||k||(norm(a.title).length>=4&&pn.includes(norm(a.title)))){
-      const line=k?lines.find(l=>norm(l).includes(k))||'':'';
-      return {title:a.title,text:a.text,line:line.trim()};
+      const cand=k?lines.filter(l=>norm(l).includes(k)):[];
+      if(k&&cand.length&&opts.length&&!cand.some(l=>opts.every(o=>norm(l).includes(o)))) continue;   // 이 상품은 있지만 이 옵션은 지연 아님
+      const line=(cand.find(l=>opts.every(o=>norm(l).includes(o)))||cand[0]||'').replace(/\s*\|\s*/g,' · ').trim();
+      return {title:a.title,text:a.text,line};
     }
   }
   return null;

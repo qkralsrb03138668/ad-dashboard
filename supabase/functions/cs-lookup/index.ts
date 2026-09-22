@@ -68,7 +68,17 @@ async function search(raw: string): Promise<unknown> {
 
 // 배송지연 게시판 — 5분 캐시 (인스턴스 메모리; 상담원이 연달아 조회해도 카페24를 매번 부르지 않게)
 let delayCache: { at: number; data: unknown } | null = null;
-const strip = (html: string) => String(html ?? "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\n{3,}/g, "\n\n").trim();
+// 지연 리스트 본문 → 행마다 "상품명 | 옵션 | 출고예정일" 한 줄.
+//   실제 글(2026-09)은 <div class="row"><div class="cell name">…</div><div class="cell option">…</div><div class="cell date">…</div></div> 구조.
+//   <table>로 바꿔 써도 동작하게 tr/td도 같이 처리. <style> 블록은 버림.
+const cell = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+const strip = (html: string) => String(html ?? "")
+  .replace(/<style[\s\S]*?<\/style>/gi, "")
+  .replace(/<tr[\s\S]*?<\/tr>/gi, (row) => row.split(/<\/t[dh]>/i).map(cell).filter(Boolean).join(" | ") + "\n")
+  .replace(/<div class="row[^>]*>/gi, "\n").replace(/<div class="cell[^>]*>/gi, " | ")
+  .replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|li|h\d)>/gi, "\n").replace(/<[^>]+>/g, "")
+  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+  .split("\n").map((l) => l.replace(/\s*\|\s*/g, " | ").replace(/^\s*\|\s*/, "").trim()).filter(Boolean).join("\n");
 async function delays(): Promise<unknown> {
   if (delayCache && Date.now() - delayCache.at < 5 * 60_000) return delayCache.data;
   const no = Deno.env.get("CS_BOARD_NO") ?? "";
