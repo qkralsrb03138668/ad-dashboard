@@ -7,3 +7,6 @@ supabase/.temp/
 .claude/
 .insight-tmp/
 scripts/.bin/
+
+# 셀메이트 연결 스크립트 — 공개 저장소에 올리지 않음 (상담원에게 파일로 전달)
+cs-sellmate-bridge.user.js

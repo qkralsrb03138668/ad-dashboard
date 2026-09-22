@@ -4,6 +4,7 @@
 //   ping                 → { ok }
 //   search { q }         → { kind, orders:[...] }   q = 전화번호 | 주문번호 | 주문자 이름 (최근 3개월)
 //   delays               → { articles:[...] } | { error }   배송지연 게시판 글 (CS_BOARD_NO), 5분 캐시
+//   stock { product_no } → { variants:[{option, stock, selling, ...}] }  카페24 옵션별 재고
 //   boards               → { boards }                       게시판 번호 찾기용 (셋업 때 한 번)
 // secrets: CS_CODE(초대코드), CS_BOARD_NO(배송지연 게시판 번호), CAFE24_*(판매성과와 공유)
 // 배포: ./deploy-cs-lookup.sh <초대코드> <게시판번호>
@@ -106,6 +107,16 @@ async function run(op: Row): Promise<unknown> {
     case "ping": return { ok: true };
     case "search": return await search(op.q);
     case "delays": return await delays();
+    case "stock": {   // 카페24 옵션별 재고 (셀메이트가 카페24로 재고를 내려보내고 있으면 이게 곧 셀메이트 재고)
+      const no = Number(op.product_no); if (!Number.isInteger(no) || no <= 0) throw new Error("bad product_no");
+      const r = await apiGet(`${API_BASE}/admin/products/${no}/variants?embed=inventories`, await getAccessToken());
+      const variants = ((r.variants ?? []) as Row[]).map((v) => ({
+        code: v.variant_code, option: ((v.options ?? []) as Row[]).map((x) => `${x.name}=${x.value}`).join(", "),
+        display: v.display, selling: v.selling, use_inventory: v.use_inventory,
+        stock: v.inventories?.stock_quantity ?? v.quantity ?? null, safety: v.inventories?.safety_stock_quantity ?? null,
+      }));
+      return { product_no: no, variants };
+    }
     case "boards": { const r = await apiGet(`${API_BASE}/admin/boards`, await getAccessToken()); return { boards: ((r.boards ?? []) as Row[]).map((b) => ({ board_no: b.board_no, name: b.board_name, type: b.board_type })) }; }
     default: throw new Error("unknown action");
   }
