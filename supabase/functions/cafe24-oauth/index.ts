@@ -12,7 +12,7 @@ import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
 const CLIENT_SECRET = Deno.env.get("CAFE24_CLIENT_SECRET")!;
-const SCOPE = "mall.read_order,mall.read_analytics,mall.read_category,mall.read_product";
+const SCOPE = "mall.read_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_community";   // read_community: CS 주문조회의 배송지연 게시판 (2026-09-22)
 
 const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 
