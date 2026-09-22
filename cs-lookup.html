@@ -53,7 +53,7 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .delay{margin-top:6px;padding:8px 10px;border-radius:9px;background:var(--warn-soft);color:var(--warn);font-size:12.5px;white-space:pre-wrap}
 .track a{color:var(--accent);text-decoration:none;font-weight:500}
 .reply{margin-top:12px}
-.reply textarea{width:100%;min-height:96px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);resize:vertical;line-height:1.55}
+.reply textarea{width:100%;min-height:150px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);resize:vertical;line-height:1.55}
 .reply .tools{display:flex;gap:8px;margin-top:8px;align-items:center}
 .msg{padding:16px;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--ink2);text-align:center}
 .msg.err{color:var(--danger);border-color:var(--danger)}
@@ -82,24 +82,44 @@ const ST={N00:'입금전',N10:'상품준비중',N20:'배송준비중',N21:'배�
   E00:'교환신청',E10:'교환접수',E30:'교환처리중',E40:'교환완료',E41:'교환완료(재배송)'};
 const stText=s=>ST[s]||({N:'처리중',C:'취소',R:'반품',E:'교환'}[s[0]]||'')+' ('+s+')';   // 모르는 코드도 원문 코드 대신 그룹명으로
 const stClass=s=>s.startsWith('N3')||s.startsWith('N4')||s==='N50'?'ok':s.startsWith('N')?(s==='N22'?'warn':'acc'):'danger';
-// ── 답변 문구 — 상태별 기본 문장. 실제 쓰는 문구로 바꾸려면 여기만 고친다 ──
-const R={
-  pre:(o,i)=>`${o.buyer_name}님, 주문 확인되었어요! 아직 입금 확인 전이라 입금이 확인되면 바로 상품 준비 시작할게요 :)`,
-  prep:(o,i)=>`${o.buyer_name}님, 주문하신 ${i.product_name}${i.option?` (${i.option})`:''}은(는) 현재 출고 준비 중이에요. 준비 완료되는 대로 발송되며, 발송되면 송장번호 안내드릴게요 :)`,
-  delay:(o,i,a)=>`${o.buyer_name}님, 주문하신 ${i.product_name}${i.option?` (${i.option})`:''}은(는) 현재 배송이 지연되고 있어요.\n${a.line?`▶ ${a.line}`:a.title}\n기다려주시면 준비되는 대로 바로 발송해드릴게요. 기다리기 어려우시면 취소나 다른 상품으로 교환도 도와드릴게요.`,
-  hold:(o,i)=>`${o.buyer_name}님, 주문하신 ${i.product_name}은(는) 현재 배송 보류 상태예요. 확인 후 다시 안내드릴게요.`,
-  ship:(o,i)=>`${o.buyer_name}님, 주문하신 ${i.product_name}${i.option?` (${i.option})`:''}은(는) ${i.carrier||'택배'}${i.tracking?` ${i.tracking}`:''}로 발송 완료됐어요! 보통 발송 후 1~2일 내 도착하며, 송장번호로 배송 조회 가능해요 :)`,
-  done:(o,i)=>`${o.buyer_name}님, 주문하신 ${i.product_name}은(는) 배송 완료로 확인돼요. 혹시 받지 못하셨다면 배송지 주변(경비실·택배함)을 한 번 확인해주시고, 그래도 없으면 말씀 주세요!`,
-  claim:(o,i)=>`${o.buyer_name}님, 주문하신 ${i.product_name}은(는) 현재 ${stText(i.status)} 상태예요. 처리 완료되면 다시 안내드릴게요.`,
+// ── 답변 문구 — CS 답변 지침(Desktop/클ㄹ드/CS-답변지침.md, 저장소 밖) 말투: "안녕하세요 고객님 :)" → 공감·상황 확인 → 사실(날짜는 게시판 그대로) → 마무리 ♥️. 3~6문장, 이모지 1~3개, 정책·날짜 창작 금지 ──
+const 은는=w=>{ const m=w.match(/[가-힣](?=[^가-힣]*$)/); if(!m) return '은(는)'; const c=m[0].charCodeAt(0); return (c-0xAC00)%28?'은':'는'; };   // 마지막 한글 글자 받침으로 (뒤에 괄호·영문이 붙어도)
+const clean=n=>n.replace(/\([^)]*\)/g,' ').replace(/\s+/g,' ').trim();   // (made)·(2 colors) 같은 꼬리표는 답변에서 뺀다
+const nm=g=>{ const names=[...new Set(g.map(i=>clean(i.product_name)))]; const opt=g.length===1&&g[0].option?` (${g[0].option.replace(/[^=,]+=/g,'')})`:''; return names.join(', ')+opt; };
+const when=line=>{ const seg=line.split(' · ').pop().trim(); return (seg.replace(/\s*출고$/,'')||seg)+' 출고 예정'; };   // "9/28 출고"→"9/28 출고 예정", "다음주 중"→"다음주 중 출고 예정"
+const R={   // g = 같은 상태(·같은 지연 줄)인 품목 묶음, a = 지연 글 매칭({line})
+  pre:g=>`문의주신 ${nm(g)}${은는(nm(g))} 아직 입금 확인 전으로 확인됩니다 😊\n입금 확인되는 대로 바로 상품 준비 시작할게요.`,
+  prep:g=>`문의주신 ${nm(g)}${은는(nm(g))} 현재 출고 준비 중으로 확인됩니다 😊\n출고 후에는 보통 1~2일 정도 소요되지만 택배사 사정에 따라 조금 달라질 수 있는 점 참고 부탁드릴게요.`,
+  delay:(g,a)=>`기다리고 계셨을 텐데 배송이 늦어져 정말 죄송합니다 ㅠㅠ\n문의주신 ${nm(g)}${은는(nm(g))} 현재 입고가 지연되어 ${when(a.line)}으로 확인됩니다.\n입고되는 대로 최대한 빠르게 준비하여 보내드릴 수 있도록 하겠습니다 🙏`,
+  hold:g=>`문의주신 ${nm(g)}${은는(nm(g))} 현재 배송 보류 상태로 확인됩니다 ㅠㅠ\n확인 후 다시 안내드릴게요.`,
+  ship:g=>`문의주신 ${nm(g)}${은는(nm(g))} ${g[0].carrier||'택배'}로 발송 완료되었습니다 😊\n송장번호는 ${g[0].tracking}이며, 보통 발송 후 1~2일 정도 소요되지만 택배사 사정에 따라 조금 달라질 수 있는 점 참고 부탁드릴게요.`,
+  done:g=>`문의주신 ${nm(g)}${은는(nm(g))} 배송완료로 확인됩니다 😊\n혹시 상품이 보이지 않으시면 번거로우시겠지만 배송기사님께 한 번 연락해보시는 게 좋을 것 같아요. 연락하실 때 주소와 송장번호${g[0].tracking?`(${g[0].tracking})`:''}를 함께 말씀해주시면 정확한 배송 위치를 안내받으실 수 있습니다.`,
+  cancelIng:g=>`문의주신 주문건은 현재 취소 처리 진행 중으로 확인됩니다 😊\n처리 완료되면 다시 안내드릴게요.`,
+  cancelDone:g=>`문의주신 주문건은 취소처리 완료된 것으로 확인됩니다 😊\n확인 부탁드릴게요.`,
+  retIng:g=>`문의주신 반품건은 정상적으로 접수되었습니다 😊\n기사님께서 연락 후 방문 수거 예정이니 상품 전달 부탁드릴게요 🙏`,
+  retRefund:g=>`문의주신 반품건은 상품 수거 확인되어 현재 환불 처리 진행 중으로 확인됩니다 😊\n처리 완료되면 다시 안내드릴게요.`,
+  retDone:g=>`문의주신 반품건은 반품 처리 완료된 것으로 확인됩니다 😊\n확인 부탁드릴게요.`,
+  exIng:g=>`문의주신 교환건은 정상적으로 접수되었습니다 😊\n기사님께서 연락 후 방문 수거 예정이니 상품 전달 부탁드릴게요 🙏`,
+  exDone:g=>`문의주신 교환건은 교환 처리 완료되어 재발송된 것으로 확인됩니다 😊\n확인 부탁드릴게요.`,
+  etc:g=>`문의주신 ${nm(g)}${은는(nm(g))} 현재 ${stText(g[0].status)} 상태로 확인됩니다 😊\n처리 완료되면 다시 안내드릴게요.`,
 };
-function replyFor(o,i,art){
-  const s=i.status;
-  if(s==='N00') return R.pre(o,i);
-  if(['N10','N20','N21'].includes(s)) return art?R.delay(o,i,art):R.prep(o,i);
-  if(s==='N22') return R.hold(o,i);
-  if(s==='N30') return R.ship(o,i);
-  if(s==='N40'||s==='N50') return R.done(o,i);
-  return R.claim(o,i);
+function bodyFor(g,a){ const s=g[0].status;
+  if(s==='N00') return R.pre(g);
+  if(['N10','N20','N21'].includes(s)) return a?R.delay(g,a):R.prep(g);
+  if(s==='N22') return R.hold(g);
+  if(s==='N30') return R.ship(g);
+  if(s==='N40'||s==='N50') return R.done(g);
+  if(['C40','C47','C48'].includes(s)) return R.cancelDone(g); if(s[0]==='C') return R.cancelIng(g);
+  if(s==='R40') return R.retDone(g); if(s==='R34') return R.retRefund(g); if(s[0]==='R') return R.retIng(g);
+  if(s==='E40'||s==='E41') return R.exDone(g); if(s[0]==='E') return R.exIng(g);
+  return R.etc(g); }
+// 주문 하나 → 답변 하나: 인사 + (상태·지연줄이 같은 품목끼리 묶어 한 단락씩) + 마무리
+function replyFor(o,items){
+  const groups=new Map();
+  for(const {i,art} of items){ const k=i.status+'|'+(art?art.line:''); if(!groups.has(k)) groups.set(k,{g:[],art}); groups.get(k).g.push(i); }
+  const paras=[...groups.values()].map(({g,art})=>bodyFor(g,art));
+  const waiting=[...groups.values()].some(({g,art})=>art||g[0].status==='N22');
+  return ['안녕하세요 고객님 :)',...paras,waiting?'조금만 양해 부탁드릴게요 고객님 ♥️':'감사합니다 고객님 ♥️'].join('\n\n');
 }
 
 const S={code:localStorage.getItem(CODE_KEY)||'',auth:'unknown',err:'',busy:false,q:'',res:null,delays:null,boards:null};
@@ -156,17 +176,15 @@ function render(){
       <div class="meta">주문자 <b>${esc(o.buyer_name)}</b> ${esc(o.buyer_cellphone)}${o.member_id?` · 회원 ${esc(o.member_id)}`:' · 비회원'} · ${esc(o.payment)} ${o.paid==='T'?'<span class="badge ok">결제완료</span>':'<span class="badge warn">미결제</span>'}<br>
       받는분 <b>${esc(o.receiver.name)}</b> ${esc(o.receiver.cellphone)} · ${esc(o.receiver.address)}${o.receiver.message?`<br>배송메모 「${esc(o.receiver.message)}」`:''}</div>
       <div style="margin-top:8px">`;
-      let reply=[];
+      const its=[];
       o.items.forEach(i=>{
         const art=delayFor(i); const st=stText(i.status);
         h+=`<div class="item"><div class="nm">${esc(i.product_name)}<span class="badge ${stClass(i.status)}">${esc(st)}</span>${art?'<span class="badge warn">배송지연</span>':''}</div>
         <div class="op">${esc(i.option)}${i.option?' · ':''}${i.qty}개${i.tracking?` · <span class="track">${esc(i.carrier)} <a href="${trackUrl(i)}" target="_blank" rel="noopener">${esc(i.tracking)}</a></span>`:''}</div>
         ${art?`<div class="delay">📌 ${esc(art.title)}${art.line?'\n'+esc(art.line):''}</div>`:''}</div>`;
-        reply.push(replyFor(o,i,art));
+        its.push({i,art});
       });
-      // 품목이 여럿이면 문구를 이어 붙임 — 상태가 같은 품목은 첫 문장만
-      const uniq=[...new Set(reply)];
-      h+=`</div><div class="reply"><textarea id="rp${oi}">${esc(uniq.join('\n\n'))}</textarea><div class="tools"><button class="btn sm pri" data-a="copy" data-i="${oi}">답변 복사</button><span class="hint" style="margin:0">복사해서 상담톡에 붙이면 끝. 필요하면 위에서 고쳐서 복사하세요.</span></div></div></div>`;
+      h+=`</div><div class="reply"><textarea id="rp${oi}">${esc(replyFor(o,its))}</textarea><div class="tools"><button class="btn sm pri" data-a="copy" data-i="${oi}">답변 복사</button><span class="hint" style="margin:0">복사해서 상담톡에 붙이면 끝. 필요하면 위에서 고쳐서 복사하세요.</span></div></div></div>`;
     });
   }
   if(dl){
