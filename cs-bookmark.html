@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CS 조회 북마크 설치</title>
+<style>
+:root{--bg:#F3F4F7;--surface:#fff;--ink:#15171C;--ink2:#5E6472;--line:#DFE2E9;--accent:#2C49D6;--accent-soft:#E4E9FB}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111318;--surface:#1A1D24;--ink:#EDEFF4;--ink2:#A2A8B5;--line:#2C313B;--accent:#7C93FF;--accent-soft:#232B4A}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px;line-height:1.6}
+main{max-width:560px;margin:0 auto;padding:40px 16px}
+h1{font-size:22px;margin:0 0 6px} p{margin:0 0 14px;color:var(--ink2)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;width:140px;background:var(--surface);color:var(--ink)}
+.bm{display:inline-block;padding:12px 18px;border-radius:12px;background:var(--accent);color:#fff;text-decoration:none;font-weight:700;cursor:grab}
+.bm[hidden]{display:none}
+ol{padding-left:20px;margin:0} li{margin:6px 0}
+.small{font-size:13px;color:var(--ink2)}
+</style>
+</head>
+<body>
+<main>
+<h1>CS 조회 북마크 설치</h1>
+<p>셀메이트 화면 위에 CS 주문조회 창을 띄우는 북마크입니다. PC마다 한 번, 1분이면 끝나요. 확장 프로그램 설치 없음.</p>
+
+<div class="card">
+  <b>① 초대코드 입력</b><br>
+  <input id="code" inputmode="numeric" autocomplete="off" placeholder="초대코드"> <span class="small">(관리자에게 받은 숫자)</span>
+</div>
+
+<div class="card">
+  <b>② 아래 버튼을 브라우저 <u>북마크바</u>에 끌어다 놓기</b>
+  <p class="small">북마크바가 안 보이면 크롬·엣지에서 Ctrl+Shift+B (맥은 ⌘+Shift+B)로 켜세요. 버튼을 클릭하지 말고 <b>드래그</b>해서 북마크바 위에 놓으면 됩니다.</p>
+  <a id="bm" class="bm" hidden href="#">CS 조회</a>
+  <span id="wait" class="small">초대코드를 먼저 입력하세요.</span>
+</div>
+
+<div class="card">
+  <b>③ 사용법</b>
+  <ol>
+    <li>셀메이트에 로그인해 둔 탭에서 북마크바의 <b>CS 조회</b> 클릭</li>
+    <li>오른쪽에 조회창이 뜨면 전화번호·주문번호·이름을 넣고 조회 → 답변 복사</li>
+    <li>창이 사라지면(셀메이트 메뉴를 옮겼을 때) 북마크를 다시 클릭. ✕는 잠시 숨기기, 다시 클릭하면 나옴</li>
+  </ol>
+  <p class="small" style="margin-top:10px">조회만 하고 셀메이트의 어떤 것도 바꾸지 않습니다. "셀메이트 로그인이 필요합니다"가 뜨면 그 탭에서 셀메이트에 다시 로그인한 뒤 조회하세요.</p>
+</div>
+<script>
+const FN='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup';
+const inp=document.querySelector('#code'), bm=document.querySelector('#bm'), wait=document.querySelector('#wait');
+function build(){ const c=inp.value.trim(); if(!c){ bm.hidden=true; wait.hidden=false; return; }
+  // 북마크 본문: 셀메이트 페이지에 스크립트 태그 하나 붙이기 (v=시각 → 항상 최신본)
+  bm.href="javascript:(function(){var s=document.createElement('script');s.src='"+FN+"?action=overlay&code="+encodeURIComponent(c)+"&v='+Date.now();document.body.appendChild(s)})()";
+  bm.hidden=false; wait.hidden=true; }
+inp.addEventListener('input',build);
+bm.addEventListener('click',e=>{ e.preventDefault(); alert('클릭이 아니라 이 버튼을 북마크바로 끌어다 놓으세요. 그다음 셀메이트 탭에서 북마크를 누르면 됩니다.'); });
+</script>
+</main>
+</body>
+</html>

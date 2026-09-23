@@ -6,10 +6,11 @@
 //   delays               → { articles:[...] } | { error }   배송지연 게시판 글 (CS_BOARD_NO), 5분 캐시
 //   stock { product_no } → { variants:[{option, stock, selling, ...}] }  카페24 옵션별 재고
 //   boards               → { boards }                       게시판 번호 찾기용 (셋업 때 한 번)
+//   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
 // secrets: CS_CODE(초대코드), CS_BOARD_NO(배송지연 게시판 번호), CAFE24_*(판매성과와 공유)
 // 배포: ./deploy-cs-lookup.sh <초대코드> <게시판번호>
 // ═══════════════════════════════════════════════
-import { CORS_HEADERS } from "../_shared/util.ts";
+import { CORS_HEADERS, dbRest } from "../_shared/util.ts";
 import { API_BASE, apiGet, getAccessToken } from "../_shared/cafe24.ts";
 
 const H = { ...CORS_HEADERS, "Access-Control-Allow-Headers": CORS_HEADERS["Access-Control-Allow-Headers"] + ", x-cs-code" };
@@ -126,6 +127,15 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: H });
   const code = Deno.env.get("CS_CODE") ?? "";
   if (!code) return j({ error: "CS_CODE secret not set" }, 500);
+  if (req.method === "GET") {   // 북마크용 스크립트 — <script src>는 헤더를 못 붙이니 초대코드를 쿼리로 받는다
+    const u = new URL(req.url);
+    if (u.searchParams.get("action") !== "overlay") return j({ error: "unknown action" }, 400);
+    if (u.searchParams.get("code") !== code) return new Response("alert('CS 조회: 초대코드가 맞지 않습니다. 북마크를 다시 만들어 주세요.')", { status: 401, headers: { ...H, "Content-Type": "application/javascript; charset=utf-8" } });
+    const r = await dbRest("cs_assets?key=eq.overlay&select=body");
+    const row = r.ok ? (await r.json())[0] : null;
+    if (!row) return new Response("alert('CS 조회: 스크립트가 아직 올라가지 않았습니다 (deploy-cs-lookup.sh)')", { status: 404, headers: { ...H, "Content-Type": "application/javascript; charset=utf-8" } });
+    return new Response(row.body, { headers: { ...H, "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   if (req.headers.get("x-cs-code") !== code) return j({ error: "unauthorized" }, 401);
   let body: Row;
   try { body = await req.json(); } catch { return j({ error: "bad json" }, 400); }

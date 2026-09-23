@@ -27,6 +27,7 @@ input,textarea{font-size:16px}
 button{cursor:pointer;border:0;background:none;padding:0}
 .num{font-family:"Archivo","IBM Plex Sans KR",sans-serif;font-variant-numeric:tabular-nums}
 #app{max-width:760px;margin:0 auto;min-height:100vh;padding:0 16px 40px}
+@media (max-width:480px){ #app{padding:0 10px 30px} .hdr{flex-wrap:wrap} }
 .hdr{position:sticky;top:0;z-index:20;background:var(--bg);padding:calc(14px + env(safe-area-inset-top)) 0 10px;display:flex;align-items:center;gap:10px}
 .hdr h1{margin:0;font-size:17px;font-weight:700;flex:1}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);padding:5px 9px;border-radius:999px;background:var(--surface);border:1px solid var(--line);white-space:nowrap}
@@ -128,6 +129,14 @@ function replyFor(o,items){
   return ['안녕하세요 고객님 :)',...paras,waiting?'조금만 양해 부탁드릴게요 고객님 ♥️':'감사합니다 고객님 ♥️'].join('\n\n');
 }
 
+const QS=new URLSearchParams(location.search);
+if(QS.get('code')){ try{ localStorage.setItem(CODE_KEY,QS.get('code')); }catch(e){} }   // 북마크 조회창이 초대코드를 넘겨주면 로그인 화면 생략
+const EMBED=QS.get('embed')==='1';   // 셀메이트 탭 안의 iframe으로 열림 (cs-overlay-private.js)
+if(EMBED&&window.parent!==window){
+  const SM_ORIGIN='https://danarobe.sellmate.co.kr'; const pending=new Map(); let seq=0;
+  window.addEventListener('message',ev=>{ if(ev.origin!==SM_ORIGIN||!ev.data||ev.data.type!=='sellmate-result') return; const p=pending.get(ev.data.id); if(!p) return; pending.delete(ev.data.id); ev.data.error?p.reject(new Error(ev.data.error)):p.resolve(ev.data.items||[]); });
+  window.SELLMATE={version:'overlay',search:q=>new Promise((resolve,reject)=>{ const id=++seq; pending.set(id,{resolve,reject}); window.parent.postMessage({type:'sellmate-search',id,q},SM_ORIGIN); setTimeout(()=>{ if(pending.has(id)){ pending.delete(id); reject(new Error('셀메이트 응답이 없습니다')); } },30000); })};
+}
 const S={code:localStorage.getItem(CODE_KEY)||'',auth:'unknown',err:'',busy:false,q:'',res:null,delays:null,boards:null,sm:null};   // sm: 셀메이트 조회 결과 {items}|{error}|null
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -205,11 +214,9 @@ function render(){
     if(S.boards) h+=`<div class="meta" style="margin-top:6px">${S.boards.map(b=>`#${esc(b.board_no)} ${esc(b.name)}`).join(' · ')}</div>`;
     h+=`</details>`;
   }
-  h+=`<details id="sm-guide"><summary>셀메이트 연결 설치 (상담원 PC마다 한 번)</summary><div class="meta" style="margin-top:8px;line-height:1.7">
-    셀메이트에 로그인해 둔 <b>같은 브라우저</b>에 아래 두 가지를 설치하면, 조회 결과에 셀메이트의 <b>출고가능/출고불가·재고</b>가 같이 뜨고 답변 문구도 그에 맞춰 바뀝니다. 조회만 하고 셀메이트를 바꾸지는 않습니다.<br>
-    ① 확장 프로그램 Tampermonkey 설치 — <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">크롬</a> · <a href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener">엣지</a> (크롬은 설치 후 chrome://extensions → Tampermonkey [세부정보] → <b>"사용자 스크립트 허용"</b>을 켜야 동작)<br>
-    ② 관리자에게 받은 연결 파일(<b>danarobe-cs-sellmate.user.js</b>) 설치 — 브라우저 오른쪽 위 Tampermonkey 아이콘 → <b>대시보드</b> → <b>유틸리티</b> 탭 → "파일에서 가져오기"로 그 파일 선택 → [설치]<br>
-    ③ 이 페이지 새로고침 → 상단에 "셀메이트 연결됨"이 보이면 끝. 셀메이트 로그인이 풀리면 "로그인 필요"로 바뀌니 셀메이트에 다시 로그인만 하면 됩니다.</div></details>`;
+  if(!EMBED) h+=`<details id="sm-guide"><summary>셀메이트 연결 (상담원 PC마다 한 번, 북마크 하나)</summary><div class="meta" style="margin-top:8px;line-height:1.7">
+    이 페이지를 따로 여는 대신 <b>셀메이트 화면 위에 띄우면</b> 조회 결과에 셀메이트의 <b>출고가능/출고불가·재고</b>가 같이 뜨고 답변 문구도 그에 맞춰 바뀝니다. 확장 프로그램 설치 없이 북마크 하나면 됩니다.<br>
+    → <a href="cs-bookmark.html" target="_blank" rel="noopener">북마크 설치 페이지 열기</a> (초대코드 입력 → 버튼을 북마크바에 끌어다 놓기 → 셀메이트 탭에서 클릭)</div></details>`;
   app.innerHTML=h;
 }
 
@@ -229,7 +236,7 @@ async function copy(i){ const t=$('#rp'+i).value; try{ await navigator.clipboard
 document.addEventListener('click',async e=>{ const b=e.target.closest('[data-a]'); if(!b||b.tagName==='FORM') return; const a=b.dataset.a;
   if(a==='copy') copy(b.dataset.i); else if(a==='delays'){ S.delays=null; render(); loadDelays(); }
   else if(a==='logout'){ localStorage.removeItem(CODE_KEY); S.code=''; S.auth='unknown'; S.res=null; S.err=''; render(); }
-  else if(a==='sm'){ const d=$('#sm-guide'); if(d){ d.open=true; d.scrollIntoView({behavior:'smooth'}); } }
+  else if(a==='sm'){ const d=$('#sm-guide'); if(d){ d.open=true; d.scrollIntoView({behavior:'smooth'}); } else if(EMBED&&S.sm&&S.sm.error) alert(S.sm.error); }
   else if(a==='boards'){ try{ S.boards=(await api('boards')).boards; }catch(err){ S.boards=[{board_no:'?',name:err.message}]; } render(); } });
 document.addEventListener('submit',e=>{ e.preventDefault(); if(e.target.dataset.a==='search') search(); else if(e.target.dataset.a==='login') login(); });
 render(); if(S.code) loadDelays();
