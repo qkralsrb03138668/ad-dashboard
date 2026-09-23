@@ -742,7 +742,7 @@ Deno.serve(async (req) => {
        · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
     const menus = me.perms ? (me.perms.menus ?? []) : null;
     const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
-    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
+    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
     const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
     if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
     if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);
@@ -986,6 +986,34 @@ Deno.serve(async (req) => {
           };
         }),
       };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // 광고별 게재 페이지(2026-09-23) — 켜진 캠페인·세트 안의 켜진 광고가 어느 페이스북 페이지·인스타 계정으로 나가는지 (페이지 바뀐 광고 찾기용)
+    if (action === "adpages") {
+      const cacheKey = "meta:adpages";
+      const pre = await metaPre(cacheKey, 10 * 60 * 1000);
+      if (pre) return pre;
+      const rows = await graphGetAll(`${c.account}/ads`, {
+        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]), limit: "500",
+        fields: "id,name,adset{id,name,effective_status},campaign{id,name,effective_status},creative{actor_id,effective_object_story_id,object_story_spec{page_id,instagram_actor_id},instagram_user_id}",
+      }, c.token, 10);
+      const g = (o: unknown, k: string) => ((o ?? {}) as Record<string, unknown>)[k];
+      const ads = rows.filter((a) => g(a.adset, "effective_status") === "ACTIVE" && g(a.campaign, "effective_status") === "ACTIVE").map((a) => {
+        const cr = (a.creative ?? {}) as Record<string, unknown>, spec = (cr.object_story_spec ?? {}) as Record<string, unknown>;
+        const page = String(spec.page_id ?? cr.actor_id ?? String(cr.effective_object_story_id ?? "").split("_")[0] ?? "");
+        return { id: String(a.id), name: String(a.name ?? ""), campaign: String(g(a.campaign, "name") ?? ""), adset: String(g(a.adset, "name") ?? ""), page_id: page, ig_id: String(spec.instagram_actor_id ?? cr.instagram_user_id ?? "") };
+      });
+      const names: Record<string, string> = {};
+      const ids = [...new Set(ads.flatMap((a) => [a.page_id, a.ig_id]).filter(Boolean))];
+      for (let i = 0; i < ids.length; i += 50) {
+        try {
+          const r = await graphGet("", { ids: ids.slice(i, i + 50).join(","), fields: "name,username" }, c.token);
+          for (const [k, v] of Object.entries(r)) names[k] = String(g(v, "name") ?? g(v, "username") ?? "");
+        } catch (e) { /* 페이지 권한 없으면 id만 */ }
+      }
+      const body = { fetched_at: new Date().toISOString(), ads: ads.map((a) => ({ ...a, page: names[a.page_id] ?? "", ig: names[a.ig_id] ?? "" })) };
       await cacheSet(cacheKey, body);
       return json(body);
     }
