@@ -56,9 +56,11 @@ async function search(raw: string): Promise<unknown> {
     const d = q.replace(/\D/g, "");
     if (!/^01\d{8,9}$/.test(d)) throw new Error("휴대폰 번호 형식이 아닙니다 (예: 010-1234-5678)");
     const p = d.length === 11 ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}` : `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-    const [a, b] = await Promise.all([orders(`${range}&buyer_cellphone=${p}`, token), orders(`${range}&receiver_cellphone=${p}`, token)]);
-    const seen = new Set<string>();
-    rows = [...a, ...b].filter((o) => !seen.has(o.order_id) && seen.add(o.order_id));
+    // 카페24 주문 목록 필터: buyer_cellphone 만 동작한다. receiver_cellphone 은 무시되고 최신 50건이 그대로 와서(2026-09-23 실사고: 다른 고객 주문이 나옴) 쓰지 않는다.
+    // 혹시 필터가 무시돼도 다른 고객이 안 나오게 주문자·받는분 번호로 한 번 더 거른다.
+    const same = (v: unknown) => String(v ?? "").replace(/\D/g, "") === d;
+    const hit = (o: Row) => same(o.buyer?.cellphone) || same(o.buyer?.phone) || ((o.receivers ?? []) as Row[]).some((r) => same(r.cellphone) || same(r.phone));
+    rows = (await orders(`${range}&buyer_cellphone=${p}`, token)).filter(hit);
   } else {                                                      // 이름
     kind = "name";
     if (q.length > 20) throw new Error("검색어가 너무 깁니다");
