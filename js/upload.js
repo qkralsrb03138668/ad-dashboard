@@ -83,7 +83,7 @@ function uplRenderModel() {
       <div style="color:#475569;">최적화 <b>${esc(s.optimization_goal||'-')}</b> · 입찰 ${esc(s.bid_strategy||'-')} · 타겟 ${esc((s.countries||[]).join(',')||'-')} ${esc(s.age)} ${s.genders&&s.genders.length?(s.genders[0]===1?'남':'여'):'전체'}
         · ${m.cbo ? `<span style="color:#b45309;">캠페인 예산(CBO) ${s.campaign_daily_budget.toLocaleString()}원 — 세트 예산 입력 불필요</span>` : `세트 일예산 ${s.daily_budget.toLocaleString()}원`}
         · 소재 ${m.creative.kind === 'video' ? '영상' : m.creative.kind === 'image' ? '이미지' : '기타'}${m.creative.dynamic ? ' <span style="color:#dc2626;">(다이나믹/플렉시블 소재 — 문구 복사가 불완전할 수 있어요)</span>' : ''}</div>
-      <div style="color:#475569;">문구: ${esc((m.text.message||'').slice(0,80))}${(m.text.message||'').length>80?'…':''} · URL ${esc((m.text.link||'').slice(0,60))}</div>
+      ${m.creative.from_post ? `<div style="color:#b45309;"><i class="fa-solid fa-circle-info"></i> 인스타 게시물로 만든 광고예요 — 페이지·타겟·예산만 가져오고, 문구는 파일마다 직접 기입해야 해요</div>` : `<div style="color:#475569;">문구: ${esc((m.text.message||'').slice(0,80))}${(m.text.message||'').length>80?'…':''} · URL ${esc((m.text.link||'').slice(0,60))}</div>`}
     </div>` : upl.modelAdId ? '<div style="padding:10px;color:#6b7280;font-size:.8rem;">모델 광고 설정 읽는 중…</div>' : ''}`;
 }
 function uplPickCamp(id) { upl.camp = id; upl.set = null; uplRenderModel(); }
@@ -222,8 +222,8 @@ async function uplDiagnose() {
     uplLog(pageOk ? `페이지 접근 OK: ${d.page.name}` : `페이지 접근 불가 — 비즈니스 설정에서 시스템 사용자에게 페이지 자산을 추가하고 토큰을 재발급하세요 (SETUP-광고업로드.md)`, pageOk ? 'ok' : 'err');
     if (d.instagram) uplLog(d.instagram.username ? `인스타그램 접근 OK: @${d.instagram.username}` : `인스타그램 접근 불가: ${d.instagram}`, d.instagram.username ? 'ok' : 'err');
     const v = await uplCall({ action: 'validate', ad_id: upl.modelAdId });
-    for (const k of ['adset', 'creative', 'ad']) uplLog(`${{ adset: '광고세트', creative: '크리에이티브', ad: '광고' }[k]} 생성 검증: ${v[k]}`, v[k] === 'ok' ? 'ok' : 'err');
-    const all = ['adset', 'creative', 'ad'].every(k => v[k] === 'ok');
+    for (const k of ['adset', 'creative', 'ad']) uplLog(`${{ adset: '광고세트', creative: '크리에이티브', ad: '광고' }[k]} 생성 검증: ${v[k] === 'skip' ? '건너뜀 (인스타 게시물 광고 — 실제 생성은 올린 파일·문구로 해요)' : v[k]}`, v[k] === 'ok' || v[k] === 'skip' ? 'ok' : 'err');
+    const all = ['adset', 'creative', 'ad'].every(k => v[k] === 'ok' || v[k] === 'skip');
     uplLog(all ? '진단 통과 — 광고 생성 가능' : '진단 실패 항목이 있어요 — 위 메시지를 확인하세요', all ? 'ok' : 'err');
   } catch (e) { uplLog('진단 실패: ' + e.message, 'err'); }
 }

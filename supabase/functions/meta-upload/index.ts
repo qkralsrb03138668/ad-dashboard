@@ -78,10 +78,10 @@ async function checkPin(pin: unknown, allowUpload = false): Promise<string | nul
 const ADSET_FIELDS = "name,campaign_id,daily_budget,lifetime_budget,targeting,optimization_goal,billing_event,bid_strategy,bid_amount,promoted_object,attribution_spec,destination_type,status,dsa_beneficiary,dsa_payor";
 async function readModel(adId: string): Promise<Rec> {
   if (!/^\d{5,25}$/.test(adId)) throw new Error("ad_id 형식 오류");
-  const key = `upload:model:v3:${adId}`;
+  const key = `upload:model:v5:${adId}`;
   const cached = await cacheGet(key, 5 * 60 * 1000);
   if (cached) return cached as Rec;
-  const ad = await graph(adId, { params: { fields: "id,name,adset_id,campaign_id,status,creative{id,name,object_story_spec,degrees_of_freedom_spec,contextual_multi_ads,url_tags,asset_feed_spec}" } });
+  const ad = await graph(adId, { params: { fields: "id,name,adset_id,campaign_id,status,creative{id,name,object_story_spec,object_story_id,effective_object_story_id,actor_id,instagram_user_id,instagram_permalink_url,degrees_of_freedom_spec,contextual_multi_ads,url_tags,asset_feed_spec}" } });
   const adset = await graph(String(ad.adset_id), { params: { fields: ADSET_FIELDS } });
   const campaign = await graph(String(ad.campaign_id), { params: { fields: "name,objective,daily_budget,lifetime_budget,status" } });
   const cre = (ad.creative ?? {}) as Rec;
@@ -96,6 +96,12 @@ async function readModel(adId: string): Promise<Rec> {
     link: String(ld.link ?? ctaVal.link ?? ""),
     cta: String(cta.type ?? "LEARN_MORE"),
   };
+  /* 인스타 게시물로 만든 광고(2026-09-28 실사례 '…_인스타게시물_…'): object_story_spec이 없어 page_id가 비고 문구·소재도 못 읽는다.
+     페이지는 object_story_id("페이지ID_게시물ID")·actor_id에서, 인스타 계정은 effective_instagram_user_id에서 채운다 — 새 광고는 우리 파일·문구로 만드니 페이지·타겟만 있으면 된다 */
+  const storyId = String(cre.effective_object_story_id ?? cre.object_story_id ?? "");
+  const pageId = oss.page_id ?? (storyId.includes("_") ? storyId.split("_")[0] : null) ?? cre.actor_id ?? null;
+  const igId = oss.instagram_user_id ?? oss.instagram_actor_id ?? cre.instagram_user_id ?? null;
+  const fromPost = !oss.page_id && !!(storyId || cre.instagram_permalink_url);
   const tg = (adset.targeting ?? {}) as Rec;
   const geo = (tg.geo_locations ?? {}) as Rec;
   const body = {
@@ -103,7 +109,7 @@ async function readModel(adId: string): Promise<Rec> {
     adset: { id: ad.adset_id, ...adset },
     campaign: { id: ad.campaign_id, ...campaign },
     cbo: !!(campaign.daily_budget || campaign.lifetime_budget),
-    creative: { id: cre.id, page_id: oss.page_id ?? null, instagram_user_id: oss.instagram_user_id ?? oss.instagram_actor_id ?? null,
+    creative: { id: cre.id, page_id: pageId, instagram_user_id: igId, from_post: fromPost,
       degrees_of_freedom_spec: cre.degrees_of_freedom_spec ?? null, contextual_multi_ads: cre.contextual_multi_ads ?? null, url_tags: cre.url_tags ?? null, dynamic: !!cre.asset_feed_spec,
       kind: oss.video_data ? "video" : oss.link_data ? "image" : "other" },
     text,
@@ -200,11 +206,12 @@ Deno.serve(async (req) => {
     if (action === "validate") {
       const model = await readModel(url.searchParams.get("ad_id") ?? "");
       const media = model.media as Rec | null;
-      if (!media) return json({ error: "모델 광고의 미디어를 읽지 못했습니다" }, 400);
       const out: Rec = {};
       const s = model.summary as Rec;
       try { await createAdset(model, "validate_only", Number(s.daily_budget) || MIN_BUDGET, "PAUSED", true); out.adset = "ok"; } catch (e) { out.adset = String((e as Error).message); }
-      try { await createCreative(model, "validate_only", media, model.text as Rec, true); out.creative = "ok"; } catch (e) { out.creative = String((e as Error).message); }
+      // 인스타 게시물 광고가 모델이면 복사할 미디어·문구가 없다 — 실제 생성은 우리 파일·문구로 하니 크리에이티브 검증은 건너뛴다 (2026-09-28)
+      if (!media) out.creative = "skip";
+      else try { await createCreative(model, "validate_only", media, model.text as Rec, true); out.creative = "ok"; } catch (e) { out.creative = String((e as Error).message); }
       try {
         await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name: "validate_only", adset_id: String((model.adset as Rec).id), creative: JSON.stringify({ creative_id: (model.creative as Rec).id }), status: "PAUSED", ...VALIDATE } });
         out.ad = "ok";
