@@ -453,6 +453,16 @@ Deno.serve(async (req) => {
       if (!String(text.link ?? "").startsWith("http")) return json({ error: "웹사이트 URL이 필요합니다" }, 400);
       if (!(model.creative as Rec).page_id) return json({ error: "모델 광고에서 페이지 ID를 읽지 못했습니다" }, 400);
 
+      /* 영상 썸네일은 Meta CDN의 서명 URL이라 며칠 지나면 만료된다 — 등록해 둔 소재를 나중에 광고로 만들 때 '읽어들일 수 없는 이미지' 오류(2026-09-28 실사례, 9/22 등록분).
+         생성 직전에 영상의 썸네일 목록을 다시 받아 새 URL로 바꾼다. 못 받으면 저장된 것으로 시도 */
+      if (media.type === "video") {
+        try {
+          const t = await graph(`${media.video_id}/thumbnails`, { params: { fields: "uri,is_preferred" } });
+          const list = (t.data ?? []) as Rec[];
+          const fresh = String((list.find((x) => x.is_preferred) ?? list[0])?.uri ?? "");
+          if (fresh) media.thumbnail_url = fresh;
+        } catch { /* 저장된 URL로 진행 */ }
+      }
       const adset_id = await createAdset(model, name, budget, status);
       const creative_id = await createCreative(model, name, media, text);
       // 광고는 항상 활성 — 일시중지 모드는 세트만 멈춤(세트가 꺼져 있으면 지출 없음). 사용자가 세트만 켜면 바로 게재.
