@@ -23,6 +23,15 @@ async function api(fn, params, body) {
 const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n${P.COPY_EXAMPLES_HUMAN}\n\n${P.COPY_EXAMPLE_LONG}`;
 
 /* 출력 검증 — 영어 서술·과정 설명·도구 언급이 섞이면 실패 처리 (2026-09-13 실사례: WebFetch 외 도구가 거부되자 "the browser and curl tools were declined, so I'm writing from…" 영어 설명을 카피에 넣었다) */
+function stripNotes(text) {   // 카피 본문만 남기기: 마지막 ♡ 줄 뒤는 버리고, 앞쪽의 영어 머리말("I'll check the product page first.")은 첫 한글 줄부터 시작
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  let end = -1; lines.forEach((l, i) => { if (/♡\s*$/.test(l)) end = i; });
+  let body = end >= 0 ? lines.slice(0, end + 1) : lines;
+  const first = body.findIndex(l => /[가-힣]/.test(l));
+  body = first > 0 ? body.slice(first) : body;
+  const cut = body.findIndex(l => /^\s*(---|참고:|※|\[참고)/.test(l)); if (cut > 0) body = body.slice(0, cut);
+  return body.join('\n').trim();
+}
 function badCopy(text) {
   const t = String(text || '').trim();
   if (!t) return '빈 출력';
@@ -31,7 +40,7 @@ function badCopy(text) {
   if (/\b(I'm|I am|tools?|declined|WebFetch|curl|fetch|http)\b/i.test(t)) return '과정 설명·도구 언급';
   if (/확인해보니|작성했습니다|다음과 같이|페이지를 열|불러올 수 없|접근할 수 없/.test(t)) return '서론·과정 설명';
   const lines = t.split('\n').length;
-  if (lines < 10 || lines > 30) return `줄 수 ${lines} (10~30 밖)`;
+  if (lines < 10 || lines > 36) return `줄 수 ${lines} (10~36 밖)`;   // 18자 줄바꿈으로 늘어난 31줄짜리를 버리지 않게 (실사례 31줄)
   if (!/♡\s*$/.test(t)) return '마지막 ♡ 없음';
   return '';
 }
@@ -44,8 +53,8 @@ async function generate(facts, url, ui) {   // ui = { onTick, note } — 경과 
 [카페24 상품 정보]
 ${facts}`;
     // --restricted --tools WebFetch: Bash·브라우저 MCP 등이 아예 없어서 모델이 시도하거나 거부당할 일이 없다. --strict-mcp-config: 이 맥의 MCP 서버 제외
-    const out = await runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM], { onTick: ui && ui.onTick });   // 모델: 사용자 지정 Opus 5 · 높음 (한도면 Fable 5.1 · 높음)
-    return P.tidyCopy(out);   // 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
+    const out = await runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--allowedTools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM], { onTick: ui && ui.onTick });   // 모델: 사용자 지정 Opus 5 · 높음 (한도면 Fable 5.1 · 높음)
+    return P.tidyCopy(stripNotes(out));   // 사족 제거 → 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
   };
   let text = await ask('');
   let why = badCopy(text);
@@ -93,7 +102,7 @@ if (!targets.length) { console.log('✅ 문구가 필요한 대기 소재가 없
 console.log(`▶ 생성할 상품 ${targets.length}개 · 모델 ${claudeModel(COPY_MODELS)}${dry ? ' (--dry: 저장 안 함)' : ''}`);
 console.log(`  상품 1개에 보통 20~40초 걸려요 — 옆의 시간이 올라가고 있으면 정상 진행 중이니 창을 닫지 마세요`);
 const mmss = s => `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`;
-let ok = 0;
+let ok = 0; const failed = [];
 for (const t of targets) {
   try {
     const f = await api('cafe24-perf', { action: 'copy_facts', product_no: t.product_no });
@@ -103,11 +112,13 @@ for (const t of targets) {
     process.stdout.write(label);
     const message = await generate(f.facts, f.url, ui);
     console.log(` — ${message.length}자`);
-    if (dry) { console.log('\n' + message + '\n'); continue; }
+    if (dry) { console.log('\n' + message + '\n'); ok++; continue; }   // 화면 출력까지가 성공
     const text = { message, title: '', description: '', cta: 'LEARN_MORE' };
     await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });
     for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url }, regen: false });
     ok++; console.log(`✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
-  } catch (e) { const m = String(e.message).split('\n')[0]; console.log(`\n✗ #${t.product_no}: ${m}`); }   // 이유는 claude.mjs가 한국어로 정리
+  } catch (e) { const m = String(e.message).split('\n')[0]; failed.push(`#${t.product_no} ${m}`); console.log(`\n✗ #${t.product_no}: ${m}`); }   // 이유는 claude.mjs가 한국어로 정리
 }
-console.log(`끝 — ${ok}/${targets.length}`);
+const fail = targets.length - ok;
+console.log(fail ? `\n❌ ${fail}개 실패 · ${ok}개 완료 — 위의 ✗ 줄이 이유예요. 다시 실행하면 실패한 것만 다시 만들어요` : `\n✅ 완료 — 상품 ${ok}개 문구를 만들어 저장했어요`);
+try { fs.appendFileSync(path.join(process.env.HOME || '', 'Library/Logs/gen-copy.log'), `${new Date().toISOString()} ${process.argv.slice(2).join(' ')} → 완료 ${ok} · 실패 ${fail}${fail ? ' · ' + failed.join(' | ') : ''}\n`); } catch { /* 로그는 있으면 좋고 */ }
