@@ -523,6 +523,15 @@
   </div>
 </div>
 
+<!-- ═══ 소재 크게 보기 (2026-09-28) — 업로드 대기 파일·등록된 소재 썸네일을 누르면 ═══ -->
+<div class="modal" id="media-modal" onclick="if(event.target===this)closeModal('media-modal')">
+  <div class="modal-box" style="max-width:720px;">
+    <div class="modal-head"><b id="media-modal-title" style="word-break:break-all;font-size:.86rem;"></b>
+      <button class="modal-x" onclick="document.querySelectorAll('#media-modal video').forEach(v=>v.pause());closeModal('media-modal')">✕</button></div>
+    <div id="media-modal-body"></div>
+  </div>
+</div>
+
 <!-- ═══ 내 소재 성과 — 소재 상세 (2026-09-22) ═══ -->
 <div class="modal" id="mycre-modal" onclick="if(event.target===this)closeModal('mycre-modal')">
   <div class="modal-box" style="max-width:860px;">
@@ -584,10 +593,10 @@
 <script src="./js/core.js?v=202609211913"></script>
 <script src="./js/auth.js?v=202609211758"></script>
 <script src="./js/home.js?v=202609211227"></script>
-<script src="./js/creatives.js?v=202609211227"></script>
-<script src="./js/checkboard.js?v=202609211227"></script>
-<script src="./js/register.js?v=202609211227"></script>
-<script src="./js/upload.js?v=202609280201"></script>
+<script src="./js/creatives.js?v=202609281445"></script>
+<script src="./js/checkboard.js?v=202609281448"></script>
+<script src="./js/register.js?v=202609281448"></script>
+<script src="./js/upload.js?v=202609281448"></script>
 <script src="./js/admgr.js?v=202609211758"></script>
 <script src="./js/admgr-budget.js?v=202609211227"></script>
 <script src="./js/admgr-tabs.js?v=202609211750"></script>

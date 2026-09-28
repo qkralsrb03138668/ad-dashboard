@@ -331,7 +331,7 @@ function deleteCre() {
   saveAll(); closeModal('cre-modal'); closeModal('detail-modal'); rerender();
   toast('삭제했어요');
 }
-function closeModal(id) { $(id).classList.remove('show'); }
+function closeModal(id) { const el = $(id); el.classList.remove('show'); el.querySelectorAll('video').forEach(v => v.pause()); }   // 닫을 때 재생 중인 영상은 멈춘다 (소재 크게 보기)
 
 /* ═══════════ ⑥ 소재 상세 ═══════════ */
 function openDetail(id) {

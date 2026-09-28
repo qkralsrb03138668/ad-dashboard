@@ -356,9 +356,10 @@ function ptCellPopup(pid, ti) {
   const act = (window.DASH_CFG && window.DASH_CFG.META_ACCOUNT_ID) || '';
   const tagOf = fn => { const m = String(fn).match(/_(?:R|P)\d+_([^_]+)_\d+_\d{6}_test/); return m ? m[1] : ''; };
   $('pt-cell-title').innerHTML = `${esc(coreName(p.name))} · ${esc(t)} <span style="font-weight:400;color:#6b7280;font-size:.8rem;">${rows.length}개</span>`;
+  setTimeout(() => mediaRefresh(rows, () => { if ($('pt-cell-modal').classList.contains('show')) ptCellPopup(pid, ti); }), 0);   // 만료된 썸네일 주소 새로 받아 다시 그림 (한 번만)
   $('pt-cell-body').innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th></th><th style="text-align:left;">파일</th><th>소구점</th><th style="text-align:left;">상태</th><th>등록</th><th>문구</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
-      <td>${mediaThumbHtml(mediaThumbSrc(r.media), r.kind, 48)}</td>
+      <td>${mediaThumbPv(mediaThumbSrc(r.media), r.kind, 48, { title: r.file_name, kind: r.kind, media: r.media })}</td>
       <td style="font-size:.78rem;">${esc(r.file_name)}</td>
       <td style="text-align:center;font-size:.74rem;">${esc(tagOf(r.file_name) || '-')}</td>
       <td style="font-size:.76rem;white-space:nowrap;">${r.status === 'ad_created' ? `<span class="status-badge badge-green">광고 생성됨</span><div style="font-size:.66rem;color:#9ca3af;">${(r.ad_created_at || '').slice(5, 10)} · ${esc(whoName(r.ad_created_by_name, r.ad_created_by))}${r.ad_id && act ? ` · <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${r.ad_id}" target="_blank" rel="noopener">광고관리자 ↗</a>` : ''}</div>` : '<span class="status-badge badge-blue">대기</span>'}</td>

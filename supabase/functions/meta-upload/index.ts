@@ -262,11 +262,27 @@ Deno.serve(async (req) => {
     const isForm = (req.headers.get("content-type") ?? "").includes("multipart/form-data");
     const form = isForm ? await req.formData() : null;
     const body: Rec = form ? Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === "string")) : await req.json();
+    /* 미리보기 주소 새로 받기 (2026-09-28) — 등록 소재에 저장된 이미지 url·영상 thumbnail_url은 Meta CDN 서명 주소라 며칠 뒤 만료된다.
+       이미지는 image_hash로 adimages 한 번, 영상은 ?ids= 한 번에 50개씩 thumbnails. 광고 생성과 무관하게 화면 표시용 */
+    if (action === "media_urls" && req.method === "POST") {
+      const hashes = ((body.hashes ?? []) as unknown[]).map(String).filter((h) => /^[0-9a-f]{16,64}$/.test(h)).slice(0, 200);
+      const vids = ((body.video_ids ?? []) as unknown[]).map(String).filter((v) => /^\d{5,25}$/.test(v)).slice(0, 200);
+      const images: Record<string, string> = {}, videos: Record<string, string> = {};
+      for (let i = 0; i < hashes.length; i += 50) {
+        try { const r = await graph(`${ACCOUNT}/adimages`, { params: { hashes: JSON.stringify(hashes.slice(i, i + 50)), fields: "hash,url", limit: "50" } });
+          for (const x of (r.data ?? []) as Rec[]) if (x.hash && x.url) images[String(x.hash)] = String(x.url); } catch { /* 일부 실패는 무시 */ }
+      }
+      for (let i = 0; i < vids.length; i += 50) {
+        try { const r = await graph("", { params: { ids: vids.slice(i, i + 50).join(","), fields: "thumbnails{uri,is_preferred}" } }) as Record<string, Rec>;
+          for (const [id, v] of Object.entries(r)) { const list = ((((v ?? {}) as Rec).thumbnails ?? {}) as Rec).data as Rec[] | undefined; const t = (list ?? []).find((x) => x.is_preferred) ?? (list ?? [])[0]; if (t?.uri) videos[id] = String(t.uri); } } catch { /* 무시 */ }
+      }
+      return json({ images, videos });
+    }
     const MEDIA_ACTIONS = ["image", "video_start", "video_chunk", "video_finish"];
     const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
     const COPY_ACTIONS = ["ad_copy", "adset_rename", "marker_sync"];   // 광고 복사·세트 이름 표시 (2026-09-16) — 예산 변경이 아니라 PIN 없이 로그인 역할로
     // 미디어 업로드·소재 기록은 로그인 역할(마케터/관리자)만으로 허용 — 등록 PIN 폐지(2026-09-11 사용자 요청). PIN은 광고 생성(create/verify)에만.
-    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action)) {
+    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action) && action !== "media_urls") {   // media_urls = 미리보기 주소 읽기(쓰기 아님) — PIN 없이
       const pinErr = await checkPin(body.pin);
       if (pinErr) return json({ error: pinErr }, 403);
     }

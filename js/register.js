@@ -24,6 +24,47 @@ function mediaThumbHtml(src, kind, size) {
 }
 function regFileThumb(r) { if (!r.thumbUrl) { try { r.thumbUrl = URL.createObjectURL(r.file); } catch (e) { r.thumbUrl = ''; } } return mediaThumbHtml(r.thumbUrl, r.kind); }
 const mediaThumbSrc = m => m ? (m.thumbnail_url || m.url || '') : '';
+/* 썸네일 눌러서 크게 보기 (2026-09-28 사용자 요청) — 업로드 대기 파일·등록된 소재·체크보드 공통.
+   entry: { title, kind, local(브라우저 파일 URL) | media(등록 소재: 이미지 url · 영상 video_id) }. 등록 영상은 Meta에서 원본 주소를 새로 받아 재생(저장된 주소는 며칠 뒤 만료) */
+const MEDIA_PV = new Map();
+function mediaThumbPv(src, kind, size, entry) {
+  const key = 'pv' + (MEDIA_PV.size + 1) + '_' + Math.random().toString(36).slice(2, 7);
+  MEDIA_PV.set(key, entry);
+  return `<span style="cursor:zoom-in;display:inline-flex;flex:none;" onclick="event.stopPropagation();mediaPreview('${key}')" title="누르면 크게 보기">${mediaThumbHtml(src, kind, size)}</span>`;
+}
+/* 목록에 보이는 등록 소재의 만료된 미리보기 주소를 한 번에 새로 받는다 — rows = creatives 행들. 이미 받은 건 다시 안 받음. 끝나면 rerender() */
+async function mediaRefresh(rows, rerender) {
+  const need = rows.filter(r => r.media && !r.media._fresh && (r.media.image_hash || r.media.video_id));
+  if (!need.length || typeof uplCall !== 'function' || !admgrCfg()) return;
+  need.forEach(r => { r.media._fresh = true; });   // 실패해도 한 번만 시도
+  try {
+    const d = await uplCall({ action: 'media_urls' }, { hashes: [...new Set(need.filter(r => r.media.image_hash).map(r => r.media.image_hash))], video_ids: [...new Set(need.filter(r => r.media.video_id).map(r => r.media.video_id))] });
+    let n = 0;
+    for (const r of need) { const u = r.media.image_hash ? (d.images || {})[r.media.image_hash] : (d.videos || {})[r.media.video_id]; if (u) { if (r.media.image_hash) r.media.url = u; else r.media.thumbnail_url = u; n++; } }
+    if (n && typeof rerender === 'function') rerender();
+  } catch (e) { /* 미리보기만 못 보일 뿐 */ }
+}
+async function mediaPreview(key) {
+  const e = MEDIA_PV.get(key); if (!e) return;
+  const box = $('media-modal-body'); $('media-modal-title').textContent = e.title || '';
+  const modal = $('media-modal'); modal.classList.add('show');
+  const dead = '<div style="padding:24px;color:#6b7280;font-size:.8rem;text-align:center;">미리보기 주소가 만료돼 보여줄 수 없어요 — 소재 자체는 정상이고 광고 생성에도 문제없어요</div>';
+  const vid = src => `<video src="${esc(src)}" controls autoplay muted playsinline style="max-width:100%;max-height:70vh;border-radius:10px;background:#000;display:block;margin:0 auto;"></video>`;
+  const img = src => `<img src="${esc(src)}" style="max-width:100%;max-height:70vh;border-radius:10px;display:block;margin:0 auto;" onerror="this.outerHTML=${JSON.stringify(dead).replace(/"/g, '&quot;')}" />`;
+  if (e.local) { box.innerHTML = e.kind === 'video' ? vid(e.local) : img(e.local); return; }
+  const m = e.media || {};
+  if (e.kind !== 'video') {
+    if (m.image_hash && !m._fresh) { try { const d = await uplCall({ action: 'media_urls' }, { hashes: [m.image_hash] }); if (d.images && d.images[m.image_hash]) m.url = d.images[m.image_hash]; m._fresh = true; } catch (err) { /* 저장된 주소로 */ } }
+    if (!modal.classList.contains('show')) return;
+    box.innerHTML = m.url ? img(m.url) : dead; return;
+  }
+  box.innerHTML = '<div style="padding:24px;color:#9ca3af;font-size:.8rem;text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> 영상을 불러오는 중…</div>';
+  try {
+    const r = await uplCall({ action: 'video_src', video_id: m.video_id });
+    if (!modal.classList.contains('show')) return;
+    box.innerHTML = r.source ? vid(r.source) : (r.thumbnails && r.thumbnails[0]) ? img(r.thumbnails[0]) + '<div style="margin-top:6px;text-align:center;font-size:.72rem;color:#9ca3af;">영상 원본은 못 받아 대표 장면만 보여줘요</div>' : dead;
+  } catch (err) { box.innerHTML = `<div style="padding:24px;color:#dc2626;font-size:.8rem;text-align:center;">불러오기 실패: ${esc(err.message)}</div>`; }
+}
 
 async function regLoadRefs(force) {
   if (force || !reg.products) reg.products = (await perfApi({ action: 'products' })).rows.map(r => ({ ...r, core: coreName(r.name), key: normKey(r.name) }));
@@ -358,6 +399,7 @@ async function regRefresh(force) {
 function regRenderList() {
   regMakerRender();
   const box = $('reg-list'); if (!box || !reg.list) return;
+  setTimeout(() => mediaRefresh((reg.filter === 'all' ? reg.list : reg.list.filter(r => r.status === reg.filter)).slice(0, 200), regRenderList), 0);   // 만료된 썸네일 주소 새로 받기
   const all = reg.list, wait = all.filter(r => r.status === 'registered'), made = all.filter(r => r.status === 'ad_created');
   $('reg-tabs').innerHTML = [['registered', `대기 ${wait.length}`], ['ad_created', `광고 생성됨 ${made.length}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="filter-tab ${reg.filter === k ? 'active' : ''}" onclick="reg.filter='${k}';regRenderList()">${l}</button>`).join('');
   const rows = reg.filter === 'all' ? all : all.filter(r => r.status === reg.filter);
@@ -365,7 +407,7 @@ function regRenderList() {
   box.innerHTML = `<div class="table-wrap"><table><thead><tr><th class="m-hide">등록일</th><th style="text-align:left;">파일</th><th style="text-align:left;">상품</th><th>유형</th><th>문구</th><th style="text-align:left;">상태</th><th class="m-hide">등록자</th><th class="m-hide" title="올린 사람과 만든 사람이 다르면 여기서 고쳐요">만든 사람</th><th></th></tr></thead><tbody>
     ${rows.slice(0, 200).map(r => `<tr>
       <td class="m-hide" style="text-align:center;font-size:.74rem;color:#6b7280;">${(r.created_at || '').slice(5, 10)}</td>
-      <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:center;">${mediaThumbHtml(mediaThumbSrc(r.media), r.kind, 40)}<span>${esc(r.file_name)}</span></div></td>
+      <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:center;">${mediaThumbPv(mediaThumbSrc(r.media), r.kind, 40, { title: r.file_name, kind: r.kind, media: r.media })}<span>${esc(r.file_name)}</span></div></td>
       <td style="font-size:.78rem;" id="reg-prod-${r.id}">${esc(r.product_name || '-')}${safeUrl(r.url) ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:.7rem;">↗</a>` : ''}${r.status === 'registered' ? ` <button class="btn-ghost" style="padding:1px 7px;font-size:.66rem;margin-left:4px;" title="상품을 잘못 골랐을 때 바꾸기 (URL·파일명도 같이)" onclick="regListProduct('${r.id}')">변경</button>` : ''}</td>
       <td style="text-align:center;font-size:.74rem;">${REG_KIND_TYPE[r.kind] || r.kind}</td>
       <td style="text-align:center;"><button class="btn-ghost" style="padding:2px 8px;font-size:.7rem;" onclick="regListText('${r.id}')">${r.text && r.text.message ? '<i class="fa-solid fa-check" style="color:#15803d;"></i>' : '<i class="fa-solid fa-pen"></i>'}</button></td>
