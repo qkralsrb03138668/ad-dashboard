@@ -23,27 +23,7 @@ async function api(fn, params, body) {
 const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n${P.COPY_EXAMPLES_HUMAN}\n\n${P.COPY_EXAMPLE_LONG}`;
 
 /* 출력 검증 — 영어 서술·과정 설명·도구 언급이 섞이면 실패 처리 (2026-09-13 실사례: WebFetch 외 도구가 거부되자 "the browser and curl tools were declined, so I'm writing from…" 영어 설명을 카피에 넣었다) */
-function stripNotes(text) {   // 카피 본문만 남기기: 마지막 ♡ 줄 뒤는 버리고, 앞쪽의 영어 머리말("I'll check the product page first.")은 첫 한글 줄부터 시작
-  const lines = String(text || '').replace(/\r/g, '').split('\n');
-  let end = -1; lines.forEach((l, i) => { if (/♡\s*$/.test(l)) end = i; });
-  let body = end >= 0 ? lines.slice(0, end + 1) : lines;
-  const first = body.findIndex(l => /[가-힣]/.test(l));
-  body = first > 0 ? body.slice(first) : body;
-  const cut = body.findIndex(l => /^\s*(---|참고:|※|\[참고)/.test(l)); if (cut > 0) body = body.slice(0, cut);
-  return body.join('\n').trim();
-}
-function badCopy(text) {
-  const t = String(text || '').trim();
-  if (!t) return '빈 출력';
-  const latin = (t.match(/[A-Za-z]/g) || []).length, hangul = (t.match(/[가-힣]/g) || []).length;
-  if (latin > hangul * 0.3) return '영어 문장 섞임';
-  if (/\b(I'm|I am|tools?|declined|WebFetch|curl|fetch|http)\b/i.test(t)) return '과정 설명·도구 언급';
-  if (/확인해보니|작성했습니다|다음과 같이|페이지를 열|불러올 수 없|접근할 수 없/.test(t)) return '서론·과정 설명';
-  const lines = t.split('\n').length;
-  if (lines < 10 || lines > 36) return `줄 수 ${lines} (10~36 밖)`;   // 18자 줄바꿈으로 늘어난 31줄짜리를 버리지 않게 (실사례 31줄)
-  if (!/♡\s*$/.test(t)) return '마지막 ♡ 없음';
-  return '';
-}
+const { stripNotes, badCopy } = P;   // 공용 (ad-copy-prompt.ts) — 서버와 같은 규칙
 async function generate(facts, url, ui) {   // ui = { onTick, note } — 경과 시간 표시·재시도 표시
   const ask = async (extra) => {
     const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써.

@@ -21,7 +21,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { cacheGet, cacheSet, getAuth, canMenu, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 import Anthropic from "npm:@anthropic-ai/sdk";
-import { COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL, tidyCopy } from "./ad-copy-prompt.ts";
+import { badCopy, COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL, stripNotes, tidyCopy } from "./ad-copy-prompt.ts";
 
 // ── 상품별 광고 문구 (product_copy) — 소재 등록에서 상품이 정해지면 저장본 재사용, 없으면 [AI 문구 생성] 버튼으로 생성·고정 ──
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://danarobe.com";
@@ -65,8 +65,8 @@ async function generateCopy(no: number, token: string): Promise<{ message: strin
   } as any);
   if (res.stop_reason === "refusal") throw new Error("문구 생성이 거부되었습니다 (안전 분류)");
   const message = (res.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("\n");
-  const tidy = tidyCopy(message);   // 빈 줄 하나·한 줄 18자 이내
-  if (!tidy) throw new Error("문구가 비어 있습니다");
+  const tidy = tidyCopy(stripNotes(message));   // 안내문 제거 → 빈 줄 하나·한 줄 18자 이내
+  const why = badCopy(tidy); if (why) throw new Error(`문구 생성 실패 — ${why}. 다시 시도해 주세요`);
   return { message: tidy, usage: res.usage };
 }
 
