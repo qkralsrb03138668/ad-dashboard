@@ -54,10 +54,10 @@ summary{cursor:pointer;font-weight:700}
     <li>아래 버튼을 브라우저 <b>북마크바</b>에 끌어다 놓기 (북마크바가 안 보이면 ⌘+Shift+B / Ctrl+Shift+B)<br>
       <a id="bm" class="bm" href="#">CS 상황판 보내기</a></li>
     <li><b>카카오</b>: 파트너센터 → 채널 → 채팅 화면에서 북마크 클릭</li>
-    <li><b>네이버</b>: 네이버페이센터 → 고객관리 → 고객문의관리에서 <b>답변여부 = 미답변</b>으로 두고 북마크 클릭. 30초마다 '6개월 → 조회하기'를 자동으로 누르니 <b>이 화면은 상황판 전용 탭으로 따로</b> 열어두세요.</li>
+    <li><b>네이버</b>: 네이버페이센터 → 고객관리 → 고객문의관리에서 <b>답변여부 = 미답변</b>으로 두고 북마크 클릭. 1분마다 '6개월 → 조회하기'를 자동으로 누르니 <b>이 화면은 상황판 전용 탭으로 따로</b> 열어두세요.</li>
     <li>두 탭은 닫지 말고 켜 두기. 화면 왼쪽 아래에 "CS 상황판 전송 중"이 보이면 정상입니다.</li>
   </ol>
-  <p class="small">숫자가 회색으로 바뀌고(1분 반 넘게 소식 없을 때) "갱신 없음"이 뜨면 그 탭이 닫혔거나 로그인이 풀린 것 → 다시 로그인하고 북마크를 한 번 더 누르세요. 읽기만 하고 카카오·네이버의 어떤 것도 바꾸지 않습니다.</p>
+  <p class="small">숫자가 회색으로 바뀌고(2분 반 넘게 소식 없을 때) "갱신 없음"이 뜨면 그 탭이 닫혔거나 로그인이 풀린 것 → 다시 로그인하고 북마크를 한 번 더 누르세요. 읽기만 하고 카카오·네이버의 어떤 것도 바꾸지 않습니다.</p>
 </details>
 
 <script>
@@ -65,11 +65,11 @@ const API='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup';
 const CODE_KEY='cs_code';   // CS 주문조회(cs-lookup.html)와 같은 키 — 거기서 넣었으면 여기선 생략
 const store={ get:k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set:(k,v)=>{ try{ localStorage.setItem(k,v); }catch(e){} } };
 const SRC=[['kakao','카카오 상담채널','내 채팅 안 읽음'],['naver','네이버페이 문의','미답변']];
-const STALE=90e3;   // 북마크는 카카오 10초·네이버 30초마다 보냄 → 1분 반 넘게 소식 없으면 탭이 닫혔거나 로그인 풀림
+const STALE=150e3;   // 북마크는 카카오 10초·네이버 1분마다 보냄 → 2분 반 넘게 소식 없으면 탭이 닫혔거나 로그인 풀림
 const app=document.querySelector('#app'), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let code=new URLSearchParams(location.search).get('code')||store.get(CODE_KEY)||'', data=null, err='';
 
-// ── 북마크 본문: 카카오·네이버 탭에서 실행돼 카카오 10초·네이버 30초마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
+// ── 북마크 본문: 카카오·네이버 탭에서 실행돼 카카오 10초·네이버 1분마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
 //    카카오: 왼쪽 메뉴(shadow DOM) '내 채팅' 옆 .txt_badge — 카카오 화면이 알아서 수시로 갱신
 //    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 "검색결과 내역 (총 N건)" 읽기
 //    카카오·네이버 화면이 바뀌면 여기 kakao()/naver()를 고치고 상담원 PC에서 북마크를 다시 끌어다 놓아야 함
@@ -116,7 +116,7 @@ function tracker(C,F){
     function fb(){if(w)w.terminate();w=null;t=setInterval(f,ms)}
     try{w=new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(0)},'+ms+')'])));w.onmessage=f;w.onerror=fb}catch(e){fb()}
     return {stop:function(){if(w)w.terminate();clearInterval(t)}}}
-  var timer=every(src=='kakao'?10000:30000,src=='kakao'?kakao:naver);
+  var timer=every(src=='kakao'?10000:60000,src=='kakao'?kakao:naver);
 }
 
 function bookmark(){
