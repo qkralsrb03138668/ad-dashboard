@@ -7,8 +7,10 @@
 //   stock { product_no } → { variants:[{option, stock, selling, ...}] }  카페24 옵션별 재고
 //   boards               → { boards }                       게시판 번호 찾기용 (셋업 때 한 번)
 //   status               → { kakao:{n,err,at}, naver:{...} }  CS 진행상황판(cs-board.html)용
+//   record { src:'kakao', chats:{채팅id:담당자id}, names:{담당자id:이름} } → 오늘 처리한 카카오 채팅을 cs_assets 'daily:kakao:<날짜>'에 누적
+//   records              → { days:[{day, kakao:{담당자:건수}, naver:건수}] }  CS 처리 기록(cs-record.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
-//   GET ?action=push&code=&src=kakao|naver&n=&err= → 상황판 북마크가 카카오 10초·네이버 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
+//   GET ?action=push&code=&src=kakao|naver&n=&err=[&ids=네이버 미답변 문의번호들] → 상황판 북마크가 카카오 10초·네이버 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
 // secrets: CS_CODE(초대코드), CS_BOARD_NO(배송지연 게시판 번호), CAFE24_*(판매성과와 공유)
 // 배포: ./deploy-cs-lookup.sh <초대코드> <게시판번호>
 // ═══════════════════════════════════════════════
@@ -107,6 +109,50 @@ async function delays(): Promise<unknown> {
   return data;
 }
 
+// cs_assets 한 줄을 JSON으로 읽고 쓰기 (상황판 상태·처리 기록)
+async function getAsset(key: string): Promise<Row | null> {
+  const r = await dbRest(`cs_assets?key=eq.${encodeURIComponent(key)}&select=body`);
+  const row = r.ok ? (await r.json())[0] : null;
+  return row ? JSON.parse(row.body) : null;
+}
+async function putAsset(key: string, body: unknown): Promise<void> {
+  await dbRest("cs_assets?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key, body: JSON.stringify(body), updated_at: new Date().toISOString() }) });
+}
+// 채팅방 id → 담당자 id 를 합집합으로 쌓음: 한 번이라도 '오늘 답변함'으로 잡힌 채팅은 고객이 다시 물어봐도 빠지지 않음. 담당자가 바뀌면 마지막 담당자로.
+async function recordKakao(op: Row): Promise<unknown> {
+  const chats = op.chats ?? {}, names = op.names ?? {};
+  const ok = (o: Row, v: (x: unknown) => boolean) => o && typeof o === "object" && Object.keys(o).length <= 2000 && Object.entries(o).every(([k, x]) => k.length <= 40 && v(x));
+  if (!ok(chats, (x) => Number.isInteger(x)) || !ok(names, (x) => typeof x === "string" && x.length <= 40)) throw new Error("bad record");
+  const key = `daily:kakao:${kst(new Date())}`;
+  const cur = (await getAsset(key)) ?? { chats: {}, names: {} };
+  Object.assign(cur.chats, chats); Object.assign(cur.names, names);
+  await putAsset(key, cur);
+  return { ok: true, n: Object.keys(cur.chats).length };
+}
+// 네이버: 1분 전 미답변 목록에 있던 문의번호가 지금 없으면 = 답변 처리됨 → 오늘 기록에 추가.
+// ponytail: 목록 한 페이지에 미답변이 다 보일 때(번호 수 == 총 N건)만 셈. 미답변이 한 페이지를 넘으면 그동안의 답변은 못 셈 — 그런 날이 잦으면 네이버 목록 표시 개수를 늘릴 것.
+async function trackNaver(ids: string[], n: number): Promise<void> {
+  const prev = await getAsset("status:naver");
+  if (!prev?.ids || prev.ids.length !== prev.n || ids.length !== n) return;
+  const gone = (prev.ids as string[]).filter((x) => !ids.includes(x));
+  if (!gone.length) return;
+  const key = `daily:naver:${kst(new Date())}`;
+  const cur = (await getAsset(key)) ?? { ids: [] };
+  cur.ids = [...new Set([...cur.ids, ...gone])];
+  await putAsset(key, cur);
+}
+async function records(): Promise<unknown> {
+  const r = await dbRest("cs_assets?key=like.daily:*&select=key,body&order=key.desc&limit=800");
+  const days: Record<string, Row> = {};
+  for (const x of (r.ok ? await r.json() : []) as Row[]) {
+    const [, src, day] = x.key.split(":"), b = JSON.parse(x.body);
+    const d = days[day] ??= { day, kakao: {}, naver: 0 };
+    if (src === "naver") d.naver = b.ids.length;
+    else for (const a of Object.values(b.chats) as number[]) { const nm = a ? (b.names[a] ?? `담당자 ${a}`) : "미지정"; d.kakao[nm] = (d.kakao[nm] ?? 0) + 1; }
+  }
+  return { days: Object.values(days).sort((a, b) => b.day.localeCompare(a.day)) };
+}
+
 async function run(op: Row): Promise<unknown> {
   switch (op?.action) {
     case "ping": return { ok: true };
@@ -128,6 +174,8 @@ async function run(op: Row): Promise<unknown> {
       for (const x of (r.ok ? await r.json() : []) as Row[]) out[x.key.slice(7)] = { ...JSON.parse(x.body), at: x.updated_at };
       return out;
     }
+    case "record": return await recordKakao(op);
+    case "records": return await records();
     case "boards": { const r = await apiGet(`${API_BASE}/admin/boards`, await getAccessToken()); return { boards: ((r.boards ?? []) as Row[]).map((b) => ({ board_no: b.board_no, name: b.board_name, type: b.board_type })) }; }
     default: throw new Error("unknown action");
   }
@@ -140,11 +188,12 @@ Deno.serve(async (req) => {
   if (req.method === "GET") {   // 북마크용 스크립트 — <script src>는 헤더를 못 붙이니 초대코드를 쿼리로 받는다
     const u = new URL(req.url);
     if (u.searchParams.get("action") === "push") {   // GET인 이유: 페이지가 fetch를 막으면 북마크가 <img>로 대신 보낼 수 있게
-      const p = u.searchParams, src = p.get("src") ?? "", n = p.get("n") ?? "";
+      const p = u.searchParams, src = p.get("src") ?? "", n = p.get("n") ?? "", idq = p.get("ids");
       if (p.get("code") !== code) return j({ error: "unauthorized" }, 401);
-      if (!["kakao", "naver"].includes(src) || !/^\d{0,5}$/.test(n)) return j({ error: "bad params" }, 400);
-      const body = JSON.stringify({ n: n === "" ? null : Number(n), err: (p.get("err") ?? "").slice(0, 120) });
-      await dbRest("cs_assets?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: `status:${src}`, body, updated_at: new Date().toISOString() }) });
+      if (!["kakao", "naver"].includes(src) || !/^\d{0,5}$/.test(n) || (idq !== null && !/^[\d,]{0,2000}$/.test(idq))) return j({ error: "bad params" }, 400);
+      const ids = idq ? idq.split(",").filter(Boolean) : idq === "" ? [] : null;
+      if (src === "naver" && ids && n !== "") await trackNaver(ids, Number(n));
+      await putAsset(`status:${src}`, { n: n === "" ? null : Number(n), err: (p.get("err") ?? "").slice(0, 120), ...(ids ? { ids } : {}) });
       return j({ ok: true });
     }
     if (u.searchParams.get("action") !== "overlay") return j({ error: "unknown action" }, 400);

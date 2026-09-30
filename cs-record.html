@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CS 처리 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Archivo:wght@600;800&display=swap">
+<style>
+:root{--bg:#F3F4F7;--surface:#FFFFFF;--surface2:#EBEDF2;--ink:#15171C;--ink2:#5E6472;--ink3:#9AA0AD;--line:#DFE2E9;--accent:#2C49D6;--accent-ink:#FFFFFF;--danger:#CC3F38}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){--bg:#111318;--surface:#1A1D24;--surface2:#242832;--ink:#EDEFF4;--ink2:#A2A8B5;--ink3:#6C7280;--line:#2C313B;--accent:#7C93FF;--accent-ink:#0B1030;--danger:#F0665E}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR",-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px;line-height:1.5}
+main{max-width:960px;margin:0 auto;padding:28px 16px 40px}
+h1{font-size:18px;margin:0 0 4px} .sub{color:var(--ink3);font-size:13px;margin:0 0 16px} .sub a{color:inherit}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+button{font:inherit;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;font-weight:500}
+button.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;width:140px;background:var(--surface);color:var(--ink)}
+.wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:10px 14px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:13px;color:var(--ink2);font-weight:500;background:var(--surface2)}
+th.grp{text-align:center;border-left:1px solid var(--line)} td.l,th.l{border-left:1px solid var(--line)}
+td.sum{font-weight:700} tr.today td{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.note{font-size:13px;color:var(--ink2);margin-top:14px} .err{color:var(--danger)}
+.login{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+</style>
+</head>
+<body>
+<main>
+<h1>CS 처리 기록</h1>
+<p class="sub"><a href="cs-board.html">← CS 진행상황</a> · 매일 자동으로 쌓임 (카카오·네이버 상황판 북마크가 켜져 있는 동안)</p>
+<div id="app"></div>
+<p class="note">
+  <b>카카오</b> = 그날 메시지가 오간 채팅방 중 우리가 마지막에 답했거나 상담완료한 방 수, 담당자별. 같은 고객과 여러 번 주고받아도 1건. 담당자로 지정된 사람 기준(다른 직원이 대신 답해도 담당자에게 잡힘).<br>
+  <b>네이버</b> = 미답변 목록에 있다가 사라진 문의 수 (답변 처리). 네이버 탭이 꺼져 있던 동안 답변한 건은 빠질 수 있음.
+</p>
+<script>
+const API='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup';
+const CODE_KEY='cs_code';
+const store={ get:k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set:(k,v)=>{ try{ localStorage.setItem(k,v); }catch(e){} } };
+const app=document.querySelector('#app'), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const kst=()=>new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+let code=new URLSearchParams(location.search).get('code')||store.get(CODE_KEY)||'', days=[], err='';
+
+function table(){
+  const staff=[...new Set(days.flatMap(d=>Object.keys(d.kakao)))].sort((a,b)=>(a==='미지정')-(b==='미지정')||a.localeCompare(b,'ko'));
+  const rows=days.map(d=>{ const sum=Object.values(d.kakao).reduce((a,b)=>a+b,0);
+    return [d.day,...staff.map(s=>d.kakao[s]||0),sum,d.naver]; });
+  return {head:['날짜',...staff,'카카오 합계','네이버 답변'],staff,rows};
+}
+function render(){
+  if(!code){ app.innerHTML=`<form class="login" id="login"><b>초대코드</b><br><br><input id="c" inputmode="numeric" autocomplete="off" placeholder="초대코드"> <button class="pri">시작</button> ${err?`<p class="err">${esc(err)}</p>`:''}</form>`;
+    document.querySelector('#login').onsubmit=e=>{ e.preventDefault(); code=document.querySelector('#c').value.trim(); err=''; load(); }; return; }
+  const {staff,rows}=table(), today=kst();
+  app.innerHTML=`<div class="bar"><button id="csv">CSV 다운로드</button><button id="re">새로고침</button>${err?`<span class="err">${esc(err)}</span>`:''}</div>`+
+    (rows.length?`<div class="wrap"><table><thead>
+      <tr><th rowspan="2">날짜</th><th class="grp" colspan="${staff.length+1}">카카오 상담채널 (담당자별)</th><th class="grp" rowspan="2">네이버<br>답변</th></tr>
+      <tr>${staff.map((s,i)=>`<th${i?'':' class="l"'}>${esc(s)}</th>`).join('')}<th>합계</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr${r[0]===today?' class="today"':''}><td>${r[0]}${r[0]===today?' (오늘)':''}</td>${r.slice(1,-2).map((v,i)=>`<td${i?'':' class="l"'}>${v}</td>`).join('')}<td class="sum">${r.at(-2)}</td><td class="l">${r.at(-1)}</td></tr>`).join('')}
+      </tbody></table></div>`:`<div class="login">아직 기록이 없어요. 카카오 채팅 탭에서 상황판 북마크를 누르면 1분 안에 오늘 줄이 생깁니다.</div>`);
+  document.querySelector('#re').onclick=load;
+  document.querySelector('#csv').onclick=()=>{ const t=table();
+    const csv='﻿'+[t.head,...t.rows].map(r=>r.map(v=>/[",\n]/.test(v)?`"${String(v).replace(/"/g,'""')}"`:v).join(',')).join('\n');
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`CS처리기록_${today}.csv`; a.click(); };
+}
+async function load(){
+  if(!code) return render();
+  try{
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':code},body:JSON.stringify({action:'records'})});
+    if(r.status===401){ code=''; err='초대코드가 맞지 않습니다'; return render(); }
+    const j=await r.json(); if(j.error) throw new Error(j.error);
+    days=j.days; err=''; store.set(CODE_KEY,code);
+  }catch(e){ err='불러오기 실패 ('+e.message+')'; }
+  render();
+}
+load(); setInterval(load,60e3);
+</script>
+</main>
+</body>
+</html>
