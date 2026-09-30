@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>CS 온보딩 체크리스트</title>
+<style>
+:root{
+  --bg:#eef0f3;--paper:#ffffff;--ink:#1c2127;--ink2:#5b636d;--line:#d9dde3;
+  --navy:#1f3a5f;--navy-soft:#e8eef6;
+  --sa:#1f3a5f;--sb:#8a5a1f;--sc:#3f6b3a;--sd:#6a3f7a;
+  --solo:#2f6b3a;--solo-bg:#e6f2e7;--help:#8a5a1f;--help-bg:#fbf0dc;--yet:#5b636d;--yet-bg:#eceef1;
+  --track:#e3e6ea;--danger:#a32d2d;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Apple SD Gothic Neo","Pretendard","Malgun Gothic","Noto Sans KR",sans-serif;font-size:15px;line-height:1.6;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.wrap{max-width:920px;margin:0 auto;padding-inline:16px;padding-block:24px 72px;display:flex;flex-direction:column;gap:20px}
+h1{font-size:24px;line-height:1.3;margin:0;color:var(--navy)}
+h2{font-size:18px;margin:0}
+.lead{margin:6px 0 0;color:var(--ink2);max-width:62ch}
+.lead a{color:var(--navy)}
+.card{background:var(--paper);border:1px solid var(--line);padding:18px 20px}
+.login{max-width:420px;margin:60px auto;display:flex;flex-direction:column;gap:12px}
+.login p{margin:0;color:var(--ink2)}
+.in{font:inherit;font-size:16px;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:9px 12px;width:100%}
+.in:focus-visible,textarea:focus-visible,.btn:focus-visible,.seg input:focus-visible+label,.quiz summary:focus-visible,.rec:focus-visible{outline:2px solid var(--navy);outline-offset:1px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:9px 18px;border-radius:6px;border:1px solid var(--navy);background:var(--navy);color:#fff;cursor:pointer;white-space:nowrap}
+.btn.sec{background:var(--paper);color:var(--navy)}
+.btn.warn{background:var(--paper);color:var(--danger);border-color:var(--line);font-weight:500;font-size:13px;padding:5px 10px}
+.btn:disabled{opacity:.5;cursor:default}
+.err{color:var(--danger);font-size:14px;margin:0}
+
+.who{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:end}
+.field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink2)}
+.field .in{width:auto;font-size:15px;padding:7px 10px}
+#f-name{width:160px}#f-day{width:80px}#f-date{width:150px}
+.actions{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.status{font-size:13px;color:var(--ink2);flex-basis:100%}
+.status.bad{color:var(--danger)}
+
+.recs{display:flex;flex-direction:column;gap:0;margin-top:10px}
+.rec{display:grid;grid-template-columns:1fr auto auto;gap:6px 14px;align-items:center;padding:9px 0;border-top:1px solid var(--line);background:none;border-left:0;border-right:0;border-bottom:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;width:100%}
+.rec:hover{background:var(--navy-soft)}
+.rec.cur{background:var(--navy-soft)}
+.rec b{font-weight:600}
+.rec .d{color:var(--ink2);font-size:13px}
+.rec .n{font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink2);white-space:nowrap}
+.rec .delta{color:var(--solo);font-weight:600}
+@media (max-width:640px){.rec{grid-template-columns:1fr auto}.rec .n{grid-column:1 / -1}}
+
+.sum{display:grid;grid-template-columns:minmax(200px,260px) 1fr;gap:20px 28px}
+@media (max-width:640px){.sum{grid-template-columns:1fr}}
+.big{font-size:40px;font-weight:700;line-height:1.1;color:var(--navy);font-variant-numeric:tabular-nums}
+.big small{font-size:16px;font-weight:500;color:var(--ink2)}
+.biglabel{font-size:13px;color:var(--ink2);margin-bottom:4px}
+.verdict{margin-top:10px;font-size:14px}
+.bars{display:flex;flex-direction:column;gap:10px}
+.barrow{display:grid;grid-template-columns:220px 1fr 64px;gap:10px;align-items:center;font-size:13px}
+@media (max-width:640px){.barrow{grid-template-columns:1fr 64px}.barrow .bar{grid-column:1 / -1;order:3}}
+.barrow b{font-weight:600}
+.barrow span.d{color:var(--ink2);margin-left:6px;font-weight:400}
+.bar{height:10px;background:var(--track);border-radius:5px;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar .s{background:var(--solo)}.bar .h{background:var(--help)}
+.barrow .n{text-align:right;color:var(--ink2);font-variant-numeric:tabular-nums}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--ink2);margin-top:4px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+.todo h2{margin-bottom:8px}
+.todo ul{margin:0;padding-left:18px}
+.todo li{margin:3px 0}
+.todo .ref,.item .ref{font-size:12px;color:var(--ink2);margin-left:6px;white-space:nowrap}
+.todo .tag{font-size:12px;padding:0 6px;border-radius:3px;margin-right:6px;white-space:nowrap}
+.tag.h{background:var(--help-bg);color:var(--help)}.tag.y{background:var(--yet-bg);color:var(--yet)}
+.muted{color:var(--ink2);font-size:14px;margin:0}
+
+.stage{padding:0}
+.stagehead{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;padding:14px 20px;border-bottom:2px solid var(--sc0)}
+.stagehead h2{color:var(--sc0)}
+.stagehead .days{font-size:13px;font-weight:600;color:var(--sc0)}
+.stagehead .exp{font-size:13px;color:var(--ink2);margin-left:auto}
+.item{display:grid;grid-template-columns:1fr auto;gap:8px 16px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+@media (max-width:640px){.item{grid-template-columns:1fr}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{font-size:13px;padding:6px 11px;cursor:pointer;color:var(--ink2);border-left:1px solid var(--line);white-space:nowrap;user-select:none}
+.seg label:first-of-type{border-left:0}
+.seg input:checked+label.l2{background:var(--solo-bg);color:var(--solo);font-weight:600}
+.seg input:checked+label.l1{background:var(--help-bg);color:var(--help);font-weight:600}
+.seg input:checked+label.l0{background:var(--yet-bg);color:var(--yet);font-weight:600}
+
+.quiz details{border-bottom:1px solid var(--line);padding:10px 0}
+.quiz details:last-of-type{border-bottom:0}
+.quiz summary{cursor:pointer;font-weight:500}
+.quiz .ans{margin:8px 0 6px 18px;padding:8px 12px;background:var(--navy-soft);border-radius:4px;font-size:14px}
+.quiz .ok{margin-left:18px;font-size:13px;color:var(--ink2);display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.quiz .qn{font-size:13px;color:var(--ink2);margin:4px 0 0}
+textarea{width:100%;min-height:110px;font:inherit;font-size:16px;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:10px 12px;resize:vertical}
+.card>h2+p{margin:4px 0 12px}
+.foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 16px;border-radius:20px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw}
+.toast.on{opacity:1}
+@media print{body{background:#fff}.card{break-inside:avoid}.actions,.recs,.toast{display:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+const API='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-onboarding';
+const CODE_KEY='cs_onboard_code', DRAFT_KEY='cs_onboard_draft_v1';
+const MANUAL='https://claude.ai/artifact/NEQgvu9PceMS76vhVTDGrS';
+const STAGES=[
+ {id:'a',title:'매일 도는 루틴',days:'1~2일차',assist:1,solo:2,color:'var(--sa)',items:[
+  ['a1','6개 시스템에 로그인하고 자주 쓰는 메뉴 위치를 안다','셀메이트·이지픽·카페24·네이버페이센터·카카오 파트너센터·플로우'],
+  ['a2','출고일 안내 게시판을 혼자 올린다','1-1'],
+  ['a3','게시판 등록 전에 날짜와 상품명을 검수한다','1-1'],
+  ['a4','당일발송 리스트에 상품을 추가하고 뺀다','1-2'],
+  ['a5','카카오톡 채널 문의에 답변하고 상담완료 처리한다','1-3'],
+  ['a6','네이버페이센터 문의에 답변한다','1-3'],
+  ['a7','자사몰 Q&A 게시판 문의에 답변한다','1-3'],
+  ['a8','업무폰 문자에 답변한다 (에이브CS방 특이사항 확인 포함)','1-3'],
+  ['a9','일일 업무보고를 혼자 작성한다','1-4']]},
+ {id:'b',title:'취소 · 교환 · 반품',days:'3~5일차',assist:3,solo:5,color:'var(--sb)',items:[
+  ['b1','배송비 차감 기준(70,000원, 3,000원/6,000원)을 보지 않고 말한다','1-5 ①'],
+  ['b2','쿠폰 취소 여부를 잔여 주문금액으로 판단한다','1-5 ②'],
+  ['b3','적립금 반환 여부를 판단한다','1-5 ③'],
+  ['b4','재고 복원함/복원 안 함을 사유별로 구분한다','1-5 ④'],
+  ['b5','접수 사유를 보고 판매자 과실 건(불량·오배송·누락)을 골라낸다','1-6'],
+  ['b6','교환/반품 수거 건을 워크스페이스 반품 스캔으로 처리한다','안내 페이지'],
+  ['b7','취소 접수를 승인 처리한다','1-7'],
+  ['b8','교환 접수를 승인 처리한다 (추가결제 6,000원, 입금자명)','1-7'],
+  ['b9','반품 접수를 승인 처리한다','1-7'],
+  ['b10','빈 봉투 건을 전산 처리한다 (수거완료, 나눠 온 건은 개별 처리)','1-8'],
+  ['b11','상품이 든 봉투를 검수하고 셀메이트 입고와 바코드 출력까지 한다','1-8'],
+  ['b12','불량 건을 처리한다 (시정 스티커, 불량 박스, 관리자 메모)','1-8'],
+  ['b13','교환건 수거완료 내역을 기록해 업무보고에 넣는다','1-8'],
+  ['b14','반송 대상을 검수하고 반송 엑셀 기재와 고객 안내까지 한다','1-9']]},
+ {id:'c',title:'품절 · 지연 · 예외 처리',days:'6~8일차',assist:8,solo:10,color:'var(--sc)',items:[
+  ['c1','품절 상품 재입고를 확인하고 카페24 재고에 반영한다','2-1'],
+  ['c2','품절 안내를 발송하고 기록 시트에 남긴다','2-2'],
+  ['c3','전송 실패 건을 찾아 개별로 안내한다','2-2'],
+  ['c4','품절 회신 건을 카페24에서 취소 처리한다','2-3'],
+  ['c5','품절 회신 건을 카페24에서 상품 변경 처리한다 (교환배송비 6,000원)','2-3'],
+  ['c6','네이버페이 주문의 품절 취소와 상품 변경을 처리한다','2-3'],
+  ['c7','입고지연 안내를 만들어 발송예정일 등록과 LMS 발송까지 한다','2-4'],
+  ['c8','발송 후 취소 건을 처리하고 CS탭에 기록한다','2-5'],
+  ['c9','보류 기준 4가지와 15일 기준을 설명한다','2-6'],
+  ['c10','화요일 장기 미처리 점검을 직접 한다','2-7'],
+  ['c11','목요일 우체국 소포실 문의를 직접 한다','2-7'],
+  ['c12','구매확정 연장건의 송장을 수정한다','2-8']]},
+ {id:'d',title:'혼자 돌리기',days:'9~10일차',assist:9,solo:10,color:'var(--sd)',items:[
+  ['d1','출근부터 업무보고까지 하루 업무 전체를 혼자 돌린다','전체'],
+  ['d2','운영진에게 보고해야 하는 상황을 구분한다 (비용 보상, 예외 처리, 법적 이슈, 악성 고객)','읽는 법'],
+  ['d3','막힌 부분을 매뉴얼에서 스스로 찾아 해결한다','전체']]}
+];
+const QUIZ=[
+ ['q1','잔여 주문금액 68,000원, 단순변심 취소입니다. 배송비는 얼마 차감하나요?','3,000원 차감. 70,000원 미만이고 구매자 사유이기 때문입니다.'],
+ ['q2','같은 68,000원인데 사유가 배송지연입니다. 얼마 차감하나요?','차감 없음. 우리 쪽 사유는 금액과 관계없이 차감하지 않습니다.'],
+ ['q3','단순변심 반품입니다. 잔여 주문금액이 75,000원일 때와 50,000원일 때 각각 얼마 차감하나요?','75,000원은 3,000원, 50,000원은 6,000원(3,000+3,000 두 칸 합산) 차감.'],
+ ['q4','불량으로 반품이 들어왔습니다. 배송비와 재고 복원은 어떻게 하나요?','배송비 차감 없음, 재고는 복원 안 함.'],
+ ['q5','3만원 이상 쿠폰을 쓴 주문이 부분 취소되어 잔여 금액이 27,000원이 됐습니다. 쿠폰은 어떻게 체크하나요?','쿠폰 할인 취소. 잔여 금액이 쿠폰 조건(30,000원)에 못 미치기 때문입니다. 32,000원이었다면 취소 안 함.'],
+ ['q6','부분 반품인데 잔여 주문금액이 25,000원입니다. 적립금은 어떻게 하나요?','전액 반환. 부분 반품은 원래 반환하지 않지만, 잔여 금액이 30,000원 이하면 전액 반환합니다.'],
+ ['q7','교환 접수를 승인할 때 배송비는 어떻게 처리하나요?','배송비 차감은 하지 않고 추가결제 6,000원을 적용합니다. 입금자명(주문자명)을 기재합니다.'],
+ ['q8','품절 때문에 취소하는 주문입니다. 재고 복원 버튼은 무엇을 누르나요?','복원 안 함. 품절이 아닌 일반 취소만 복원합니다.'],
+ ['q9','반품 접수는 5개인데 봉투에 4개만 들어 있습니다. 어떻게 하나요?','보류건으로 처리합니다. 입고 당일 안내 메시지를 보내고 보류 상자에 보관합니다. 3차까지 안내하고, 1차 전송일 기준 15일까지 회신이 없으면 반송합니다.'],
+ ['q10','품절 안내 메시지가 전송 실패로 나왔습니다. 이유와 다음 행동은 무엇인가요?','안심번호이거나 전화번호 기입이 미흡한 경우입니다. 주문건을 확인해 업무폰 또는 카페24 개별 메시지로 보냅니다.'],
+ ['q11','혼자 결정하지 않고 운영진에게 보고해야 하는 상황은 무엇인가요?','비용 보상, 예외 처리, 법적 이슈, 악성 고객처럼 판단이 필요한 상황.']
+];
+const LABEL=['아직 안 해봤어요','도움 받으면 할 수 있어요','혼자 할 수 있어요'];
+const SHORT=['아직','도움 받아','혼자'];
+const ALL=STAGES.reduce((n,s)=>n+s.items.length,0);
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
+const QS=new URLSearchParams(location.search);
+if(QS.get('code'))store.set(CODE_KEY,QS.get('code'));
+const today=()=>{const d=new Date(Date.now()-new Date().getTimezoneOffset()*60000);return d.toISOString().slice(0,10)};
+const blank=()=>({id:null,name:'',day:8,checked_on:today(),st:{},quiz:{},memo:''});
+let S=blank(), code=store.get(CODE_KEY)||'', auth='unknown', recs=[], dirty=false, busy=false;
+const $=(s,r=document)=>r.querySelector(s);
+const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const expect=(s,day)=>day>=s.solo?2:day>=s.assist?1:0;
+function clean(d){
+  const o=blank();
+  if(!d||typeof d!=='object')return o;
+  if(typeof d.id==='string')o.id=d.id;
+  if(typeof d.name==='string')o.name=d.name.slice(0,40);
+  const n=Number(d.day);if(n>=1&&n<=10)o.day=Math.round(n);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(String(d.checked_on)))o.checked_on=d.checked_on;
+  if(d.st&&typeof d.st==='object')for(const k in d.st){const v=Number(d.st[k]);if(v===0||v===1||v===2)o.st[k]=v}
+  if(d.quiz&&typeof d.quiz==='object')for(const k in d.quiz){if(d.quiz[k]===true)o.quiz[k]=true}
+  if(typeof d.memo==='string')o.memo=d.memo.slice(0,4000);
+  return o;
+}
+async function api(action,body){
+  let r;
+  try{r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':code||''},body:JSON.stringify({action,...(body||{})})})}
+  catch(e){throw Object.assign(new Error('연결할 수 없습니다. 인터넷을 확인하세요'),{code:'net'})}
+  if(r.status===401){auth='bad';throw Object.assign(new Error('초대코드가 맞지 않습니다'),{code:'unauthorized'})}
+  let d={};try{d=await r.json()}catch(e){}
+  if(!r.ok||d.error)throw new Error(d.error||('오류 '+r.status));
+  return d;
+}
+let toastT;function toast(t){const x=$('#toast');x.textContent=t;x.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>x.classList.remove('on'),2200)}
+
+function render(){
+  const app=$('#app');
+  if(!code||auth==='bad'){
+    app.innerHTML=`<div class="login card"><h1>CS 온보딩 체크리스트</h1><p>초대코드를 넣으면 시작합니다. 한 번만 넣으면 이 기기에 기억됩니다.</p>
+      <form id="login"><input class="in" id="li-code" value="${esc(code)}" placeholder="초대코드" autocomplete="off" autocapitalize="none" inputmode="numeric"></form>
+      ${auth==='bad'?'<p class="err">초대코드가 맞지 않습니다</p>':''}<button class="btn" id="li-go">시작</button></div>`;
+    const go=async()=>{const c=$('#li-code').value.trim();if(!c)return;code=c;try{await api('ping');auth='ok';store.set(CODE_KEY,c);render();loadRecs()}catch(e){render()}};
+    $('#login').onsubmit=e=>{e.preventDefault();go()};$('#li-go').onclick=go;$('#li-code').focus();return;
+  }
+  app.innerHTML=`<div class="wrap">
+  <header><h1>CS 온보딩 체크리스트</h1>
+    <p class="lead">2주 과정 매뉴얼의 업무를 하나씩 짚어 보며 지금 어디까지 익혔는지 확인합니다. 업무마다 세 가지 중 하나를 고르고, 다 되면 <b>저장</b>을 누르세요. 절 번호는 <a href="${MANUAL}" target="_blank" rel="noopener">온보딩 매뉴얼</a>의 번호입니다.</p></header>
+  <section class="card who" aria-label="기록 정보">
+    <label class="field" for="f-name">이름<input class="in" id="f-name" type="text" autocomplete="off" placeholder="예: 김다나"></label>
+    <label class="field" for="f-date">체크한 날짜<input class="in" id="f-date" type="date"></label>
+    <label class="field" for="f-day">몇 일차<input class="in" id="f-day" type="number" min="1" max="10" step="1" inputmode="numeric"></label>
+    <div class="actions"><button class="btn sec" id="b-new" type="button">새 기록</button><button class="btn" id="b-save" type="button">저장</button></div>
+    <div class="status" id="status"></div>
+  </section>
+  <section class="card" aria-label="지난 기록"><h2>지난 기록</h2><p class="muted">이름과 날짜별로 한 건씩 남습니다. 눌러서 불러온 뒤 고쳐서 다시 저장할 수 있습니다.</p><div class="recs" id="recs"><p class="muted">불러오는 중</p></div></section>
+  <section class="card sum" aria-label="요약">
+    <div><div class="biglabel">혼자 할 수 있는 업무</div><div class="big"><span id="n-solo">0</span> <small>/ ${ALL}개</small></div><div class="verdict" id="verdict"></div></div>
+    <div><div class="bars" id="bars"></div><div class="legend"><span><i style="background:var(--solo)"></i>혼자 할 수 있어요</span><span><i style="background:var(--help)"></i>도움 받으면 할 수 있어요</span><span><i style="background:var(--track)"></i>아직 안 해봤거나 체크 전</span></div></div>
+  </section>
+  <section class="card todo" aria-label="남은 기간에 함께 볼 업무"><h2>남은 기간에 함께 볼 업무</h2><div id="todo"></div></section>
+  <div id="stages" style="display:flex;flex-direction:column;gap:20px"></div>
+  <section class="card quiz" aria-label="말로 확인하는 질문"><h2>말로 확인하는 질문</h2><p class="muted">규칙은 직접 물어보는 것이 가장 정확합니다. 질문을 읽어 주고 답을 들은 뒤, 눌러서 정답을 확인하세요.</p><div id="quiz"></div><p class="qn" id="quizsum"></p></section>
+  <section class="card" aria-label="메모"><h2>메모</h2><p class="muted">잘한 점, 다음에 같이 볼 내용, 본인이 궁금해한 것을 적어 두세요.</p><textarea id="f-memo" placeholder="예: 문의 답변 속도가 빠르고 말투가 좋음. 다음 주 화요일 장기 미처리 점검을 같이 진행하기로 함."></textarea></section>
+  <section class="card foot"><button class="btn" id="b-save2" type="button">저장</button><span class="muted" id="status2"></span><button class="btn warn" id="b-del" type="button" hidden>이 기록 삭제</button><button class="btn warn" id="b-logout" type="button">초대코드 지우기</button></section>
+  </div>`;
+  build();fill();
+  $('#b-save').onclick=save;$('#b-save2').onclick=save;$('#b-new').onclick=newRec;$('#b-del').onclick=del;
+  $('#b-logout').onclick=()=>{store.del(CODE_KEY);code='';auth='unknown';render()};
+}
+function build(){
+  const box=$('#stages');
+  for(const s of STAGES){
+    const sec=el('section','card stage');sec.style.setProperty('--sc0',s.color);sec.setAttribute('aria-label',s.title);
+    const head=el('div','stagehead');head.append(el('h2',null,s.title),el('span','days',s.days));
+    const ex=el('span','exp');ex.id='exp-'+s.id;head.append(ex);sec.append(head);
+    for(const [id,text,refx] of s.items){
+      const row=el('div','item');const t=el('div');t.append(document.createTextNode(text),el('span','ref',refx));
+      const seg=el('div','seg');seg.setAttribute('role','radiogroup');seg.setAttribute('aria-label',text);
+      for(const v of [2,1,0]){const i=el('input');i.type='radio';i.name='s-'+id;i.id='s-'+id+'-'+v;i.value=v;
+        i.addEventListener('change',()=>{S.st[id]=v;touch();update()});
+        const l=el('label','l'+v,SHORT[v]);l.htmlFor=i.id;l.title=LABEL[v];seg.append(i,l)}
+      row.append(t,seg);sec.append(row);
+    }
+    box.append(sec);
+  }
+  const q=$('#quiz');
+  QUIZ.forEach(([id,qq,aa],n)=>{const d=el('details');d.append(el('summary',null,(n+1)+'. '+qq),el('div','ans',aa));
+    const l=el('label','ok');const c=el('input');c.type='checkbox';c.id='c-'+id;
+    c.addEventListener('change',()=>{if(c.checked)S.quiz[id]=true;else delete S.quiz[id];touch();update()});
+    l.append(c,document.createTextNode('정확히 답했어요'));d.append(l);q.append(d)});
+  $('#f-name').addEventListener('input',e=>{S.name=e.target.value.slice(0,40);touch()});
+  $('#f-date').addEventListener('change',e=>{S.checked_on=/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)?e.target.value:today();e.target.value=S.checked_on;touch()});
+  $('#f-day').addEventListener('change',e=>{const n=Math.round(Number(e.target.value));S.day=(n>=1&&n<=10)?n:8;e.target.value=S.day;touch();update()});
+  $('#f-memo').addEventListener('input',e=>{S.memo=e.target.value.slice(0,4000);touch()});
+}
+function fill(){
+  $('#f-name').value=S.name;$('#f-date').value=S.checked_on;$('#f-day').value=S.day;$('#f-memo').value=S.memo;
+  for(const s of STAGES)for(const [id] of s.items)for(const v of [0,1,2])$('#s-'+id+'-'+v).checked=S.st[id]===v;
+  for(const [id] of QUIZ)$('#c-'+id).checked=!!S.quiz[id];
+  $('#b-del').hidden=!S.id;
+  update();setStatus(S.id?'서버에 저장된 기록을 불러왔습니다':'아직 저장 전입니다');
+}
+function touch(){dirty=true;store.set(DRAFT_KEY,JSON.stringify(S));setStatus('저장 안 된 변경이 있습니다. 저장을 눌러 주세요')}
+function setStatus(t,bad){for(const id of ['status','status2']){const x=$('#'+id);if(x){x.textContent=t;x.classList.toggle('bad',!!bad)}}}
+function update(){
+  let solo=0,unset=0;const todo=[];const bars=$('#bars');bars.textContent='';
+  for(const s of STAGES){
+    const e=expect(s,S.day);let sSolo=0,sHelp=0;
+    for(const [id,text,refx] of s.items){const v=S.st[id];if(v===2){solo++;sSolo++}else if(v===1)sHelp++;if(v===undefined)unset++;else if(v<e)todo.push({text,refx,v})}
+    const n=s.items.length;
+    $('#exp-'+s.id).textContent=e===2?S.day+'일차 기대: 혼자 할 수 있어요':e===1?S.day+'일차 기대: 도움 받으면 할 수 있어요':'아직 배우기 전 단계예요';
+    const row=el('div','barrow');const name=el('div');name.append(el('b',null,s.title),el('span','d',s.days));
+    const bar=el('div','bar');bar.setAttribute('role','img');bar.setAttribute('aria-label',s.title+': 혼자 '+sSolo+'개, 도움 받아 '+sHelp+'개, 전체 '+n+'개');
+    const i1=el('i','s');i1.style.width=(sSolo/n*100)+'%';const i2=el('i','h');i2.style.width=(sHelp/n*100)+'%';bar.append(i1,i2);
+    row.append(name,bar,el('div','n',sSolo+' / '+n));bars.append(row);
+  }
+  $('#n-solo').textContent=solo;
+  const box=$('#todo');box.textContent='';const who=S.name?S.name+' 님은 ':'';
+  if(unset===ALL){$('#verdict').textContent='업무마다 하나씩 골라 주세요.';box.append(el('p','muted','체크를 시작하면 '+S.day+'일차 기준으로 같이 보면 좋은 업무가 여기에 모입니다.'))}
+  else{
+    $('#verdict').textContent=todo.length===0&&unset===0?who+S.day+'일차에 기대하는 업무를 모두 익혔습니다.':todo.length===0?'지금까지 체크한 업무는 모두 '+S.day+'일차 기대 수준입니다. 체크 전 '+unset+'개.':'함께 볼 업무 '+todo.length+'개'+(unset?', 체크 전 '+unset+'개':'')+'.';
+    if(!todo.length)box.append(el('p','muted','지금은 따로 챙길 업무가 없습니다. 잘 따라오고 있어요.'));
+    else{const ul=el('ul');for(const t of todo){const li=el('li');li.append(el('span','tag '+(t.v===1?'h':'y'),t.v===1?'한 번 더 같이':'처음부터 같이'),document.createTextNode(t.text),el('span','ref',t.refx));ul.append(li)}box.append(ul)}
+  }
+  $('#quizsum').textContent='정확히 답한 질문 '+Object.keys(S.quiz).length+' / '+QUIZ.length+'개';
+}
+function renderRecs(){
+  const box=$('#recs');if(!box)return;box.textContent='';
+  if(!recs.length){box.append(el('p','muted','아직 저장된 기록이 없습니다.'));return}
+  const byName={};
+  for(const r of [...recs].reverse()){const prev=byName[r.name];r._delta=prev?r.solo-prev.solo:null;byName[r.name]=r}
+  for(const r of recs){
+    const b=el('button','rec'+(S.id===r.id?' cur':''));b.type='button';
+    const l=el('span');l.append(el('b',null,r.name),document.createTextNode(' '),el('span','d',r.checked_on+' · '+r.day+'일차'));
+    const n=el('span','n','혼자 '+r.solo+' / '+ALL);
+    if(r._delta!=null&&r._delta!==0){n.append(document.createTextNode(' '),el('span','delta',(r._delta>0?'+':'')+r._delta))}
+    b.append(l,n,el('span','d','열기'));b.onclick=()=>load(r.id);box.append(b);
+  }
+}
+async function loadRecs(){try{recs=(await api('list')).records||[];renderRecs()}catch(e){const b=$('#recs');if(b){b.textContent='';b.append(el('p','err',e.message))}}}
+async function load(id){
+  if(dirty&&!confirm('저장하지 않은 변경이 있습니다. 버리고 불러올까요?'))return;
+  try{const r=(await api('get',{id})).record;S=clean(r);dirty=false;store.del(DRAFT_KEY);fill();renderRecs();window.scrollTo({top:0,behavior:'smooth'})}catch(e){toast(e.message)}
+}
+function newRec(){if(dirty&&!confirm('저장하지 않은 변경이 있습니다. 버리고 새로 시작할까요?'))return;S=blank();dirty=false;store.del(DRAFT_KEY);fill();renderRecs()}
+async function save(){
+  if(busy)return;
+  if(!S.name.trim()){setStatus('이름을 적어야 저장할 수 있습니다',true);$('#f-name').focus();return}
+  busy=true;setStatus('저장 중');
+  try{const r=await api('save',{name:S.name,checked_on:S.checked_on,day:S.day,st:S.st,quiz:S.quiz,memo:S.memo});
+    S.id=r.id;dirty=false;store.del(DRAFT_KEY);$('#b-del').hidden=false;setStatus(S.name+' · '+S.checked_on+' 기록으로 서버에 저장됐습니다');toast('저장됐습니다');loadRecs()}
+  catch(e){setStatus('저장하지 못했습니다: '+e.message+' (이 브라우저에 임시 보관 중, 다시 저장을 눌러 주세요)',true);if(e.code==='unauthorized')render()}
+  busy=false;
+}
+async function del(){
+  if(!S.id||!confirm(S.name+' · '+S.checked_on+' 기록을 지울까요? 되돌릴 수 없습니다.'))return;
+  try{await api('delete',{id:S.id});toast('지웠습니다');S=blank();dirty=false;store.del(DRAFT_KEY);fill();loadRecs()}catch(e){toast(e.message)}
+}
+try{const d=JSON.parse(store.get(DRAFT_KEY));if(d){S=clean(d);S.id=null;dirty=true}}catch(e){}
+render();
+if(code){loadRecs();if(dirty)setStatus('저장 안 된 변경이 있습니다. 저장을 눌러 주세요')}
+</script>
+</body>
+</html>
