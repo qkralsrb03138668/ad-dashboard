@@ -470,8 +470,16 @@ async function admgrBudgetCancel(pid) {
 /* ═══ 열 표시/순서 (Meta 광고관리자의 '열' 메뉴처럼) — 탭별 localStorage { hidden:[라벨], order:[라벨] } (2026-09-07 사용자 요청) ═══
    렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리) */
 function admgrColsKey() { return 'adc_admgr_cols_' + admgr.view; }
-const ADMGR_COLS_DEFAULT_HIDDEN = { camp: ['구매당 비용', '전환값', 'CPC', '최근 변경'], set: ['구매당 비용', '전환값', 'CPC', '최근 변경'], ad: ['클릭', '구매당 비용', '전환값', 'CPC'] };   // 기본은 핵심 열만 — 나머지는 행 끝 ∨ (2026-09-14)
-function admgrColsCfg() { const c = lsGet(admgrColsKey(), null); return c && Array.isArray(c.hidden) && Array.isArray(c.order) ? c : { hidden: [...(ADMGR_COLS_DEFAULT_HIDDEN[admgr.view] || [])], order: [] }; }
+const ADMGR_COLS_DEFAULT = {   // 기본은 핵심 열만 — 나머지는 행 끝 ∨ (2026-09-14). set은 사용자가 정한 표시·순서 (2026-09-30)
+  camp: { hidden: ['구매당 비용', '전환값', 'CPC', '최근 변경'], order: [] },
+  set: { hidden: ['23:55 세팅', '최근 변경', '전환값', 'CPC'], order: ['켜짐', '광고세트', '판정', '구매', '구매당 비용', '23:55 세팅', '예산', '지출', 'ROAS', '최근 변경', '전환값', 'CPC'] },
+  ad: { hidden: ['클릭', '구매당 비용', '전환값', 'CPC'], order: [] },
+};
+const admgrColsOk = c => c && Array.isArray(c.hidden) && Array.isArray(c.order);
+function admgrColsDefKey() { return 'adc_admgr_colsdef_' + admgr.view; }   // 내가 저장한 기본값 (탭별, 이 브라우저)
+function admgrColsDef() { const d = lsGet(admgrColsDefKey(), null), c = admgrColsOk(d) ? d : (ADMGR_COLS_DEFAULT[admgr.view] || { hidden: [], order: [] }); return { hidden: [...c.hidden], order: [...c.order] }; }
+function admgrColsCfg() { const c = lsGet(admgrColsKey(), null); return admgrColsOk(c) ? c : admgrColsDef(); }
+function admgrColsDefSave() { lsSet(admgrColsDefKey(), admgrColsCfg()); toast('지금 열 설정을 기본값으로 저장했어요'); }
 function admgrColsSave(c) { lsSet(admgrColsKey(), c); }
 function admgrColsApply() {
   const table = $('admgr-body').querySelector('table'); if (!table) return;
@@ -509,8 +517,9 @@ function admgrColsMenuRender() {
       <div draggable="true" data-l="${esc(l)}" ondragstart="admgrColDrag(event)" ondragover="event.preventDefault()" ondrop="admgrColDrop(event)"
            style="display:flex;align-items:center;gap:8px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;background:#fff;cursor:grab;font-size:.78rem;">
         <span style="color:#c4c8d4;">⋮⋮</span><input type="checkbox" ${cfg.hidden.includes(l) ? '' : 'checked'} onchange="admgrColToggle('${esc(l)}',this.checked)" style="margin:0;" /><span>${esc(l)}</span></div>`).join('')}</div>
-    <div style="display:flex;gap:6px;margin-top:8px;">
-      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" title="표시·순서·저장된 열 너비를 모두 초기화" onclick="try{localStorage.removeItem(admgrColsKey())}catch{};try{localStorage.removeItem(admgrColKey())}catch{};renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
+    <button class="btn-ghost" style="width:100%;justify-content:center;font-size:.72rem;margin-top:8px;" title="지금 체크·순서를 '기본으로'를 눌렀을 때 돌아갈 값으로 저장" onclick="admgrColsDefSave()">지금 설정을 기본값으로 저장</button>
+    <div style="display:flex;gap:6px;margin-top:6px;">
+      <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" title="저장해 둔 기본값으로 되돌리기 (열 너비도 초기화)" onclick="try{localStorage.removeItem(admgrColsKey())}catch{};try{localStorage.removeItem(admgrColKey())}catch{};renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
       <button class="btn-analyze" style="flex:1;justify-content:center;font-size:.72rem;" onclick="document.getElementById('admgr-bpop').style.display='none'">닫기</button></div>`;
   const r0 = admgrColsAnchor || { left: 100, bottom: 100 };
   pop.style.display = 'block';
