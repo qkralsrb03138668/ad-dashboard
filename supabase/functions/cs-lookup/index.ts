@@ -6,7 +6,9 @@
 //   delays               → { articles:[...] } | { error }   배송지연 게시판 글 (CS_BOARD_NO), 5분 캐시
 //   stock { product_no } → { variants:[{option, stock, selling, ...}] }  카페24 옵션별 재고
 //   boards               → { boards }                       게시판 번호 찾기용 (셋업 때 한 번)
+//   status               → { kakao:{n,err,at}, naver:{...} }  CS 진행상황판(cs-board.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
+//   GET ?action=push&code=&src=kakao|naver&n=&err= → 상황판 북마크가 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
 // secrets: CS_CODE(초대코드), CS_BOARD_NO(배송지연 게시판 번호), CAFE24_*(판매성과와 공유)
 // 배포: ./deploy-cs-lookup.sh <초대코드> <게시판번호>
 // ═══════════════════════════════════════════════
@@ -120,6 +122,12 @@ async function run(op: Row): Promise<unknown> {
       }));
       return { product_no: no, variants };
     }
+    case "status": {
+      const r = await dbRest("cs_assets?key=like.status:*&select=key,body,updated_at");
+      const out: Row = {};
+      for (const x of (r.ok ? await r.json() : []) as Row[]) out[x.key.slice(7)] = { ...JSON.parse(x.body), at: x.updated_at };
+      return out;
+    }
     case "boards": { const r = await apiGet(`${API_BASE}/admin/boards`, await getAccessToken()); return { boards: ((r.boards ?? []) as Row[]).map((b) => ({ board_no: b.board_no, name: b.board_name, type: b.board_type })) }; }
     default: throw new Error("unknown action");
   }
@@ -131,6 +139,14 @@ Deno.serve(async (req) => {
   if (!code) return j({ error: "CS_CODE secret not set" }, 500);
   if (req.method === "GET") {   // 북마크용 스크립트 — <script src>는 헤더를 못 붙이니 초대코드를 쿼리로 받는다
     const u = new URL(req.url);
+    if (u.searchParams.get("action") === "push") {   // GET인 이유: 페이지가 fetch를 막으면 북마크가 <img>로 대신 보낼 수 있게
+      const p = u.searchParams, src = p.get("src") ?? "", n = p.get("n") ?? "";
+      if (p.get("code") !== code) return j({ error: "unauthorized" }, 401);
+      if (!["kakao", "naver"].includes(src) || !/^\d{0,5}$/.test(n)) return j({ error: "bad params" }, 400);
+      const body = JSON.stringify({ n: n === "" ? null : Number(n), err: (p.get("err") ?? "").slice(0, 120) });
+      await dbRest("cs_assets?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: `status:${src}`, body, updated_at: new Date().toISOString() }) });
+      return j({ ok: true });
+    }
     if (u.searchParams.get("action") !== "overlay") return j({ error: "unknown action" }, 400);
     if (u.searchParams.get("code") !== code) return new Response("alert('CS 조회: 초대코드가 맞지 않습니다. 북마크를 다시 만들어 주세요.')", { status: 401, headers: { ...H, "Content-Type": "application/javascript; charset=utf-8" } });
     const r = await dbRest("cs_assets?key=eq.overlay&select=body");

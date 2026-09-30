@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CS 진행상황</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Archivo:wght@600;800&display=swap">
+<style>
+:root{
+  --bg:#F3F4F7; --surface:#FFFFFF; --surface2:#EBEDF2; --ink:#15171C; --ink2:#5E6472; --ink3:#9AA0AD;
+  --line:#DFE2E9; --accent:#2C49D6; --accent-ink:#FFFFFF;
+  --ok:#1C8F63; --ok-soft:#DDF3E8; --danger:#CC3F38; --danger-soft:#FBE3E1;
+  --shadow:0 8px 28px rgba(20,24,40,.10);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111318; --surface:#1A1D24; --surface2:#242832; --ink:#EDEFF4; --ink2:#A2A8B5; --ink3:#6C7280;
+  --line:#2C313B; --accent:#7C93FF; --accent-ink:#0B1030;
+  --ok:#3DC98F; --ok-soft:#173327; --danger:#F0665E; --danger-soft:#3A1E1C;
+  --shadow:0 8px 28px rgba(0,0,0,.5);
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR",-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px;line-height:1.5}
+main{max-width:760px;margin:0 auto;padding:28px 16px 40px}
+h1{font-size:18px;margin:0 0 4px} .sub{color:var(--ink3);font-size:13px;margin:0 0 18px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:520px){ .grid{grid-template-columns:1fr} }
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow)}
+.card .lb{font-size:14px;font-weight:700;color:var(--ink2)}
+.card .n{font-family:"Archivo",sans-serif;font-weight:800;font-size:72px;line-height:1.1;font-variant-numeric:tabular-nums;margin:6px 0 4px}
+.card .n small{font-size:20px;font-weight:600;margin-left:4px;color:var(--ink3)}
+.card.hot .n{color:var(--danger)} .card.hot{border-color:var(--danger);background:linear-gradient(var(--danger-soft),var(--surface) 70%)}
+.card.zero .n{color:var(--ok)}
+.card.stale .n{color:var(--ink3)}
+.card .st{font-size:13px;color:var(--ink3)} .card.stale .st,.card .st.err{color:var(--danger);font-weight:500}
+.login,.help{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-top:16px}
+input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;width:140px;background:var(--surface);color:var(--ink)}
+button{font:inherit;padding:10px 16px;border-radius:10px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;cursor:pointer}
+summary{cursor:pointer;font-weight:700}
+.help ol{padding-left:20px;margin:10px 0 0} .help li{margin:6px 0} .help .small{font-size:13px;color:var(--ink2)}
+.bm{display:inline-block;padding:10px 16px;border-radius:12px;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:700;cursor:grab}
+.err{color:var(--danger)}
+</style>
+</head>
+<body>
+<main>
+<h1>CS 진행상황</h1>
+<p class="sub" id="sub">30초마다 새로고침</p>
+<div id="app"></div>
+
+<details class="help" id="help">
+  <summary>북마크 설치·사용법 (PC마다 한 번)</summary>
+  <ol>
+    <li>아래 버튼을 브라우저 <b>북마크바</b>에 끌어다 놓기 (북마크바가 안 보이면 ⌘+Shift+B / Ctrl+Shift+B)<br>
+      <a id="bm" class="bm" href="#">CS 상황판 보내기</a></li>
+    <li><b>카카오</b>: 파트너센터 → 채널 → 채팅 화면에서 북마크 클릭</li>
+    <li><b>네이버</b>: 네이버페이센터 → 고객관리 → 고객문의관리에서 <b>답변여부 = 미답변</b>으로 두고 북마크 클릭. 1분마다 '6개월 → 조회하기'를 자동으로 누르니 <b>이 화면은 상황판 전용 탭으로 따로</b> 열어두세요.</li>
+    <li>두 탭은 닫지 말고 켜 두기. 화면 왼쪽 아래에 "CS 상황판 전송 중"이 보이면 정상입니다.</li>
+  </ol>
+  <p class="small">숫자가 회색으로 바뀌고 "갱신 없음"이 뜨면 그 탭이 닫혔거나 로그인이 풀린 것 → 다시 로그인하고 북마크를 한 번 더 누르세요. 읽기만 하고 카카오·네이버의 어떤 것도 바꾸지 않습니다.</p>
+</details>
+
+<script>
+const API='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup';
+const CODE_KEY='cs_code';   // CS 주문조회(cs-lookup.html)와 같은 키 — 거기서 넣었으면 여기선 생략
+const store={ get:k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set:(k,v)=>{ try{ localStorage.setItem(k,v); }catch(e){} } };
+const SRC=[['kakao','카카오 상담채널','내 채팅 안 읽음'],['naver','네이버페이 문의','미답변']];
+const STALE=3*60e3;   // 북마크는 1분마다 보냄 → 3분 넘게 소식 없으면 탭이 닫혔거나 로그인 풀림
+const app=document.querySelector('#app'), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let code=new URLSearchParams(location.search).get('code')||store.get(CODE_KEY)||'', data=null, err='';
+
+// ── 북마크 본문: 카카오·네이버 탭에서 실행돼 1분마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
+//    카카오: 왼쪽 메뉴(shadow DOM) '내 채팅' 옆 .txt_badge — 카카오 화면이 알아서 수시로 갱신
+//    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 "검색결과 내역 (총 N건)" 읽기
+//    카카오·네이버 화면이 바뀌면 여기 kakao()/naver()를 고치고 상담원 PC에서 북마크를 다시 끌어다 놓아야 함
+function tracker(C,F){
+  if(window.__csBoard){alert('CS 상황판: 이미 켜져 있어요. 이 탭은 그대로 열어두세요.');return}
+  var h=location.hostname,src=/kakao\.com$/.test(h)?'kakao':/naver\.com$/.test(h)?'naver':'';
+  if(!src){alert('CS 상황판: 카카오 채팅 화면이나 네이버페이센터 고객문의관리 화면에서 눌러주세요.');return}
+  window.__csBoard=1;
+  var tag=document.createElement('div');
+  tag.style.cssText='position:fixed;left:10px;bottom:10px;z-index:2147483647;background:#15171C;color:#fff;font:12px/1.4 sans-serif;padding:6px 10px;border-radius:8px;opacity:.85;pointer-events:none';
+  document.body.appendChild(tag);
+  function send(n,e){
+    var u=F+'?action=push&code='+encodeURIComponent(C)+'&src='+src+'&n='+(n==null?'':n)+'&err='+encodeURIComponent(e||'');
+    tag.textContent='● CS 상황판 전송 중 · '+new Date().toTimeString().slice(0,5)+' · '+(n==null?e:n+'건');
+    fetch(u).then(function(r){if(r.status==401){clearInterval(timer);tag.textContent='CS 상황판: 초대코드가 맞지 않아요 — 북마크를 다시 만드세요'}}).catch(function(){new Image().src=u});
+  }
+  function docs(){var d=[document];for(var i=0;i<frames.length;i++){try{if(frames[i].document.body)d.push(frames[i].document)}catch(e){}}return d}
+  function find(t){var ds=docs();for(var i=0;i<ds.length;i++){var eq=function(e){return e.textContent.trim()===t};
+    var x=[].find.call(ds[i].querySelectorAll('button'),eq)||[].find.call(ds[i].querySelectorAll('a,label,span,div,li'),function(e){return !e.children.length&&eq(e)});
+    if(x)return x.closest('button,a,label')||x}}
+  function kakao(){
+    var all=document.querySelectorAll('*');
+    for(var i=0;i<all.length;i++){var r=all[i].shadowRoot;if(!r)continue;
+      var a=[].find.call(r.querySelectorAll('a'),function(x){return /내\s*채팅/.test(x.textContent)});
+      if(a){var b=a.querySelector('.txt_badge');return send(b?parseInt(b.textContent.replace(/\D/g,''),10)||0:0)}}
+    send(null,'내 채팅 메뉴를 못 찾음 — 채팅 화면에서 북마크 다시 클릭');
+  }
+  function naverRead(){
+    var ds=docs();
+    for(var i=0;i<ds.length;i++){var t=ds[i].body.innerText,m=t.match(/검색결과\s*내역\s*\(\s*총\s*([\d,]+)\s*건/);if(!m)continue;
+      var k=t.indexOf('답변여부');
+      if(k>=0&&t.slice(k,k+40).indexOf('미답변')<0)return send(null,'답변여부가 미답변이 아님 — 미답변으로 바꿔주세요');
+      return send(parseInt(m[1].replace(/,/g,''),10))}
+    send(null,'검색결과 숫자를 못 찾음 — 고객문의관리 화면에서 북마크 다시 클릭');
+  }
+  function naver(){
+    var go=find('조회하기');
+    if(!go)return send(null,'고객문의관리 화면이 아님 — 그 화면에서 북마크 다시 클릭');
+    var p=find('6개월');if(p)p.click();
+    setTimeout(function(){go.click();setTimeout(naverRead,4000)},800);
+  }
+  var tick=src=='kakao'?kakao:naver;tick();var timer=setInterval(tick,60000);
+}
+
+function bookmark(){
+  const a=document.querySelector('#bm');
+  a.href='javascript:'+encodeURIComponent('('+tracker+')('+JSON.stringify(code)+','+JSON.stringify(API)+')');
+  a.onclick=e=>{ e.preventDefault(); alert('클릭이 아니라 이 버튼을 북마크바로 끌어다 놓으세요.'); };
+}
+
+const ago=ms=>ms<60e3?'방금':ms<3600e3?Math.floor(ms/60e3)+'분':Math.floor(ms/3600e3)+'시간';
+function card([key,label,unit]){
+  const s=data?.[key];
+  if(!s) return `<div class="card stale"><div class="lb">${label}</div><div class="n">–</div><div class="st">아직 신호 없음 — 그 화면에서 북마크를 눌러주세요</div></div>`;
+  const age=Date.now()-new Date(s.at).getTime(), stale=age>STALE, has=s.n!=null;
+  const cls=stale||!has?'stale':s.n>0?'hot':'zero';
+  const st=stale?`${ago(age)}째 갱신 없음 — 탭이 닫혔거나 로그인이 풀렸어요. 다시 로그인 후 북마크 클릭`
+    :s.err?`<span class="err">${esc(s.err)}</span>`:`${unit} · ${ago(age)} 전 확인`;
+  return `<div class="card ${cls}"><div class="lb">${label}</div><div class="n">${has?s.n:'?'}<small>건</small></div><div class="st">${st}</div></div>`;
+}
+function render(){
+  if(!code){ app.innerHTML=`<form class="login" id="login"><b>초대코드</b><br><br><input id="c" inputmode="numeric" autocomplete="off" placeholder="초대코드"> <button>시작</button> ${err?`<p class="err">${esc(err)}</p>`:''}</form>`;
+    document.querySelector('#login').onsubmit=e=>{ e.preventDefault(); code=document.querySelector('#c').value.trim(); err=''; load(); }; return; }
+  app.innerHTML=`<div class="grid">${SRC.map(card).join('')}</div>${err?`<p class="err">${esc(err)}</p>`:''}`;
+  const live=SRC.map(([k])=>data?.[k]).filter(s=>s&&s.n!=null&&Date.now()-new Date(s.at)<=STALE);
+  document.title=(live.length?`(${live.reduce((a,s)=>a+s.n,0)}) `:'')+'CS 진행상황';
+  document.querySelector('#sub').textContent='30초마다 새로고침 · '+new Date().toTimeString().slice(0,5);
+}
+async function load(){
+  if(!code) return render();
+  try{
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':code},body:JSON.stringify({action:'status'})});
+    if(r.status===401){ code=''; err='초대코드가 맞지 않습니다'; return render(); }
+    const j=await r.json(); if(j.error) throw new Error(j.error);
+    data=j; err=''; store.set(CODE_KEY,code); bookmark();
+  }catch(e){ err='불러오기 실패 ('+e.message+') — 30초 뒤 다시 시도'; }
+  render();
+}
+load(); setInterval(load,30e3);
+</script>
+</main>
+</body>
+</html>
