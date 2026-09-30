@@ -7,8 +7,8 @@
 //   stock { product_no } → { variants:[{option, stock, selling, ...}] }  카페24 옵션별 재고
 //   boards               → { boards }                       게시판 번호 찾기용 (셋업 때 한 번)
 //   status               → { kakao:{n,err,at}, naver:{...} }  CS 진행상황판(cs-board.html)용
-//   record { chats:[{id,a:담당자id,r:답변함0/1}], names:{담당자id:이름} } → 오늘 바뀐 카카오 채팅들 → 새로 시작된 상담만 'daily:kakao:<날짜>'에 누적 ({seed:true}면 먼저 seed)
-//   seed { chats:[...] }  → 최근 60일 채팅의 현재 상태를 'kakao:ledger'에 기준으로 저장 (처음 한 번, 셈 없음)
+//   record { chats:[{id,a:담당자id,m,w}], names:{담당자id:이름} } → 오늘 바뀐 카카오 채팅들 → 새로 시작된 상담만 'daily:kakao:<날짜>'에 누적 ({seed:true}면 먼저 seed)
+//   seed { chats:[{id,a}] } → 최근 60일 채팅의 현재 담당자를 'kakao:ledger'에 기준(=자정 담당자)으로 저장 (처음 한 번, 셈 없음)
 //   records              → { days:[{day, kakao:{담당자:건수}, naver:건수}] }  CS 처리 기록(cs-record.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
 //   GET ?action=push&code=&src=kakao|naver&n=&err=[&ids=네이버 미답변 문의번호들] → 상황판 북마크가 카카오 10초·네이버 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
@@ -120,41 +120,38 @@ async function getAsset(key: string): Promise<Row | null> {
 async function putAsset(key: string, body: unknown): Promise<void> {
   await dbRest("cs_assets?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key, body: JSON.stringify(body), updated_at: new Date().toISOString() }) });
 }
-// 카카오 '오늘 처리' = 오늘 새로 시작된 상담, 담당자별 (2026-09-30 사용자 기준):
-//   담당자가 없다가 오늘 지정됨 → 1건 | 전날 끝에 우리가 답해 둔(끝난) 채팅에 고객이 오늘 다시 문의 → 붙어 있는 담당자 1건 | 처음 보는 채팅방 + 담당자 → 1건
-//   어제 고객 말에 답 못 하고 자정을 넘긴 채팅('이어지는 상담')은 오늘 하루 종일 안 셈. 이틀 이상 고객 말로 끝나 있던 방은 끝난 걸로 봄.
-//   카카오 데이터에 지정 시각이 없어서, 채팅별 마지막 상태를 'kakao:ledger' {채팅id: Led}에 두고 1분마다 비교 — 판정은 kakao-step.ts
-//   ponytail: 북마크 탭이 꺼져 있던 동안의 변화는 못 봄 — 상황판 카카오 탭을 업무시간 내내 켜 두는 전제.
-type Snap = { id: string; a: number; r: number };
-const snapOk = (x: unknown): x is Snap[] => Array.isArray(x) && x.length <= 3000 &&
-  x.every((c) => c && typeof c.id === "string" && c.id.length <= 40 && Number.isInteger(c.a) && (c.r === 0 || c.r === 1));
+// 카카오 '오늘 처리' = 오늘 새로 시작된 상담, 담당자별 — 판정 규칙은 kakao-step.ts.
+//   '어제 고객 말에 답 못 한 채 자정을 넘겼나(m)'·'오늘 고객이 썼나(w)'는 북마크가 채팅 기록(누가·언제)에서 계산해 보냄 → 탭이 꺼져 있던 동안 것도 다음 실행 때 따라잡음.
+//   카카오 데이터에 담당자 지정 시각은 없어서 '자정 담당자'만 'kakao:ledger' {채팅id: Led}에 기억 (탭이 밤새 꺼져 있으면 마지막으로 본 담당자로 대신).
+type Snap = { id: string; a: number; m: number; w: number };
+const bit = (x: unknown) => x === 0 || x === 1;
+const listOk = (x: unknown, f: (c: Row) => boolean) => Array.isArray(x) && x.length <= 3000 && x.every((c) => c && typeof c.id === "string" && c.id.length <= 40 && Number.isInteger(c.a) && f(c));
 const namesOk = (o: unknown) => o && typeof o === "object" && Object.keys(o).length <= 200 && Object.entries(o).every(([k, x]) => k.length <= 20 && typeof x === "string" && x.length <= 40);
-async function seedKakao(op: Row): Promise<unknown> {   // 첫날 기준점: 지금 답 못 한 담당 채팅은 오늘 '이어지는 상담'으로 둠
-  if (!snapOk(op.chats)) throw new Error("bad seed");
-  const L = (await getAsset("kakao:ledger")) ?? {}, t = kst(new Date());
-  for (const c of op.chats) L[c.id] ??= [c.a, c.r, t, c.a && !c.r ? "c" : "", c.a];
+async function seedKakao(op: Row): Promise<unknown> {
+  if (!listOk(op.chats, () => true)) throw new Error("bad seed");
+  const L = (await getAsset("kakao:ledger")) ?? {};
+  for (const c of op.chats) L[c.id] ??= [c.a, "0", "", c.a];   // 날짜 "0" → 오늘 첫 판정 때 이 담당자를 자정 담당자로 씀
   await putAsset("kakao:ledger", L);
   return { ok: true, n: Object.keys(L).length };
 }
 async function recordKakao(op: Row): Promise<unknown> {
-  if (!snapOk(op.chats) || !namesOk(op.names ?? {})) throw new Error("bad record");
+  if (!listOk(op.chats, (c) => bit(c.m) && bit(c.w)) || !namesOk(op.names ?? {})) throw new Error("bad record");
   const L = await getAsset("kakao:ledger");
   if (!L) return { seed: true };
-  const today = kst(new Date()), yday = kst(new Date(Date.now() - 86400_000)), key = `daily:kakao:${today}`;
+  const today = kst(new Date()), key = `daily:kakao:${today}`;
   const cur = (await getAsset(key)) ?? { chats: {}, names: {} };
-  for (const c of op.chats) {
-    const { p, count } = kakaoStep(L[c.id], c, today, yday);
+  for (const c of op.chats as Snap[]) {
+    const { p, count } = kakaoStep(L[c.id], c, today);
     if (count) cur.chats[c.id] = c.a;   // 오늘 센 채팅 — 담당자가 바뀌면 새 담당자로
     L[c.id] = p;
   }
   const cut = kst(new Date(Date.now() - 60 * 86400_000));
-  for (const id in L) if (L[id][2] < cut) delete L[id];   // 60일 넘게 조용한 채팅은 잊음 → 다시 오면 새 상담
+  for (const id in L) if (L[id][1] !== "0" && L[id][1] < cut) delete L[id];   // 60일 넘게 조용한 채팅은 잊음 → 다시 오면 처음 보는 방
   Object.assign(cur.names, op.names ?? {});
   await putAsset("kakao:ledger", L);
   await putAsset(key, cur);
   return { ok: true, n: Object.keys(cur.chats).length };
 }
-
 // 네이버: 1분 전 미답변 목록에 있던 문의번호가 지금 없으면 = 답변 처리됨 → 오늘 기록에 추가.
 // ponytail: 목록 한 페이지에 미답변이 다 보일 때(번호 수 == 총 N건)만 셈. 미답변이 한 페이지를 넘으면 그동안의 답변은 못 셈 — 그런 날이 잦으면 네이버 목록 표시 개수를 늘릴 것.
 async function trackNaver(ids: string[], n: number): Promise<void> {

@@ -71,9 +71,11 @@ let code=new URLSearchParams(location.search).get('code')||store.get(CODE_KEY)||
 
 // ── 북마크 본문: 카카오·네이버 탭에서 실행돼 카카오 10초·네이버 1분마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
 //    카카오: 왼쪽 메뉴(shadow DOM) '내 채팅' 옆 .txt_badge — 카카오 화면이 알아서 수시로 갱신
-//           + 1분마다 처리 기록: 채팅 목록 API(카카오 화면이 쓰는 것, 100개씩·since=마지막 last_log_id)에서 오늘 바뀐 채팅의 담당자·답변 여부 → 서버가 '오늘 새로 시작된 상담'만 셈 (index.ts recordKakao)
+//           + 1분마다 처리 기록: 채팅 목록 API(카카오 화면이 쓰는 것, 100개씩·since=마지막 last_log_id)에서 오늘 바뀐 채팅마다
+//             채팅 기록(GET .../chats/<id>/chatlogs, 20개씩·since=가장 오래된 id로 이전 페이지)을 자정 전까지 읽어
+//             m(어제 고객 말에 답 못 한 채 자정 넘김)·w(오늘 고객이 씀) 계산 → 서버가 '오늘 새로 시작된 상담'만 셈 (kakao-step.ts)
 //    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 "검색결과 내역 (총 N건)" 읽기 + 목록의 문의번호(9~10자리) — 사라진 번호 = 답변 처리(서버가 셈)
-//    카카오·네이버 화면이 바뀌면 여기 kakao()/naver()를 고치고 상담원 PC에서 북마크를 다시 끌어다 놓아야 함
+//    북마크는 실행할 때마다 이 페이지의 최신 tracker를 받아 씀(카카오) → 고쳐도 다시 끌어다 놓을 필요 없음. 받아오기가 막힌 사이트(네이버일 수 있음)는 북마크에 든 사본으로 돔
 function tracker(C,F){
   if(window.__csBoard){alert('CS 상황판: 이미 켜져 있어요. 이 탭은 그대로 열어두세요.');return}
   var h=location.hostname,src=/kakao\.com$/.test(h)?'kakao':/naver\.com$/.test(h)?'naver':'';
@@ -99,25 +101,40 @@ function tracker(C,F){
       if(a){var b=a.querySelector('.txt_badge');return send(b?parseInt(b.textContent.replace(/\D/g,''),10)||0:0)}}
     send(null,'내 채팅 메뉴를 못 찾음 — 채팅 화면에서 북마크 다시 클릭');
   }
-  var kc=0,names={};
+  var kc=0,names={},seen={},busy=false;
+  var wait=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
   function post(o){return fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify(o)}).then(function(r){return r.json()})}
   async function list(api,since){return (await fetch(api+'/chats/search?size=100'+(since?'&since='+since:''),{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_blocked:false,status:'all',keyword:'',labels:[]})})).json()}
-  async function snap(api,cut){var out=[],since='',p,j,its;
+  async function items(api,cut){var out=[],since='',p,j,its;
     for(p=0;p<80;p++){j=await list(api,since);its=j.items||[];
-      its.forEach(function(i){if(i.updated_at>=cut)out.push({id:i.id,a:i.assignee_id||0,r:i.is_replied?1:0})});
+      its.forEach(function(i){if(i.updated_at>=cut)out.push(i)});
       if(!j.has_next||!its.length||its[its.length-1].updated_at<cut)break;since=its[its.length-1].last_log_id}
     return out}
+  async function facts(api,c,mid){   /* 채팅 기록을 자정 전 메시지가 나올 때까지 거슬러 읽음 */
+    var logs=[],since='',p,j,its,me=String(c.talk_user&&c.talk_user.id);
+    for(p=0;p<10;p++){j=await (await fetch(api+'/chats/'+c.id+'/chatlogs'+(since?'?since='+since:''),{credentials:'include'})).json();its=j.items||[];logs=logs.concat(its);
+      if(!j.has_prev||!its.length)break;var old=its.reduce(function(x,y){return x.send_at<y.send_at?x:y});if(old.send_at<mid)break;since=old.id;await wait(150)}
+    var cust=function(x){return String(x.author_id)===me},pre=null;
+    logs.forEach(function(x){if(x.send_at<mid&&(!pre||x.send_at>pre.send_at))pre=x});
+    return {m:pre&&cust(pre)&&pre.send_at>=mid-864e5?1:0,w:logs.some(function(x){return cust(x)&&x.send_at>=mid})?1:0}}
   async function record(){
+    if(busy)return;busy=true;try{
     var ch=(location.pathname.match(/\/(_[A-Za-z0-9]+)/)||[])[1];if(!ch){rec=' · 처리기록: 채팅 화면에서 북마크 다시 클릭';return}
-    var api='/api/profiles/'+ch,chats=await snap(api,new Date().setHours(0,0,0,0));
+    var api='/api/profiles/'+ch,mid=new Date().setHours(0,0,0,0),today=await items(api,mid),chats=[],done={};
+    for(var i=0;i<today.length;i++){var c=today[i];if(seen[c.id]===c.updated_at)continue;
+      if(!chats.length)rec=' · 처리기록 확인 중…';
+      var f=await facts(api,c,mid);chats.push({id:c.id,a:c.assignee_id||0,m:f.m,w:f.w});done[c.id]=c.updated_at;await wait(150)}
+    if(!chats.length)return;
     if(chats.some(function(c){return c.a&&!names[c.a]})){var m=await (await fetch(api+'/managers',{credentials:'include'})).json();
       (Array.isArray(m)?m:m.items||m.managers||Object.values(m).find(Array.isArray)||[]).forEach(function(x){names[x.id]=x.name})}
     var nm={};chats.forEach(function(c){if(names[c.a])nm[c.a]=names[c.a]});
     var r=await post({action:'record',src:'kakao',chats:chats,names:nm});
-    if(r.seed){rec=' · 처리기록 준비 중…';var all=await snap(api,Date.now()-60*864e5);
+    if(r.seed){rec=' · 처리기록 준비 중…';var all=(await items(api,Date.now()-60*864e5)).map(function(c){return {id:c.id,a:c.assignee_id||0}});
       for(var k=0;k<all.length;k+=2000)await post({action:'seed',src:'kakao',chats:all.slice(k,k+2000)});
       r=await post({action:'record',src:'kakao',chats:chats,names:nm})}
-    rec=r.error?' · 처리기록 오류':' · 오늘 처리 '+r.n;
+    if(r.error){rec=' · 처리기록 오류';return}
+    Object.assign(seen,done);rec=' · 오늘 처리 '+r.n;
+    }finally{busy=false}
   }
   function kakaoTick(){kakao();if(kc++%6==0)record().catch(function(){rec=' · 처리기록 실패(다음 분에 재시도)'})}
   function naverRead(){
@@ -126,7 +143,8 @@ function tracker(C,F){
       var k=t.indexOf('답변여부');
       if(k>=0&&t.slice(k,k+40).indexOf('미답변')<0)return send(null,'답변여부가 미답변이 아님 — 미답변으로 바꿔주세요');
       var ids=(t.slice(m.index).match(/(^|\s)\d{9,10}(?=\s)/g)||[]).map(function(x){return x.trim()});
-      return send(parseInt(m[1].replace(/,/g,''),10),'',ids.filter(function(x,i){return ids.indexOf(x)==i}))}
+      ids=ids.filter(function(x,i){return ids.indexOf(x)==i});var n=parseInt(m[1].replace(/,/g,''),10);
+      return send(n,ids.length==n?'':'문의번호 '+ids.length+'/'+n+'개만 읽힘 — 답변 처리 기록이 빠질 수 있음',ids)}
     send(null,'검색결과 숫자를 못 찾음 — 고객문의관리 화면에서 북마크 다시 클릭');
   }
   function naver(){
@@ -145,7 +163,9 @@ function tracker(C,F){
 
 function bookmark(){
   const a=document.querySelector('#bm');
-  a.href='javascript:'+encodeURIComponent('('+tracker+')('+JSON.stringify(code)+','+JSON.stringify(API)+')');
+  const args=JSON.stringify(code)+','+JSON.stringify(API), page=JSON.stringify(new URL('cs-board.html',location.href).href);
+  a.href='javascript:'+encodeURIComponent('(async function(){try{var s=await (await fetch('+page+'+"?"+Date.now())).text(),i=s.indexOf("function tracker("),j=s.indexOf("function bookmark(");'+
+    'if(i<0||j<0)throw 0;(0,eval)("("+s.slice(i,j)+")")('+args+');return}catch(e){}('+tracker+')('+args+')})()');
   a.onclick=e=>{ e.preventDefault(); alert('클릭이 아니라 이 버튼을 북마크바로 끌어다 놓으세요.'); };
 }
 
