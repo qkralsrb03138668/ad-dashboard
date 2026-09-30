@@ -27,6 +27,7 @@
 // 필요 secrets: META_WRITE_TOKEN, WRITE_PIN, DASH_KEY, META_AD_ACCOUNT_ID
 // ═══════════════════════════════════════════════
 import { cacheGet, cacheSet, dbRest, getAuth, canAct, denyAct, handleOptions, json } from "../_shared/util.ts";
+import { NOTE_RE, stripLeadNotes } from "../_shared/copy-check.ts";
 const makerKey = (v: unknown) => /^[a-z0-9_]{1,30}$/.test(String(v ?? "")) ? String(v) : null;   // creatives.maker — 목록은 shared_state maker_list(화면에서 관리), 서버는 키 형식만 검사 (0018)
 
 const GRAPH = "https://graph.facebook.com/v23.0";
@@ -396,6 +397,7 @@ Deno.serve(async (req) => {
       const id = String(body.id ?? ""); if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: "id 필요" }, 400);
       const patch: Rec = {};
       for (const k of ["product_no", "product_name", "url", "text", "file_name", "core_name", "regen"]) if (k in body) patch[k] = typeof body[k] === "string" ? String(body[k]).normalize("NFC") : body[k];
+      if (patch.text && typeof (patch.text as Rec).message === "string") patch.text = { ...(patch.text as Rec), message: stripLeadNotes(String((patch.text as Rec).message)) };   // AI 안내 문단 제거
       if ("maker" in body) patch.maker = makerKey(body.maker);   // 만든 사람 고치기 (올린 사람 ≠ 만든 사람일 때)
       const r = await dbRest(`creatives?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(patch) });
       if (!r.ok) return json({ error: `수정 실패: ${await r.text()}` }, 500);
@@ -467,6 +469,10 @@ Deno.serve(async (req) => {
       if (!model.cbo && (budget < MIN_BUDGET || budget > MAX_BUDGET)) return json({ error: `일예산은 ${MIN_BUDGET.toLocaleString()}~${MAX_BUDGET.toLocaleString()}원 사이여야 합니다` }, 400);
       if (media.type === "video" ? !(media.video_id && media.thumbnail_url) : !media.image_hash) return json({ error: "미디어 정보 부족" }, 400);
       if (!String(text.link ?? "").startsWith("http")) return json({ error: "웹사이트 URL이 필요합니다" }, 400);
+      /* 마지막 관문(2026-09-30): "상품 페이지는 접근 권한이 없어 … 근거로 썼습니다" 같은 AI 안내문이 광고 9개에 그대로 나갔다 — 앞 문단이면 지우고, 그래도 남아 있으면 만들지 않는다 */
+      const rawMsg = String(text.message ?? ""); text.message = stripLeadNotes(rawMsg);
+      const note_stripped = text.message !== rawMsg.trim();
+      if (NOTE_RE.test(String(text.message))) return json({ error: "문구에 AI 안내문이 섞여 있어 광고를 만들지 않았어요 — 문구를 열어 '권한·근거로 썼습니다' 같은 문장을 지우고 다시 시도하세요" }, 400);
       if (!(model.creative as Rec).page_id) return json({ error: "모델 광고에서 페이지 ID를 읽지 못했습니다" }, 400);
 
       /* 영상 썸네일은 Meta CDN의 서명 URL이라 며칠 지나면 만료된다 — 등록해 둔 소재를 나중에 광고로 만들 때 '읽어들일 수 없는 이미지' 오류(2026-09-28 실사례, 9/22 등록분).
@@ -488,7 +494,7 @@ Deno.serve(async (req) => {
         await dbRest(`creatives?id=eq.${cid}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ status: "ad_created", ad_id: ad.id, adset_id, ad_created_at: new Date().toISOString(), ad_created_by: me.email, ad_created_by_name: me.name || null, model_ad_id: String(body.model_ad_id ?? ""), text }) }).catch(() => {});
       }
-      return json({ adset_id, creative_id, ad_id: ad.id });
+      return json({ adset_id, creative_id, ad_id: ad.id, note_stripped });
     }
     return json({ error: `알 수 없는 action: ${action}` }, 400);
   } catch (e) {

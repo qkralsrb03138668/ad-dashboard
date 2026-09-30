@@ -151,6 +151,7 @@ async function regGenRows(rows) {
       for (const r of rows) if (r.product.product_no === no) { r.text = regCopyText(row, r.url); r.textFrom = 'ai'; r.status = '대기'; r.sel = false; ok++; }
     } catch (e) {
       for (const r of rows) if (r.product.product_no === no) r.status = '문구 생성 실패: ' + e.message;
+      toast(`문구 생성 실패 (${first.product.name}): ${e.message}`, 'err');
     }
     regRender();
   }

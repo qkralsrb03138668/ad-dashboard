@@ -67,6 +67,10 @@ const METRICS = {
 
 /* ═══════════ 저장소 ═══════════ */
 const LS = { cre:'adc_creatives', rec:'adc_records', period:'adc_period', view:'adc_listview', pt:'adc_ptest' };
+/* AI가 카피 앞에 붙인 안내문("상품 페이지는 접근 권한이 없어 … 근거로 썼습니다") 감지 — 서버 _shared/copy-check.ts의 NOTE_RE와 같은 규칙 (2026-09-30 광고 9개에 그대로 나간 사고) */
+const COPY_NOTE_RE = /권한|근거로 (썼|쓴|작성)|카피입니다|열지 못|확인하지 못|불러오지 못|불러올 수 없|접근할 수 없|작성했습니다|페이지를 열|확인해보니|다음과 같이/;
+function copyHasNote(t) { return COPY_NOTE_RE.test(String((t && t.message) || '')); }
+function copyStripNote(msg) { const p = String(msg || '').trim().split(/\n\s*\n/); while (p.length > 1 && COPY_NOTE_RE.test(p[0])) p.shift(); return p.join('\n\n').trim(); }
 function lsGet(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch(e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) { toast('저장 실패 — 저장 공간이 가득 찼을 수 있어요'); } }
 

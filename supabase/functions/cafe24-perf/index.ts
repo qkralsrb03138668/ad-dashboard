@@ -21,7 +21,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { cacheGet, cacheSet, getAuth, canMenu, dbRest, handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 import Anthropic from "npm:@anthropic-ai/sdk";
-import { badCopy, COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL, stripNotes, tidyCopy } from "./ad-copy-prompt.ts";
+import { badCopy, COPY_EXAMPLES_HUMAN, COPY_EXAMPLE_LONG, COPY_LONG_RULES, COPY_PROMPT_ORIGINAL, stripLeadNotes, stripNotes, tidyCopy } from "./ad-copy-prompt.ts";
 
 // ── 상품별 광고 문구 (product_copy) — 소재 등록에서 상품이 정해지면 저장본 재사용, 없으면 [AI 문구 생성] 버튼으로 생성·고정 ──
 const SHOP_URL = Deno.env.get("SHOP_URL") ?? "https://danarobe.com";
@@ -367,6 +367,7 @@ Deno.serve(async (req) => {
       } else {
         text = (b.text ?? {}) as Record<string, unknown>;
         if (!String(text.message ?? "").trim()) return json({ error: "본문 필요" }, 400);
+        text = { ...text, message: stripLeadNotes(String(text.message)) };   // AI 안내 문단이 앞에 붙은 채 저장되지 않게
         source = "manual";
       }
       const row = { product_no: no, product_name: b.product_name ? String(b.product_name).slice(0, 300) : null, text, source, updated_at: new Date().toISOString(), updated_by: me.email, updated_by_name: me.name || null };
