@@ -45,7 +45,7 @@ summary{cursor:pointer;font-weight:700}
 <body>
 <main>
 <h1>CS 진행상황</h1>
-<p class="sub" id="sub">30초마다 새로고침</p>
+<p class="sub" id="sub">10초마다 새로고침</p>
 <div id="app"></div>
 
 <details class="help" id="help">
@@ -54,10 +54,10 @@ summary{cursor:pointer;font-weight:700}
     <li>아래 버튼을 브라우저 <b>북마크바</b>에 끌어다 놓기 (북마크바가 안 보이면 ⌘+Shift+B / Ctrl+Shift+B)<br>
       <a id="bm" class="bm" href="#">CS 상황판 보내기</a></li>
     <li><b>카카오</b>: 파트너센터 → 채널 → 채팅 화면에서 북마크 클릭</li>
-    <li><b>네이버</b>: 네이버페이센터 → 고객관리 → 고객문의관리에서 <b>답변여부 = 미답변</b>으로 두고 북마크 클릭. 1분마다 '6개월 → 조회하기'를 자동으로 누르니 <b>이 화면은 상황판 전용 탭으로 따로</b> 열어두세요.</li>
+    <li><b>네이버</b>: 네이버페이센터 → 고객관리 → 고객문의관리에서 <b>답변여부 = 미답변</b>으로 두고 북마크 클릭. 30초마다 '6개월 → 조회하기'를 자동으로 누르니 <b>이 화면은 상황판 전용 탭으로 따로</b> 열어두세요.</li>
     <li>두 탭은 닫지 말고 켜 두기. 화면 왼쪽 아래에 "CS 상황판 전송 중"이 보이면 정상입니다.</li>
   </ol>
-  <p class="small">숫자가 회색으로 바뀌고 "갱신 없음"이 뜨면 그 탭이 닫혔거나 로그인이 풀린 것 → 다시 로그인하고 북마크를 한 번 더 누르세요. 읽기만 하고 카카오·네이버의 어떤 것도 바꾸지 않습니다.</p>
+  <p class="small">숫자가 회색으로 바뀌고(1분 반 넘게 소식 없을 때) "갱신 없음"이 뜨면 그 탭이 닫혔거나 로그인이 풀린 것 → 다시 로그인하고 북마크를 한 번 더 누르세요. 읽기만 하고 카카오·네이버의 어떤 것도 바꾸지 않습니다.</p>
 </details>
 
 <script>
@@ -65,11 +65,11 @@ const API='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup';
 const CODE_KEY='cs_code';   // CS 주문조회(cs-lookup.html)와 같은 키 — 거기서 넣었으면 여기선 생략
 const store={ get:k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set:(k,v)=>{ try{ localStorage.setItem(k,v); }catch(e){} } };
 const SRC=[['kakao','카카오 상담채널','내 채팅 안 읽음'],['naver','네이버페이 문의','미답변']];
-const STALE=3*60e3;   // 북마크는 1분마다 보냄 → 3분 넘게 소식 없으면 탭이 닫혔거나 로그인 풀림
+const STALE=90e3;   // 북마크는 카카오 10초·네이버 30초마다 보냄 → 1분 반 넘게 소식 없으면 탭이 닫혔거나 로그인 풀림
 const app=document.querySelector('#app'), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let code=new URLSearchParams(location.search).get('code')||store.get(CODE_KEY)||'', data=null, err='';
 
-// ── 북마크 본문: 카카오·네이버 탭에서 실행돼 1분마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
+// ── 북마크 본문: 카카오·네이버 탭에서 실행돼 카카오 10초·네이버 30초마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
 //    카카오: 왼쪽 메뉴(shadow DOM) '내 채팅' 옆 .txt_badge — 카카오 화면이 알아서 수시로 갱신
 //    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 "검색결과 내역 (총 N건)" 읽기
 //    카카오·네이버 화면이 바뀌면 여기 kakao()/naver()를 고치고 상담원 PC에서 북마크를 다시 끌어다 놓아야 함
@@ -84,7 +84,7 @@ function tracker(C,F){
   function send(n,e){
     var u=F+'?action=push&code='+encodeURIComponent(C)+'&src='+src+'&n='+(n==null?'':n)+'&err='+encodeURIComponent(e||'');
     tag.textContent='● CS 상황판 전송 중 · '+new Date().toTimeString().slice(0,5)+' · '+(n==null?e:n+'건');
-    fetch(u).then(function(r){if(r.status==401){clearInterval(timer);tag.textContent='CS 상황판: 초대코드가 맞지 않아요 — 북마크를 다시 만드세요'}}).catch(function(){new Image().src=u});
+    fetch(u).then(function(r){if(r.status==401){timer.stop();tag.textContent='CS 상황판: 초대코드가 맞지 않아요 — 북마크를 다시 만드세요'}}).catch(function(){new Image().src=u});
   }
   function docs(){var d=[document];for(var i=0;i<frames.length;i++){try{if(frames[i].document.body)d.push(frames[i].document)}catch(e){}}return d}
   function find(t){var ds=docs();for(var i=0;i<ds.length;i++){var eq=function(e){return e.textContent.trim()===t};
@@ -111,7 +111,12 @@ function tracker(C,F){
     var p=find('6개월');if(p)p.click();
     setTimeout(function(){go.click();setTimeout(naverRead,4000)},800);
   }
-  var tick=src=='kakao'?kakao:naver;tick();var timer=setInterval(tick,60000);
+  /* 뒤에 가려진 탭은 크롬이 setInterval을 1분 간격으로 늦춤 → Worker 타이머로 깨움 (Worker가 막힌 사이트면 setInterval) */
+  function every(ms,f){f();var t,w;
+    function fb(){if(w)w.terminate();w=null;t=setInterval(f,ms)}
+    try{w=new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(0)},'+ms+')'])));w.onmessage=f;w.onerror=fb}catch(e){fb()}
+    return {stop:function(){if(w)w.terminate();clearInterval(t)}}}
+  var timer=every(src=='kakao'?10000:30000,src=='kakao'?kakao:naver);
 }
 
 function bookmark(){
@@ -136,7 +141,7 @@ function render(){
   app.innerHTML=`<div class="grid">${SRC.map(card).join('')}</div>${err?`<p class="err">${esc(err)}</p>`:''}`;
   const live=SRC.map(([k])=>data?.[k]).filter(s=>s&&s.n!=null&&Date.now()-new Date(s.at)<=STALE);
   document.title=(live.length?`(${live.reduce((a,s)=>a+s.n,0)}) `:'')+'CS 진행상황';
-  document.querySelector('#sub').textContent='30초마다 새로고침 · '+new Date().toTimeString().slice(0,5);
+  document.querySelector('#sub').textContent='10초마다 새로고침 · '+new Date().toTimeString().slice(0,5);
 }
 async function load(){
   if(!code) return render();
@@ -145,10 +150,10 @@ async function load(){
     if(r.status===401){ code=''; err='초대코드가 맞지 않습니다'; return render(); }
     const j=await r.json(); if(j.error) throw new Error(j.error);
     data=j; err=''; store.set(CODE_KEY,code); bookmark();
-  }catch(e){ err='불러오기 실패 ('+e.message+') — 30초 뒤 다시 시도'; }
+  }catch(e){ err='불러오기 실패 ('+e.message+') — 10초 뒤 다시 시도'; }
   render();
 }
-load(); setInterval(load,30e3);
+load(); setInterval(load,10e3);
 </script>
 </main>
 </body>

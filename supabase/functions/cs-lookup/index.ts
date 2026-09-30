@@ -8,7 +8,7 @@
 //   boards               → { boards }                       게시판 번호 찾기용 (셋업 때 한 번)
 //   status               → { kakao:{n,err,at}, naver:{...} }  CS 진행상황판(cs-board.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
-//   GET ?action=push&code=&src=kakao|naver&n=&err= → 상황판 북마크가 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
+//   GET ?action=push&code=&src=kakao|naver&n=&err= → 상황판 북마크가 10~30초마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
 // secrets: CS_CODE(초대코드), CS_BOARD_NO(배송지연 게시판 번호), CAFE24_*(판매성과와 공유)
 // 배포: ./deploy-cs-lookup.sh <초대코드> <게시판번호>
 // ═══════════════════════════════════════════════
