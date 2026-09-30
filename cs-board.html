@@ -71,7 +71,7 @@ let code=new URLSearchParams(location.search).get('code')||store.get(CODE_KEY)||
 
 // ── 북마크 본문: 카카오·네이버 탭에서 실행돼 카카오 10초·네이버 1분마다 숫자를 서버로 보냄 (페이지 스크립트 차단에 걸리지 않게 통째로 북마크에 넣음)
 //    카카오: 왼쪽 메뉴(shadow DOM) '내 채팅' 옆 .txt_badge — 카카오 화면이 알아서 수시로 갱신
-//           + 1분마다 처리 기록: 채팅 목록 API(카카오 화면이 쓰는 것, 100개씩·since=마지막 last_log_id)에서 오늘 답변/완료된 채팅 → 담당자별로 서버에 누적
+//           + 1분마다 처리 기록: 채팅 목록 API(카카오 화면이 쓰는 것, 100개씩·since=마지막 last_log_id)에서 오늘 바뀐 채팅의 담당자·답변 여부 → 서버가 '오늘 새로 시작된 상담'만 셈 (index.ts recordKakao)
 //    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 "검색결과 내역 (총 N건)" 읽기 + 목록의 문의번호(9~10자리) — 사라진 번호 = 답변 처리(서버가 셈)
 //    카카오·네이버 화면이 바뀌면 여기 kakao()/naver()를 고치고 상담원 PC에서 북마크를 다시 끌어다 놓아야 함
 function tracker(C,F){
@@ -100,21 +100,23 @@ function tracker(C,F){
     send(null,'내 채팅 메뉴를 못 찾음 — 채팅 화면에서 북마크 다시 클릭');
   }
   var kc=0,names={};
+  function post(o){return fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify(o)}).then(function(r){return r.json()})}
+  async function list(api,since){return (await fetch(api+'/chats/search?size=100'+(since?'&since='+since:''),{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_blocked:false,status:'all',keyword:'',labels:[]})})).json()}
+  async function snap(api,cut){var out=[],since='',p,j,its;
+    for(p=0;p<80;p++){j=await list(api,since);its=j.items||[];
+      its.forEach(function(i){if(i.updated_at>=cut)out.push({id:i.id,a:i.assignee_id||0,r:i.is_replied?1:0})});
+      if(!j.has_next||!its.length||its[its.length-1].updated_at<cut)break;since=its[its.length-1].last_log_id}
+    return out}
   async function record(){
     var ch=(location.pathname.match(/\/(_[A-Za-z0-9]+)/)||[])[1];if(!ch){rec=' · 처리기록: 채팅 화면에서 북마크 다시 클릭';return}
-    var api='/api/profiles/'+ch,mid=new Date().setHours(0,0,0,0),chats={},since='',p,j,its;
-    for(p=0;p<20;p++){
-      j=await (await fetch(api+'/chats/search?size=100'+(since?'&since='+since:''),{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_blocked:false,status:'all',keyword:'',labels:[]})})).json();
-      its=j.items||[];
-      its.forEach(function(i){if(i.last_log_send_at>=mid&&(i.is_replied||i.is_done))chats[i.id]=i.assignee_id||0});
-      if(!j.has_next||!its.length||its[its.length-1].updated_at<mid)break;
-      since=its[its.length-1].last_log_id;
-    }
-    var ids=Object.values(chats);
-    if(ids.some(function(a){return a&&!names[a]})){var m=await (await fetch(api+'/managers',{credentials:'include'})).json();
+    var api='/api/profiles/'+ch,chats=await snap(api,new Date().setHours(0,0,0,0));
+    if(chats.some(function(c){return c.a&&!names[c.a]})){var m=await (await fetch(api+'/managers',{credentials:'include'})).json();
       (Array.isArray(m)?m:m.items||m.managers||Object.values(m).find(Array.isArray)||[]).forEach(function(x){names[x.id]=x.name})}
-    var nm={};ids.forEach(function(a){if(names[a])nm[a]=names[a]});
-    var r=await (await fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify({action:'record',src:'kakao',chats:chats,names:nm})})).json();
+    var nm={};chats.forEach(function(c){if(names[c.a])nm[c.a]=names[c.a]});
+    var r=await post({action:'record',src:'kakao',chats:chats,names:nm});
+    if(r.seed){rec=' · 처리기록 준비 중…';var all=await snap(api,Date.now()-60*864e5);
+      for(var k=0;k<all.length;k+=2000)await post({action:'seed',src:'kakao',chats:all.slice(k,k+2000)});
+      r=await post({action:'record',src:'kakao',chats:chats,names:nm})}
     rec=r.error?' · 처리기록 오류':' · 오늘 처리 '+r.n;
   }
   function kakaoTick(){kakao();if(kc++%6==0)record().catch(function(){rec=' · 처리기록 실패(다음 분에 재시도)'})}
