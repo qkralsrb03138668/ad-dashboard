@@ -48,6 +48,10 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .item{padding:10px 0;border-top:1px dashed var(--line)}
 .item:first-of-type{border-top:0}
 .item .nm{font-weight:500}
+.pkrow{display:flex;gap:9px;align-items:flex-start;cursor:pointer}
+.pkrow input{width:18px;height:18px;margin:2px 0 0;flex:0 0 auto;accent-color:var(--accent);cursor:pointer}
+.item .op,.item .delay{margin-left:27px}
+.reply .tools{flex-wrap:wrap}
 .item .op{font-size:12.5px;color:var(--ink2)}
 .badge{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--ink2);white-space:nowrap;vertical-align:1px;margin-left:6px}
 .badge.ok{background:var(--ok-soft);color:var(--ok)} .badge.warn{background:var(--warn-soft);color:var(--warn)} .badge.danger{background:var(--danger-soft);color:var(--danger)} .badge.acc{background:var(--accent-soft);color:var(--accent)}
@@ -138,7 +142,7 @@ if(EMBED&&window.parent!==window){
   window.addEventListener('message',ev=>{ if(ev.origin!==SM_ORIGIN||!ev.data||ev.data.type!=='sellmate-result') return; const p=pending.get(ev.data.id); if(!p) return; pending.delete(ev.data.id); ev.data.error?p.reject(new Error(ev.data.error)):p.resolve(ev.data.items||[]); });
   window.SELLMATE={version:'overlay',search:q=>new Promise((resolve,reject)=>{ const id=++seq; pending.set(id,{resolve,reject}); window.parent.postMessage({type:'sellmate-search',id,q},SM_ORIGIN); setTimeout(()=>{ if(pending.has(id)){ pending.delete(id); reject(new Error('셀메이트 응답이 없습니다')); } },30000); })};
 }
-const S={code:QS.get('code')||store.get(CODE_KEY)||'',auth:'unknown',err:'',busy:false,q:'',res:null,delays:null,boards:null,sm:null};   // sm: 셀메이트 조회 결과 {items}|{error}|null
+const S={code:QS.get('code')||store.get(CODE_KEY)||'',auth:'unknown',err:'',busy:false,q:'',res:null,delays:null,boards:null,sm:null,pick:{},reply:{}};   // sm: 셀메이트 조회 결과 {items}|{error}|null · pick[주문순번]={품목순번:true} · reply[주문순번]=만든 답변(없으면 아직 안 만듦)
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove('on'),1600); }
@@ -177,6 +181,14 @@ const smFor=(o,i)=>{ const list=(S.sm&&S.sm.items)||[]; const on=norm(i.option),
   return list.find(x=>x.order_id===o.order_id&&(on?norm(x.opt)===on&&norm(x.name)===pn:norm(x.name)===pn))||null; };
 const trackUrl=i=>`https://search.naver.com/search.naver?query=${encodeURIComponent((i.carrier||'택배')+' '+i.tracking)}`;
 
+const PREP=['N00','N10','N20','N21','N22'];   // 아직 안 나간 상품 (입금전·준비중·보류)
+const itemsOf=o=>o.items.map(i=>({i,art:delayFor(i),sm:smFor(o,i)}));
+// 답변 만들기: prepOnly면 준비중 상품을 자동 선택, 아니면 체크한 상품만. 답변은 버튼을 눌러야 나온다 (2026-09-30 요청)
+function makeReply(oi,prepOnly){ const o=S.res.orders[oi]; const its=itemsOf(o);
+  if(prepOnly){ const p={}; its.forEach((x,k)=>{ if(PREP.includes(x.i.status)) p[k]=true; }); if(!Object.keys(p).length){ toast('준비중인 상품이 없어요'); return; } S.pick[oi]=p; }
+  const sel=its.filter((x,k)=>(S.pick[oi]||{})[k]);
+  if(!sel.length){ toast('답변에 넣을 상품을 먼저 체크하세요'); return; }
+  S.reply[oi]=replyFor(o,sel); render(); const t=$('#rp'+oi); if(t) t.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 function render(){
   const app=$('#app');
   if(!S.code||S.auth==='bad'){ app.innerHTML=`<div class="login"><h1>CS 주문조회</h1><p>초대코드를 넣으면 시작합니다. 한 번만 넣으면 이 기기에 기억됩니다.</p>
@@ -195,16 +207,17 @@ function render(){
       <div class="meta">주문자 <b>${esc(o.buyer_name)}</b> ${esc(o.buyer_cellphone)}${o.member_id?` · 회원 ${esc(o.member_id)}`:' · 비회원'} · ${esc(o.payment)} ${o.paid==='T'?'<span class="badge ok">결제완료</span>':'<span class="badge warn">미결제</span>'}<br>
       받는분 <b>${esc(o.receiver.name)}</b> ${esc(o.receiver.cellphone)} · ${esc(o.receiver.address)}${o.receiver.message?`<br>배송메모 「${esc(o.receiver.message)}」`:''}</div>
       <div style="margin-top:8px">`;
-      const its=[];
-      o.items.forEach(i=>{
-        const art=delayFor(i); const st=stText(i.status); const sm=smFor(o,i); const prep=['N00','N10','N20','N21','N22'].includes(i.status);
+      itemsOf(o).forEach(({i,art,sm},k)=>{
+        const st=stText(i.status); const prep=PREP.includes(i.status); const on=!!(S.pick[oi]||{})[k];
         const smBadge=sm&&prep&&!sm.sent?(sm.possible===1?`<span class="badge acc">셀메이트 출고가능${sm.stock!=null?` · 재고 ${sm.stock}`:''}</span>`:`<span class="badge danger">셀메이트 출고불가${sm.stock!=null?` · 재고 ${sm.stock}`:''}${sm.in_date?` · ${esc(sm.in_date)} 입고예정`:''}</span>`):'';
-        h+=`<div class="item"><div class="nm">${esc(i.product_name)}<span class="badge ${stClass(i.status)}">${esc(st)}</span>${art?'<span class="badge warn">배송지연</span>':''}${smBadge}</div>
+        h+=`<div class="item"><label class="pkrow"><input type="checkbox" class="pk" data-o="${oi}" data-k="${k}" ${on?'checked':''}><span class="nm">${esc(i.product_name)}<span class="badge ${stClass(i.status)}">${esc(st)}</span>${art?'<span class="badge warn">배송지연</span>':''}${smBadge}</span></label>
         <div class="op">${esc(i.option)}${i.option?' · ':''}${i.qty}개${i.tracking?` · <span class="track">${esc(i.carrier)} <a href="${trackUrl(i)}" target="_blank" rel="noopener">${esc(i.tracking)}</a></span>`:''}</div>
         ${art?`<div class="delay">📌 ${esc(art.title)}${art.line?'\n'+esc(art.line):''}</div>`:''}</div>`;
-        its.push({i,art,sm});
       });
-      h+=`</div><div class="reply"><textarea id="rp${oi}">${esc(replyFor(o,its))}</textarea><div class="tools"><button class="btn sm pri" data-a="copy" data-i="${oi}">답변 복사</button><span class="hint" style="margin:0">복사해서 상담톡에 붙이면 끝. 필요하면 위에서 고쳐서 복사하세요.</span></div></div></div>`;
+      h+=`</div><div class="reply"><div class="tools"><button class="btn sm" data-a="mkprep" data-i="${oi}">준비중 상품만 선택</button><button class="btn sm pri" data-a="mk" data-i="${oi}">선택한 상품으로 답변 만들기</button></div>`;
+      if(S.reply[oi]!=null) h+=`<textarea id="rp${oi}" data-o="${oi}" style="margin-top:8px">${esc(S.reply[oi])}</textarea><div class="tools"><button class="btn sm pri" data-a="copy" data-i="${oi}">답변 복사</button><span class="hint" style="margin:0">필요하면 고쳐서 복사하세요. 상품 선택을 바꾸면 다시 [답변 만들기].</span></div>`;
+      else h+=`<p class="hint" style="margin:8px 0 0">문의한 상품을 체크하고 [답변 만들기]를 누르세요. 아직 안 온 상품 문의면 [준비중 상품만 선택] 한 번이면 됩니다.</p>`;
+      h+=`</div></div>`;
     });
   }
   if(dl){
@@ -229,16 +242,19 @@ async function loadDelays(){ try{ S.delays=await api('delays'); }catch(e){ S.del
 async function search(){ const q=($('#q').value||'').trim(); S.q=q; if(!q){ S.err='전화번호·주문번호·이름 중 하나를 입력하세요'; S.res=null; render(); return; }
   S.busy=true; S.err=''; render();
   const smP=window.SELLMATE?window.SELLMATE.search(q).then(items=>({items}),e=>({error:e.message||String(e)})):Promise.resolve(null);
+  S.pick={}; S.reply={};
   try{ S.res=await api('search',{q}); }catch(e){ S.err=e.message; S.res=null; }
   S.sm=await smP;
   S.busy=false; render(); }
 async function copy(i){ const t=$('#rp'+i).value; try{ await navigator.clipboard.writeText(t); toast('복사됐어요'); }catch(e){ $('#rp'+i).select(); document.execCommand('copy'); toast('복사됐어요'); } }
 
 document.addEventListener('click',async e=>{ const b=e.target.closest('[data-a]'); if(!b||b.tagName==='FORM') return; const a=b.dataset.a;
-  if(a==='copy') copy(b.dataset.i); else if(a==='delays'){ S.delays=null; render(); loadDelays(); }
+  if(a==='copy') copy(b.dataset.i); else if(a==='mk') makeReply(+b.dataset.i,false); else if(a==='mkprep') makeReply(+b.dataset.i,true); else if(a==='delays'){ S.delays=null; render(); loadDelays(); }
   else if(a==='logout'){ store.del(CODE_KEY); S.code=''; S.auth='unknown'; S.res=null; S.err=''; render(); }
   else if(a==='sm'){ const d=$('#sm-guide'); if(d){ d.open=true; d.scrollIntoView({behavior:'smooth'}); } else if(EMBED&&S.sm&&S.sm.error) alert(S.sm.error); }
   else if(a==='boards'){ try{ S.boards=(await api('boards')).boards; }catch(err){ S.boards=[{board_no:'?',name:err.message}]; } render(); } });
+document.addEventListener('change',e=>{ const c=e.target; if(!c.classList||!c.classList.contains('pk')) return; (S.pick[c.dataset.o]=S.pick[c.dataset.o]||{})[c.dataset.k]=c.checked; });   // 체크만 기억 — 다시 그리지 않아 고치던 답변이 안 날아감
+document.addEventListener('input',e=>{ const t=e.target; if(t.tagName==='TEXTAREA'&&t.dataset.o!=null) S.reply[t.dataset.o]=t.value; });   // 손으로 고친 답변 보존 (지연 글 새로고침 등으로 다시 그려져도)
 document.addEventListener('submit',e=>{ e.preventDefault(); if(e.target.dataset.a==='search') search(); else if(e.target.dataset.a==='login') login(); });
 render(); if(S.code) loadDelays();
 window.addEventListener('sellmate-ready',()=>render());   // 다리 스크립트가 페이지보다 늦게 붙어도 상태 표시 갱신
