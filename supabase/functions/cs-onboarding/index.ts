@@ -1,13 +1,15 @@
 // ═══════════════════════════════════════════════
 // CS 온보딩 체크리스트 API — cs-onboarding.html 전용
-//   POST { action, ... }  헤더 x-cs-code = 초대코드(CS_ONBOARD_CODE secret)
-//   ping                          → { ok }
-//   list                          → { records:[{id,name,checked_on,day,solo,updated_at}] }  최신순 200건
+//   POST { action, ... }  헤더 x-cs-code = 초대코드
+//     운영진 코드(CS_ONBOARD_CODE)  → 모든 기록 읽기·쓰기, 저장은 by='manager'
+//     직원 코드(CS_ONBOARD_STAFF_CODE) → 직원 본인 기록(by='staff')만 읽기·쓰기
+//   ping                          → { ok, role }   role = manager | staff
+//   list                          → { records:[{id,name,checked_on,day,by,solo,updated_at}] }  최신순 200건
 //   get    { id }                 → { record }   st·quiz·memo 포함
-//   save   { name, checked_on, day, st, quiz, memo } → { id }   같은 이름·날짜면 덮어씀
+//   save   { name, checked_on, day, st, quiz, memo } → { id }   같은 이름·날짜·by면 덮어씀
 //   delete { id }                 → { ok }
-// 배포: ./deploy-cs-onboarding.sh <초대코드>
-// secrets: CS_ONBOARD_CODE. SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY는 자동 주입.
+// 배포: ./deploy-cs-onboarding.sh <운영진코드> <직원코드>
+// secrets: CS_ONBOARD_CODE, CS_ONBOARD_STAFF_CODE. SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY는 자동 주입.
 // ═══════════════════════════════════════════════
 import { CORS_HEADERS, dbRest } from "../_shared/util.ts";
 
@@ -15,7 +17,8 @@ const H: Record<string, string> = { ...CORS_HEADERS, "Access-Control-Allow-Heade
 const j = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...H, "Content-Type": "application/json" } });
 const T = "cs_onboarding_checks";
 const UUID = /^[0-9a-f-]{36}$/i;
-const LIST = "id,name,checked_on,day,solo,updated_at";
+const LIST = "id,name,checked_on,day,by,solo,updated_at";
+type Role = "manager" | "staff";
 
 async function pg(path: string, method = "GET", body?: unknown, prefer = "return=representation"): Promise<any> {
   const res = await dbRest(path, { method, headers: { Prefer: prefer }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -37,16 +40,18 @@ function cleanQuiz(v: unknown): Record<string, true> {
   if (v && typeof v === "object") for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (/^q\d{1,2}$/.test(k) && x === true) o[k] = true;
   return o;
 }
+// 직원은 본인(staff) 기록만 — 운영진 평가·메모는 보이지 않게
+const mine = (role: Role) => role === "staff" ? "&by=eq.staff" : "";
 
-async function run(op: any): Promise<unknown> {
+async function run(op: any, role: Role): Promise<unknown> {
   switch (op?.action) {
     case "ping":
-      return { ok: true };
+      return { ok: true, role };
     case "list":
-      return { records: await pg(`${T}?select=${LIST}&order=checked_on.desc,updated_at.desc&limit=200`) };
+      return { records: await pg(`${T}?select=${LIST}${mine(role)}&order=checked_on.desc,updated_at.desc&limit=200`) };
     case "get": {
       if (!UUID.test(String(op.id))) throw new Error("bad id");
-      const rows = await pg(`${T}?id=eq.${op.id}&select=*`);
+      const rows = await pg(`${T}?id=eq.${op.id}${mine(role)}&select=*`);
       if (!rows.length) throw new Error("기록이 없습니다");
       return { record: rows[0] };
     }
@@ -59,12 +64,13 @@ async function run(op: any): Promise<unknown> {
       const st = cleanSt(op.st), quiz = cleanQuiz(op.quiz);
       const memo = String(op.memo ?? "").slice(0, 4000);
       const solo = Object.values(st).filter((v) => v === 2).length;
-      const rows = await pg(`${T}?on_conflict=name,checked_on`, "POST", { name, checked_on, day, st, quiz, memo, solo, updated_at: new Date().toISOString() }, "resolution=merge-duplicates,return=representation");
+      const by = role === "staff" ? "staff" : "manager";
+      const rows = await pg(`${T}?on_conflict=name,checked_on,by`, "POST", { name, checked_on, day, by, st, quiz, memo, solo, updated_at: new Date().toISOString() }, "resolution=merge-duplicates,return=representation");
       return { id: rows[0]?.id, solo };
     }
     case "delete": {
       if (!UUID.test(String(op.id))) throw new Error("bad id");
-      await pg(`${T}?id=eq.${op.id}`, "DELETE", undefined, "return=minimal");
+      await pg(`${T}?id=eq.${op.id}${mine(role)}`, "DELETE", undefined, "return=minimal");
       return { ok: true };
     }
     default:
@@ -74,11 +80,13 @@ async function run(op: any): Promise<unknown> {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: H });
-  const code = Deno.env.get("CS_ONBOARD_CODE") ?? "";
-  if (!code) return j({ error: "CS_ONBOARD_CODE secret not set" }, 500);
-  if (req.headers.get("x-cs-code") !== code) return j({ error: "unauthorized" }, 401);
+  const mgr = Deno.env.get("CS_ONBOARD_CODE") ?? "", staff = Deno.env.get("CS_ONBOARD_STAFF_CODE") ?? "";
+  if (!mgr) return j({ error: "CS_ONBOARD_CODE secret not set" }, 500);
+  const c = req.headers.get("x-cs-code") ?? "";
+  const role: Role | null = c && c === mgr ? "manager" : c && staff && c === staff ? "staff" : null;
+  if (!role) return j({ error: "unauthorized" }, 401);
   let body: unknown;
   try { body = await req.json(); } catch { return j({ error: "bad json" }, 400); }
-  try { return j(await run(body)); }
+  try { return j(await run(body, role)); }
   catch (e) { return j({ error: String((e as Error)?.message ?? e) }, 400); }
 });

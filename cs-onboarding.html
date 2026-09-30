@@ -71,9 +71,11 @@ h2{font-size:18px;margin:0}
 .todo h2{margin-bottom:8px}
 .todo ul{margin:0;padding-left:18px}
 .todo li{margin:3px 0}
-.todo .ref,.item .ref{font-size:12px;color:var(--ink2);margin-left:6px;white-space:nowrap}
+.todo .ref,.item .ref,.cmp .ref{font-size:12px;color:var(--ink2);margin-left:6px;white-space:nowrap}
 .todo .tag{font-size:12px;padding:0 6px;border-radius:3px;margin-right:6px;white-space:nowrap}
-.tag.h{background:var(--help-bg);color:var(--help)}.tag.y{background:var(--yet-bg);color:var(--yet)}
+.tag.h{background:var(--help-bg);color:var(--help)}.tag.y{background:var(--yet-bg);color:var(--yet)}.tag.m{background:var(--navy-soft);color:var(--navy)}.tag.s{background:var(--solo-bg);color:var(--solo)}
+.self{font-size:12px;margin-left:6px;padding:0 6px;border-radius:3px;background:var(--navy-soft);color:var(--navy);white-space:nowrap}
+.cmp table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}.cmp th,.cmp td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}.cmp th{background:var(--navy-soft);font-weight:600}
 .muted{color:var(--ink2);font-size:14px;margin:0}
 
 .stage{padding:0}
@@ -111,7 +113,7 @@ textarea{width:100%;min-height:110px;font:inherit;font-size:16px;color:var(--ink
 <div class="toast" id="toast" role="status"></div>
 <script>
 const API='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-onboarding';
-const CODE_KEY='cs_onboard_code', DRAFT_KEY='cs_onboard_draft_v1';
+const CODE_KEY='cs_onboard_code', ROLE_KEY='cs_onboard_role', DRAFT_KEY='cs_onboard_draft_v1';
 const MANUAL='https://claude.ai/artifact/NEQgvu9PceMS76vhVTDGrS';
 const STAGES=[
  {id:'a',title:'매일 도는 루틴',days:'1~2일차',assist:1,solo:2,color:'var(--sa)',items:[
@@ -178,7 +180,8 @@ const QS=new URLSearchParams(location.search);
 if(QS.get('code'))store.set(CODE_KEY,QS.get('code'));
 const today=()=>{const d=new Date(Date.now()-new Date().getTimezoneOffset()*60000);return d.toISOString().slice(0,10)};
 const blank=()=>({id:null,name:'',day:8,checked_on:today(),st:{},quiz:{},memo:''});
-let S=blank(), code=store.get(CODE_KEY)||'', auth='unknown', recs=[], dirty=false, busy=false;
+let S=blank(), code=store.get(CODE_KEY)||'', ROLE=store.get(ROLE_KEY)||'manager', auth='unknown', recs=[], dirty=false, busy=false, CMP=null;
+const isMgr=()=>ROLE==='manager';
 const $=(s,r=document)=>r.querySelector(s);
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -212,12 +215,12 @@ function render(){
     app.innerHTML=`<div class="login card"><h1>CS 온보딩 체크리스트</h1><p>초대코드를 넣으면 시작합니다. 한 번만 넣으면 이 기기에 기억됩니다.</p>
       <form id="login"><input class="in" id="li-code" value="${esc(code)}" placeholder="초대코드" autocomplete="off" autocapitalize="none" inputmode="numeric"></form>
       ${auth==='bad'?'<p class="err">초대코드가 맞지 않습니다</p>':''}<button class="btn" id="li-go">시작</button></div>`;
-    const go=async()=>{const c=$('#li-code').value.trim();if(!c)return;code=c;try{await api('ping');auth='ok';store.set(CODE_KEY,c);render();loadRecs()}catch(e){render()}};
+    const go=async()=>{const c=$('#li-code').value.trim();if(!c)return;code=c;try{const r=await api('ping');ROLE=r.role==='staff'?'staff':'manager';store.set(ROLE_KEY,ROLE);auth='ok';store.set(CODE_KEY,c);render();loadRecs()}catch(e){render()}};
     $('#login').onsubmit=e=>{e.preventDefault();go()};$('#li-go').onclick=go;$('#li-code').focus();return;
   }
   app.innerHTML=`<div class="wrap">
   <header><h1>CS 온보딩 체크리스트</h1>
-    <p class="lead">2주 과정 매뉴얼의 업무를 하나씩 짚어 보며 지금 어디까지 익혔는지 확인합니다. 업무마다 세 가지 중 하나를 고르고, 다 되면 <b>저장</b>을 누르세요. 절 번호는 <a href="${MANUAL}" target="_blank" rel="noopener">온보딩 매뉴얼</a>의 번호입니다.</p></header>
+    <p class="lead">${isMgr()?"2주 과정 매뉴얼의 업무를 하나씩 짚어 보며 지금 어디까지 익혔는지 확인합니다. 업무마다 세 가지 중 하나를 고르고, 다 되면 <b>저장</b>을 누르세요.":"2주 과정 매뉴얼의 업무를 하나씩 보며 지금 어디까지 익혔는지 스스로 체크합니다. 솔직하게 고르고 <b>저장</b>을 누르면 운영진이 보고 다음에 같이 볼 업무를 정합니다."} 절 번호는 <a href="${MANUAL}" target="_blank" rel="noopener">온보딩 매뉴얼</a>의 번호입니다.</p></header>
   <section class="card who" aria-label="기록 정보">
     <label class="field" for="f-name">이름<input class="in" id="f-name" type="text" autocomplete="off" placeholder="예: 김다나"></label>
     <label class="field" for="f-date">체크한 날짜<input class="in" id="f-date" type="date"></label>
@@ -225,20 +228,21 @@ function render(){
     <div class="actions"><button class="btn sec" id="b-new" type="button">새 기록</button><button class="btn" id="b-save" type="button">저장</button></div>
     <div class="status" id="status"></div>
   </section>
-  <section class="card" aria-label="지난 기록"><h2>지난 기록</h2><p class="muted">이름과 날짜별로 한 건씩 남습니다. 눌러서 불러온 뒤 고쳐서 다시 저장할 수 있습니다.</p><div class="recs" id="recs"><p class="muted">불러오는 중</p></div></section>
+  <section class="card" aria-label="지난 기록"><h2>지난 기록</h2><p class="muted">${isMgr()?"이름과 날짜별로 운영진 평가와 본인 체크가 각각 한 건씩 남습니다.":"내가 저장한 기록입니다."} 눌러서 불러온 뒤 고쳐서 다시 저장할 수 있습니다.</p><div class="recs" id="recs"><p class="muted">불러오는 중</p></div></section>
   <section class="card sum" aria-label="요약">
     <div><div class="biglabel">혼자 할 수 있는 업무</div><div class="big"><span id="n-solo">0</span> <small>/ ${ALL}개</small></div><div class="verdict" id="verdict"></div></div>
     <div><div class="bars" id="bars"></div><div class="legend"><span><i style="background:var(--solo)"></i>혼자 할 수 있어요</span><span><i style="background:var(--help)"></i>도움 받으면 할 수 있어요</span><span><i style="background:var(--track)"></i>아직 안 해봤거나 체크 전</span></div></div>
   </section>
   <section class="card todo" aria-label="남은 기간에 함께 볼 업무"><h2>남은 기간에 함께 볼 업무</h2><div id="todo"></div></section>
+  <section class="card cmp" id="cmp" aria-label="본인 체크와 비교" hidden><h2>본인 체크와 다른 업무</h2><p class="muted" id="cmp-lead"></p><div id="cmp-body"></div></section>
   <div id="stages" style="display:flex;flex-direction:column;gap:20px"></div>
   <section class="card quiz" aria-label="말로 확인하는 질문"><h2>말로 확인하는 질문</h2><p class="muted">규칙은 직접 물어보는 것이 가장 정확합니다. 질문을 읽어 주고 답을 들은 뒤, 눌러서 정답을 확인하세요.</p><div id="quiz"></div><p class="qn" id="quizsum"></p></section>
-  <section class="card" aria-label="메모"><h2>메모</h2><p class="muted">잘한 점, 다음에 같이 볼 내용, 본인이 궁금해한 것을 적어 두세요.</p><textarea id="f-memo" placeholder="예: 문의 답변 속도가 빠르고 말투가 좋음. 다음 주 화요일 장기 미처리 점검을 같이 진행하기로 함."></textarea></section>
+  <section class="card" aria-label="메모"><h2>${isMgr()?"메모":"궁금한 점 · 메모"}</h2><p class="muted">${isMgr()?"잘한 점, 다음에 같이 볼 내용, 본인이 궁금해한 것을 적어 두세요.":"헷갈리는 업무나 물어보고 싶은 것을 적어 두면 운영진이 보고 같이 봅니다."}</p><textarea id="f-memo" placeholder="${isMgr()?"예: 문의 답변 속도가 빠르고 말투가 좋음. 다음 주 화요일 장기 미처리 점검을 같이 진행하기로 함.":"예: 반품 배송비 두 칸 합산이 아직 헷갈려요."}"></textarea></section>
   <section class="card foot"><button class="btn" id="b-save2" type="button">저장</button><span class="muted" id="status2"></span><button class="btn warn" id="b-del" type="button" hidden>이 기록 삭제</button><button class="btn warn" id="b-logout" type="button">초대코드 지우기</button></section>
   </div>`;
   build();fill();
   $('#b-save').onclick=save;$('#b-save2').onclick=save;$('#b-new').onclick=newRec;$('#b-del').onclick=del;
-  $('#b-logout').onclick=()=>{store.del(CODE_KEY);code='';auth='unknown';render()};
+  $('#b-logout').onclick=()=>{store.del(CODE_KEY);store.del(ROLE_KEY);code='';ROLE='manager';auth='unknown';render()};
 }
 function build(){
   const box=$('#stages');
@@ -247,7 +251,7 @@ function build(){
     const head=el('div','stagehead');head.append(el('h2',null,s.title),el('span','days',s.days));
     const ex=el('span','exp');ex.id='exp-'+s.id;head.append(ex);sec.append(head);
     for(const [id,text,refx] of s.items){
-      const row=el('div','item');const t=el('div');t.append(document.createTextNode(text),el('span','ref',refx));
+      const row=el('div','item');const t=el('div');t.append(document.createTextNode(text),el('span','ref',refx));const sf=el('span','self');sf.id='self-'+id;sf.hidden=true;t.append(sf);
       const seg=el('div','seg');seg.setAttribute('role','radiogroup');seg.setAttribute('aria-label',text);
       for(const v of [2,1,0]){const i=el('input');i.type='radio';i.name='s-'+id;i.id='s-'+id+'-'+v;i.value=v;
         i.addEventListener('change',()=>{S.st[id]=v;touch();update()});
@@ -262,6 +266,7 @@ function build(){
     c.addEventListener('change',()=>{if(c.checked)S.quiz[id]=true;else delete S.quiz[id];touch();update()});
     l.append(c,document.createTextNode('정확히 답했어요'));d.append(l);q.append(d)});
   $('#f-name').addEventListener('input',e=>{S.name=e.target.value.slice(0,40);touch()});
+  $('#f-name').addEventListener('change',()=>{if(isMgr())loadCmp()});
   $('#f-date').addEventListener('change',e=>{S.checked_on=/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)?e.target.value:today();e.target.value=S.checked_on;touch()});
   $('#f-day').addEventListener('change',e=>{const n=Math.round(Number(e.target.value));S.day=(n>=1&&n<=10)?n:8;e.target.value=S.day;touch();update()});
   $('#f-memo').addEventListener('input',e=>{S.memo=e.target.value.slice(0,4000);touch()});
@@ -272,6 +277,7 @@ function fill(){
   for(const [id] of QUIZ)$('#c-'+id).checked=!!S.quiz[id];
   $('#b-del').hidden=!S.id;
   update();setStatus(S.id?'서버에 저장된 기록을 불러왔습니다':'아직 저장 전입니다');
+  if(isMgr())loadCmp();
 }
 function touch(){dirty=true;store.set(DRAFT_KEY,JSON.stringify(S));setStatus('저장 안 된 변경이 있습니다. 저장을 눌러 주세요')}
 function setStatus(t,bad){for(const id of ['status','status2']){const x=$('#'+id);if(x){x.textContent=t;x.classList.toggle('bad',!!bad)}}}
@@ -301,19 +307,49 @@ function renderRecs(){
   const box=$('#recs');if(!box)return;box.textContent='';
   if(!recs.length){box.append(el('p','muted','아직 저장된 기록이 없습니다.'));return}
   const byName={};
-  for(const r of [...recs].reverse()){const prev=byName[r.name];r._delta=prev?r.solo-prev.solo:null;byName[r.name]=r}
+  for(const r of [...recs].reverse()){const k=r.name+'|'+r.by;const prev=byName[k];r._delta=prev?r.solo-prev.solo:null;byName[k]=r}
   for(const r of recs){
     const b=el('button','rec'+(S.id===r.id?' cur':''));b.type='button';
-    const l=el('span');l.append(el('b',null,r.name),document.createTextNode(' '),el('span','d',r.checked_on+' · '+r.day+'일차'));
+    const l=el('span');l.append(el('b',null,r.name),document.createTextNode(' '),el('span','d',r.checked_on+' · '+r.day+'일차'));if(isMgr())l.append(document.createTextNode(' '),el('span','tag '+(r.by==='staff'?'s':'m'),r.by==='staff'?'본인 체크':'운영진'));
     const n=el('span','n','혼자 '+r.solo+' / '+ALL);
     if(r._delta!=null&&r._delta!==0){n.append(document.createTextNode(' '),el('span','delta',(r._delta>0?'+':'')+r._delta))}
     b.append(l,n,el('span','d','열기'));b.onclick=()=>load(r.id);box.append(b);
   }
 }
-async function loadRecs(){try{recs=(await api('list')).records||[];renderRecs()}catch(e){const b=$('#recs');if(b){b.textContent='';b.append(el('p','err',e.message))}}}
+async function loadRecs(){try{recs=(await api('list')).records||[];renderRecs();if(isMgr())loadCmp()}catch(e){const b=$('#recs');if(b){b.textContent='';b.append(el('p','err',e.message))}}}
 async function load(id){
   if(dirty&&!confirm('저장하지 않은 변경이 있습니다. 버리고 불러올까요?'))return;
   try{const r=(await api('get',{id})).record;S=clean(r);dirty=false;store.del(DRAFT_KEY);fill();renderRecs();window.scrollTo({top:0,behavior:'smooth'})}catch(e){toast(e.message)}
+}
+// 운영진 화면: 같은 이름의 직원 본인 체크 중 이 기록 날짜 이전의 최신 것을 가져와 나란히 비교
+let cmpReq=0;
+async function loadCmp(){
+  const box=$('#cmp');if(!box)return;
+  const name=S.name.trim();
+  const cands=recs.filter(r=>r.by==='staff'&&r.name===name).sort((a,b)=>b.checked_on.localeCompare(a.checked_on));
+  const pick=cands.find(r=>r.checked_on<=S.checked_on)||cands[0];
+  const my=++cmpReq;
+  if(!pick||S.id&&recs.find(r=>r.id===S.id&&r.by==='staff')){CMP=null;renderCmp();return}
+  if(CMP&&CMP.id===pick.id){renderCmp();return}
+  try{const r=(await api('get',{id:pick.id})).record;if(my!==cmpReq)return;CMP=r}catch(e){CMP=null}
+  renderCmp();
+}
+function renderCmp(){
+  const box=$('#cmp');if(!box)return;
+  const st=CMP?CMP.st||{}:{};
+  for(const s of STAGES)for(const [id] of s.items){const sf=$('#self-'+id);if(!sf)continue;const v=st[id];sf.hidden=v===undefined;if(v!==undefined)sf.textContent='본인: '+SHORT[v]}
+  if(!CMP){box.hidden=true;return}
+  box.hidden=false;
+  $('#cmp-lead').textContent=CMP.name+' 님이 '+CMP.checked_on+'('+CMP.day+'일차)에 스스로 체크한 내용과 비교합니다. 항목 옆의 "본인" 표시가 그 체크입니다.';
+  const body=$('#cmp-body');body.textContent='';
+  const rows=[];
+  for(const s of STAGES)for(const [id,text,refx] of s.items){const a=st[id],b=S.st[id];if(a!==undefined&&b!==undefined&&a!==b)rows.push({text,refx,a,b})}
+  if(!rows.length){body.append(el('p','muted',Object.keys(S.st).length?'운영진 평가와 본인 체크가 같습니다.':'운영진 평가를 체크하면 다른 업무가 여기에 모입니다.'));
+    if(CMP.memo){const p=el('p','muted');p.append(el('b',null,'본인 메모: '),document.createTextNode(CMP.memo));body.append(p)}return}
+  const t=el('table');const hd=el('tr');for(const x of ['업무','본인 체크','운영진 평가'])hd.append(el('th',null,x));t.append(hd);
+  for(const r of rows){const tr=el('tr');const td=el('td');td.append(document.createTextNode(r.text),el('span','ref',r.refx));tr.append(td,el('td',null,LABEL[r.a]),el('td',null,LABEL[r.b]));t.append(tr)}
+  body.append(t);
+  if(CMP.memo){const p=el('p','muted');p.style.marginTop='8px';p.append(el('b',null,'본인 메모: '),document.createTextNode(CMP.memo));body.append(p)}
 }
 function newRec(){if(dirty&&!confirm('저장하지 않은 변경이 있습니다. 버리고 새로 시작할까요?'))return;S=blank();dirty=false;store.del(DRAFT_KEY);fill();renderRecs()}
 async function save(){
@@ -331,7 +367,7 @@ async function del(){
 }
 try{const d=JSON.parse(store.get(DRAFT_KEY));if(d){S=clean(d);S.id=null;dirty=true}}catch(e){}
 render();
-if(code){loadRecs();if(dirty)setStatus('저장 안 된 변경이 있습니다. 저장을 눌러 주세요')}
+if(code){api('ping').then(r=>{const rl=r.role==='staff'?'staff':'manager';if(rl!==ROLE){ROLE=rl;store.set(ROLE_KEY,ROLE);render()}loadRecs();if(dirty)setStatus('저장 안 된 변경이 있습니다. 저장을 눌러 주세요')}).catch(e=>{if(e.code==='unauthorized')render();else loadRecs()})}
 </script>
 </body>
 </html>
