@@ -467,18 +467,19 @@ async function admgrBudgetCancel(pid) {
   }
 }
 
-/* ═══ 열 표시/순서 (Meta 광고관리자의 '열' 메뉴처럼) — 탭별 localStorage { hidden:[라벨], order:[라벨] } (2026-09-07 사용자 요청) ═══
-   렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리) */
-function admgrColsKey() { return 'adc_admgr_cols_' + admgr.view; }
-const ADMGR_COLS_DEFAULT = {   // 기본은 핵심 열만 — 나머지는 행 끝 ∨ (2026-09-14). set은 사용자가 정한 표시·순서 (2026-09-30)
-  camp: { hidden: ['구매당 비용', '전환값', 'CPC', '최근 변경'], order: [] },
-  set: { hidden: ['23:55 세팅', '최근 변경', '전환값', 'CPC'], order: ['켜짐', '광고세트', '판정', '구매', '구매당 비용', '23:55 세팅', '예산', '지출', 'ROAS', '최근 변경', '전환값', 'CPC'] },
-  ad: { hidden: ['클릭', '구매당 비용', '전환값', 'CPC'], order: [] },
-};
+/* ═══ 열 표시/순서 (Meta 광고관리자의 '열' 메뉴처럼) — localStorage { hidden:[라벨], order:[라벨] } (2026-09-07 사용자 요청) ═══
+   렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리)
+   2026-10-01: 캠페인·광고세트·광고 탭이 한 설정을 같이 쓴다 — 이름 열(캠페인/광고세트/광고)은 '이름'으로 묶고, 그 탭에 없는 열은 건너뛴다 */
+const ADMGR_NAME_LABELS = ['캠페인', '광고세트', '광고'];
+const admgrColNorm = l => ADMGR_NAME_LABELS.includes(l) ? '이름' : l;
+function admgrColsKey() { return 'adc_admgr_cols'; }
+const ADMGR_COLS_DEFAULT = { hidden: ['23:55 세팅', '최근 변경', '전환값', 'CPC', '클릭'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:55 세팅', '예산', '지출', '클릭', 'ROAS', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
 const admgrColsOk = c => c && Array.isArray(c.hidden) && Array.isArray(c.order);
-function admgrColsDefKey() { return 'adc_admgr_colsdef_' + admgr.view; }   // 내가 저장한 기본값 (탭별, 이 브라우저)
-function admgrColsDef() { const d = lsGet(admgrColsDefKey(), null), c = admgrColsOk(d) ? d : (ADMGR_COLS_DEFAULT[admgr.view] || { hidden: [], order: [] }); return { hidden: [...c.hidden], order: [...c.order] }; }
-function admgrColsCfg() { const c = lsGet(admgrColsKey(), null); return admgrColsOk(c) ? c : admgrColsDef(); }
+const admgrColsNorm = c => ({ hidden: [...new Set(c.hidden.map(admgrColNorm))], order: [...new Set(c.order.map(admgrColNorm))] });
+function admgrColsDefKey() { return 'adc_admgr_colsdef'; }   // 내가 저장한 기본값 (이 브라우저)
+function admgrLsMove(from, to) { const v = lsGet(from, null); if (v != null) { lsSet(to, v); try { localStorage.removeItem(from); } catch { /* 무시 */ } } return v; }   // 옛 탭별 저장값(광고세트)을 공통 키로 한 번 옮김
+function admgrColsDef() { const d = lsGet(admgrColsDefKey(), null) ?? admgrLsMove('adc_admgr_colsdef_set', admgrColsDefKey()); return admgrColsNorm(admgrColsOk(d) ? d : ADMGR_COLS_DEFAULT); }
+function admgrColsCfg() { const c = lsGet(admgrColsKey(), null) ?? admgrLsMove('adc_admgr_cols_set', admgrColsKey()); return admgrColsOk(c) ? admgrColsNorm(c) : admgrColsDef(); }
 function admgrColsDefSave() { lsSet(admgrColsDefKey(), admgrColsCfg()); toast('지금 열 설정을 기본값으로 저장했어요'); }
 function admgrColsSave(c) { lsSet(admgrColsKey(), c); }
 function admgrColsApply() {
@@ -490,7 +491,7 @@ function admgrColsApply() {
   const fixed = labels.map((l, i) => ({ l, i })).filter(p => !p.l && !ths[p.i].classList.contains('xp'));
   const tail = labels.map((l, i) => ({ l, i })).filter(p => !p.l && ths[p.i].classList.contains('xp'));   // ∨ 열은 항상 맨 뒤
   const movable = labels.map((l, i) => ({ l, i })).filter(p => p.l);
-  const ordered = [...cfg.order.map(l => movable.find(p => p.l === l)).filter(Boolean), ...movable.filter(p => !cfg.order.includes(p.l))];
+  const ordered = [...cfg.order.map(l => movable.find(p => admgrColNorm(p.l) === l)).filter(Boolean), ...movable.filter(p => !cfg.order.includes(admgrColNorm(p.l)))];
   const idx = [...fixed, ...ordered, ...tail].map(p => p.i);
   const identity = idx.every((v, k) => v === k);
   const hidden = new Set(cfg.hidden);
@@ -502,21 +503,23 @@ function admgrColsApply() {
   table.querySelectorAll('tr').forEach(tr => {
     const cells = [...tr.children]; if (cells.length !== labels.length) return;
     if (!identity) idx.forEach(i => tr.appendChild(cells[i]));   // appendChild = 이동 → 새 순서로 재배치
-    cells.forEach((c, i) => { if (hidden.has(labels[i])) c.style.display = 'none'; });
+    cells.forEach((c, i) => { if (hidden.has(admgrColNorm(labels[i]))) c.style.display = 'none'; });
   });
 }
 let admgrColsAnchor = null, admgrColDragL = null;
 function admgrColsMenu(ev) { admgrColsAnchor = ev.currentTarget.getBoundingClientRect(); admgrColsMenuRender(); }
 function admgrColsMenuRender() {
   const cfg = admgrColsCfg();
-  const labels = (admgr._colLabels || []).filter(Boolean);
+  const raw = (admgr._colLabels || []).filter(Boolean), nameL = raw.find(l => ADMGR_NAME_LABELS.includes(l)) || '이름';
+  const labels = raw.map(admgrColNorm);
   const order = [...cfg.order.filter(l => labels.includes(l)), ...labels.filter(l => !cfg.order.includes(l))];
+  const show = l => l === '이름' ? nameL : l;
   const pop = $('admgr-bpop');
-  pop.innerHTML = `<div style="font-size:.78rem;font-weight:800;color:#1c1e21;margin-bottom:6px;">열 표시 · 순서 <span style="font-weight:400;color:#9ca3af;font-size:.68rem;">체크 = 표시 · ⋮⋮ 드래그 = 순서</span></div>
+  pop.innerHTML = `<div style="font-size:.78rem;font-weight:800;color:#1c1e21;margin-bottom:6px;">열 표시 · 순서 <span style="font-weight:400;color:#9ca3af;font-size:.68rem;">체크 = 표시 · ⋮⋮ 드래그 = 순서 · 캠페인·광고세트·광고 공통</span></div>
     <div id="cols-list" style="max-height:52vh;overflow:auto;">${order.map(l => `
       <div draggable="true" data-l="${esc(l)}" ondragstart="admgrColDrag(event)" ondragover="event.preventDefault()" ondrop="admgrColDrop(event)"
            style="display:flex;align-items:center;gap:8px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:4px;background:#fff;cursor:grab;font-size:.78rem;">
-        <span style="color:#c4c8d4;">⋮⋮</span><input type="checkbox" ${cfg.hidden.includes(l) ? '' : 'checked'} onchange="admgrColToggle('${esc(l)}',this.checked)" style="margin:0;" /><span>${esc(l)}</span></div>`).join('')}</div>
+        <span style="color:#c4c8d4;">⋮⋮</span><input type="checkbox" ${cfg.hidden.includes(l) ? '' : 'checked'} onchange="admgrColToggle('${esc(l)}',this.checked)" style="margin:0;" /><span>${esc(show(l))}</span></div>`).join('')}</div>
     <button class="btn-ghost" style="width:100%;justify-content:center;font-size:.72rem;margin-top:8px;" title="지금 체크·순서를 '기본으로'를 눌렀을 때 돌아갈 값으로 저장" onclick="admgrColsDefSave()">지금 설정을 기본값으로 저장</button>
     <div style="display:flex;gap:6px;margin-top:6px;">
       <button class="btn-ghost" style="flex:1;justify-content:center;font-size:.72rem;" title="저장해 둔 기본값으로 되돌리기 (열 너비도 초기화)" onclick="try{localStorage.removeItem(admgrColsKey())}catch{};try{localStorage.removeItem(admgrColKey())}catch{};renderAdmgr(true);admgrColsMenuRender()">기본으로</button>
@@ -537,9 +540,10 @@ function admgrColDrop(e) {
   const to = e.currentTarget.dataset.l;
   if (!admgrColDragL || admgrColDragL === to) return;
   const items = [...$('cols-list').children].map(d => d.dataset.l);
-  const from = items.indexOf(admgrColDragL), t = items.indexOf(to);
-  items.splice(t, 0, items.splice(from, 1)[0]);
-  const cfg = admgrColsCfg(); cfg.order = items; admgrColsSave(cfg);
+  const cfg = admgrColsCfg();
+  const full = [...cfg.order, ...items.filter(l => !cfg.order.includes(l))].filter(l => l !== admgrColDragL);   // 다른 탭에만 있는 열의 자리는 그대로 두고 옮긴다
+  full.splice(full.indexOf(to) + (items.indexOf(admgrColDragL) < items.indexOf(to) ? 1 : 0), 0, admgrColDragL);
+  cfg.order = full; admgrColsSave(cfg);
   admgrColDragL = null;
   renderAdmgr(true); admgrColsMenuRender();
 }
