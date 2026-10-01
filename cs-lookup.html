@@ -122,15 +122,41 @@ function bodyFor(g,a,sm){ const s=g[0].status;
   if(s==='R40') return R.retDone(g); if(s==='R34') return R.retRefund(g); if(s[0]==='R') return R.retIng(g);
   if(s==='E40'||s==='E41') return R.exDone(g); if(s[0]==='E') return R.exIng(g);
   return R.etc(g); }
-// 주문 하나 → 답변 하나: 인사 + (상태·지연줄이 같은 품목끼리 묶어 한 단락씩) + 마무리
+// 주문 하나 → 답변 하나. 묶음(상태·지연줄이 같은 품목)이 하나면 한 단락, 여러 개면 묶음마다 한 줄 요약 + 안내 문장은 한 번씩만 (2026-10-01 "단락을 이어붙여 너무 길다")
+const LINE={   // 여러 묶음일 때 한 줄: "· 상품명 → 상태"
+  pre:()=>'입금 확인 전', prep:()=>'출고 준비 중', delay:(g,a)=>when(a.line), hold:()=>'배송 보류 (확인 후 안내)',
+  delayNoDate:(g,sm)=>sm&&sm.in_date?`${sm.in_date} 입고 예정 (입고되는 대로 출고)`:'입고 지연 (일정 확인되는 대로 안내)',
+  ship:g=>`${g[0].carrier||'택배'} 발송 완료${g[0].tracking?` (송장 ${g[0].tracking})`:''}`, done:()=>'배송 완료',
+  cancelIng:()=>'취소 처리 중', cancelDone:()=>'취소 완료', retIng:()=>'반품 접수 완료', retRefund:()=>'반품 수거 확인, 환불 진행 중', retDone:()=>'반품 완료',
+  exIng:()=>'교환 접수 완료', exDone:()=>'교환 재발송 완료', etc:g=>stText(g[0].status),
+};
+function kindOf(g,a,sm){ const s=g[0].status;   // bodyFor와 같은 판단, 이름만 돌려줌
+  if(s==='N00') return 'pre';
+  if(['N10','N20','N21'].includes(s)){ if(sm&&sm.possible===1) return 'prep'; if(sm&&sm.possible===0) return a?'delay':'delayNoDate'; return a?'delay':'prep'; }
+  if(s==='N22') return 'hold'; if(s==='N30') return 'ship'; if(s==='N40'||s==='N50') return 'done';
+  if(['C40','C47','C48'].includes(s)) return 'cancelDone'; if(s[0]==='C') return 'cancelIng';
+  if(s==='R40') return 'retDone'; if(s==='R34') return 'retRefund'; if(s[0]==='R') return 'retIng';
+  if(s==='E40'||s==='E41') return 'exDone'; if(s[0]==='E') return 'exIng';
+  return 'etc'; }
+const NOTE=[   // 여러 묶음일 때 끝에 한 번씩
+  [k=>k.has('prep')||k.has('ship'),'출고 후에는 보통 1~2일 정도 소요되며, 택배사 사정에 따라 조금 달라질 수 있어요.'],
+  [k=>k.has('delay')||k.has('delayNoDate'),'지연 상품은 입고되는 대로 최대한 빠르게 보내드릴게요 🙏'],
+  [k=>k.has('done'),'배송완료인데 상품이 보이지 않으시면 송장번호로 배송기사님께 위치 확인 부탁드릴게요.'],
+  [k=>k.has('retIng')||k.has('exIng'),'기사님께서 연락 후 방문 수거 예정이니 상품 전달 부탁드릴게요 🙏'],
+  [k=>['pre','hold','cancelIng','retRefund','etc'].some(x=>k.has(x)),'처리 완료되면 다시 안내드릴게요.'],
+];
 function replyFor(o,items){
   const groups=new Map();
   for(const {i,art,sm} of items){ const k=i.status+'|'+(art?art.line:'')+'|'+(sm?sm.possible+':'+sm.in_date:''); if(!groups.has(k)) groups.set(k,{g:[],art,sm}); groups.get(k).g.push(i); }
-  const isDelay=({g,art,sm})=>['N10','N20','N21'].includes(g[0].status)&&(sm?sm.possible===0:!!art);
-  let apologized=false;
-  const paras=[...groups.values()].map(gr=>{ const b=bodyFor(gr.g,gr.art,gr.sm); if(isDelay(gr)&&!apologized){ apologized=true; return '기다리고 계셨을 텐데 배송이 늦어져 정말 죄송합니다 ㅠㅠ\n'+b; } return b; });
-  const waiting=[...groups.values()].some(({g,art,sm})=>(sm?sm.possible===0:!!art)||g[0].status==='N22');
-  return ['안녕하세요 고객님 :)',...paras,waiting?'조금만 양해 부탁드릴게요 고객님 ♥️':'감사합니다 고객님 ♥️'].join('\n\n');
+  const gs=[...groups.values()].map(gr=>({...gr,kind:kindOf(gr.g,gr.art,gr.sm)}));
+  const late=gs.some(x=>x.kind==='delay'||x.kind==='delayNoDate'), waiting=late||gs.some(x=>x.kind==='hold');
+  const sorry=late?'기다리고 계셨을 텐데 배송이 늦어져 정말 죄송합니다 ㅠㅠ\n':'';
+  let body;
+  if(gs.length<=1) body=gs.length?sorry+bodyFor(gs[0].g,gs[0].art,gs[0].sm):'';
+  else { const ks=new Set(gs.map(x=>x.kind));
+    body=sorry+'문의주신 상품 확인해드렸어요 😊\n'+gs.map(x=>`· ${nm(x.g)} → ${LINE[x.kind](x.g,x.kind==='delay'?x.art:x.sm)}`).join('\n')
+      +'\n\n'+NOTE.filter(([f])=>f(ks)).map(([,t])=>t).join('\n'); }
+  return ['안녕하세요 고객님 :)',body,waiting?'조금만 양해 부탁드릴게요 고객님 ♥️':'감사합니다 고객님 ♥️'].filter(Boolean).join('\n\n');
 }
 
 const QS=new URLSearchParams(location.search);
@@ -149,11 +175,16 @@ if(EMBED&&window.parent!==window) window.addEventListener('message',async ev=>{
   try{
     if(!S.delays||S.delays.error) S.delays=await api('delays').catch(e=>({error:e.message}));
     S.sm=Array.isArray(ev.data.sm)?{items:ev.data.sm}:null;   // 패널이 셀메이트에서 받아 온 품목 (없으면 게시판만)
-    const r=await api('search',{q:ev.data.q});
+    const r=await api('search',{q:ev.data.q}); S.lastOrders=r.orders||[];
     out.orders=(r.orders||[]).slice(0,3).map(o=>{ const items=itemsOf(o);
       return {order_id:o.order_id,date:String(o.order_date).slice(0,10),items:items.map(({i,art,sm})=>({name:clean(i.product_name),opt:i.option,status:i.status,status_text:i.status_text,delay:art?art.line:'',sm:sm?{possible:sm.possible,stock:sm.stock,in_date:sm.in_date}:null})),reply:replyFor(o,items)}; });
   }catch(e){ out.error=e.message; }
   ev.source.postMessage(out,ev.origin);
+});
+if(EMBED&&window.parent!==window) window.addEventListener('message',ev=>{   // 패널에서 체크한 품목만 답변 다시: {type:'cs-reply', id, order_id, pick:[품목 순번]}
+  if(ev.origin!=='https://business.kakao.com'||!ev.data||ev.data.type!=='cs-reply') return;
+  const o=(S.lastOrders||[]).find(x=>x.order_id===ev.data.order_id), pick=new Set(ev.data.pick||[]);
+  ev.source.postMessage({type:'cs-composed',id:ev.data.id,reply:o?replyFor(o,itemsOf(o).filter((x,k)=>pick.has(k))):'',error:o?undefined:'주문을 다시 찾아 주세요'},ev.origin);
 });
 const S={code:QS.get('code')||store.get(CODE_KEY)||'',auth:'unknown',err:'',busy:false,q:'',res:null,delays:null,boards:null,sm:null,pick:{},reply:{}};   // sm: 셀메이트 조회 결과 {items}|{error}|null · pick[주문순번]={품목순번:true} · reply[주문순번]=만든 답변(없으면 아직 안 만듦)
 const $=s=>document.querySelector(s);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      4
+// @version      5
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -191,6 +191,7 @@ function panel(C,F){
     if(!after.length&&day.length)after=[day[day.length-1]];
     return {text:after.join(' / '),ctx:day.slice(0,Math.max(0,day.length-after.length)).join(' / '),all:logs.filter(cust).map(function(x){return x.message}).reverse()}}
   function findQ(all){for(var i=0;i<all.length;i++){var t=all[i],o=t.match(/\d{8}-\d{7}/);if(o)return o[0];var ph=t.match(/01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}/);if(ph)return ph[0].replace(/[\s.]/g,'-')}return ''}
+  function ask(msg){return new Promise(function(res){var id=++seq;wait[id]=res;msg.id=id;setTimeout(function(){if(wait[id]){delete wait[id];res({error:'주문조회 응답 없음'})}},25000);frame.contentWindow.postMessage(msg,PAGES)})}
   function compose(q,sm){return new Promise(function(res){
     if(!frame){frame=el('iframe','display:none');frame.src=PAGES+'/ad-dashboard/cs-lookup.html?embed=1&code='+encodeURIComponent(C);document.body.appendChild(frame);
       window.addEventListener('message',function(ev){if(ev.origin!==PAGES||!ev.data||ev.data.type!=='cs-composed'||!wait[ev.data.id])return;wait[ev.data.id](ev.data);delete wait[ev.data.id]})}
@@ -203,7 +204,8 @@ function panel(C,F){
   function card(title,text,key,rank,tag){var c=el('div','border:1px solid #DFE2E9;border-radius:10px;padding:8px 10px;margin:6px 0');
     var h=el('div','display:flex;gap:6px;align-items:center');h.appendChild(el('b','flex:1',title));if(tag)h.appendChild(el('span','font-size:11px;color:#2C49D6;background:#E4E9FB;border-radius:99px;padding:1px 7px',tag));
     var b=el('button','border:0;background:#2C49D6;color:#fff;border-radius:8px;padding:4px 10px;font:600 12px sans-serif;cursor:pointer','넣기');b.onclick=function(){insert(text,key,rank)};h.appendChild(b);c.appendChild(h);
-    c.appendChild(el('div','color:#5E6472;font-size:12px;white-space:pre-wrap;max-height:3.1em;overflow:hidden;margin-top:3px',text.replace(/^안녕하세요[^\n]*\n+/,'')));return c}
+    var pv=el('div','color:#5E6472;font-size:12px;white-space:pre-wrap;max-height:3.1em;overflow:hidden;margin-top:3px');c.appendChild(pv);
+    c.setText=function(t){text=t;pv.textContent=t.replace(/^안녕하세요[^\n]*\n+/,'')};c.setText(text);return c}
   async function open(auto){
     if(!auto){sheet.innerHTML='';sheet.appendChild(el('div','color:#5E6472','대화 읽는 중…'))}
     try{
@@ -223,12 +225,18 @@ function panel(C,F){
       if(!isSide()){var x=el('button','border:0;background:none;font-size:16px;cursor:pointer','✕');x.onclick=function(){sheet.style.display='none'};head.appendChild(x)}sheet.appendChild(head);
       sheet.appendChild(el('div','color:#9AA0AD;font-size:11px;margin-bottom:6px','넣기를 누르면 입력칸에 들어가기만 해요. 고쳐서 직접 보내세요.'));
       shown=[];
-      if(order){shown.push('order');sheet.appendChild(card('주문 상태 답변 · '+order.date+' 주문',order.reply,'order',0,order.items.map(function(i){return i.status_text}).filter(function(v,i,a){return a.indexOf(v)==i}).join(', ')));
+      if(order){shown.push('order');var oc=card('주문 상태 답변 · '+order.date+' 주문',order.reply,'order',0,order.items.length>1?'체크한 상품만':'');sheet.appendChild(oc);
         var info=el('div','font-size:12px;color:#5E6472;margin:-2px 0 8px;padding:6px 9px;background:#fff;border-radius:8px;line-height:1.55');
-        order.items.forEach(function(i){var t=i.name+(i.opt?' ('+String(i.opt).split(',').map(function(x){return x.split('=').pop().trim()}).join(', ')+')':'')+' — '+(i.status_text||'');
+        /* 처음 체크: 아직 못 받은 상품(입금전·준비중·보류·배송중), 없으면 전부. 바꾸면 그 상품들만으로 답변 다시 */
+        var OPEN=['N00','N10','N20','N21','N22','N30'],boxes=[],again=function(){var pick=boxes.map(function(b,k){return b.checked?k:-1}).filter(function(k){return k>=0});
+          if(!pick.length){oc.setText('답변에 넣을 상품을 하나 이상 체크하세요');return}ask({type:'cs-reply',order_id:order.order_id,pick:pick}).then(function(r){oc.setText(r.error?('주문 답변 실패: '+r.error):r.reply)})};
+        var anyOpen=order.items.some(function(i){return OPEN.indexOf(i.status)>=0});
+        order.items.forEach(function(i){var row=el('label','display:flex;gap:6px;align-items:flex-start;cursor:pointer'),cb=el('input');cb.type='checkbox';cb.style.marginTop='3px';cb.checked=!anyOpen||OPEN.indexOf(i.status)>=0;cb.onchange=again;boxes.push(cb);row.appendChild(cb);
+          var t=i.name+(i.opt?' ('+String(i.opt).split(',').map(function(x){return x.split('=').pop().trim()}).join(', ')+')':'')+' — '+(i.status_text||'');
           if(i.sm)t+=' · 셀메이트 '+(i.sm.possible===1?'출고가능':i.sm.possible===0?'출고불가':'?')+(i.sm.stock!=null?' · 재고 '+i.sm.stock:'')+(i.sm.in_date?' · 입고예정 '+i.sm.in_date:'');
-          if(i.delay)t+=' · 게시판: '+i.delay.split(' · ').pop();info.appendChild(el('div','',t))});
-        if(smNote)info.appendChild(el('div','color:#C7791F',smNote));sheet.appendChild(info)}
+          if(i.delay)t+=' · 게시판: '+i.delay.split(' · ').pop();row.appendChild(el('span','',t));info.appendChild(row)});
+        if(smNote)info.appendChild(el('div','color:#C7791F',smNote));sheet.appendChild(info);
+        if(order.items.length>1&&boxes.some(function(b){return !b.checked}))again()}
       top.forEach(function(f,i){var txt=when?f.text.replace(/(예상 출고일은 )[^\n]*?( ?입니다)/,'$1'+when+'$2'):f.text;shown.push(f.name);sheet.appendChild(card(f.name,txt,f.name,i+1,i===0&&!order?'1순위':''))});
       if(!order&&!top.length)sheet.appendChild(el('div','color:#5E6472;margin:6px 0','맞는 자주 쓰는 답변을 못 찾았어요. 아래에서 검색하세요.'));
       if(note){var n=el('div','color:#C7791F;font-size:12px;margin:6px 0',note);sheet.appendChild(n);if(!order){var f0=favs.find(function(f){return f.name==='성함과 연락처 남겨주세요'});if(f0)sheet.appendChild(card(f0.name,f0.text,f0.name,9))}}
