@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      9
+// @version      10
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -171,6 +171,16 @@ function naverDiag(C,F){
   function send(kind,html){if(done(kind))return;mark(kind);fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify({action:'diag',src:'naver',kind:kind,url:location.pathname,html:html})}).catch(function(){})}
   function apis(){var seen={};return performance.getEntriesByType('resource').filter(function(e){return /xmlhttprequest|fetch/.test(e.initiatorType)}).map(function(e){try{var u=new URL(e.name);return e.initiatorType+' '+u.host+u.pathname.replace(/\d{6,}/g,'N')+(u.search?' ?'+[].concat(Array.from(u.searchParams.keys())).join(','):'')}catch(x){return ''}}).filter(function(x){if(!x||seen[x])return false;return seen[x]=1}).join('\n')}
   send('page',skel(document.body));setTimeout(function(){send('api',apis())},4000);
+  /* 목록·상세 API 요청 형식 알아내기 (2026-10-01, 네이버 상담 6개월치 수집용): 페이지 쪽에 작은 스크립트를 넣어 XHR을 엿봄 → 요청 방식·주소·본문과
+     응답의 '모양'(키 이름·자료형만, 값 없음)을 html 속성에 남기면 여기서 읽어 보냄. 네이버 보안 설정(CSP)이 막으면 그 설정을 대신 보냄. */
+  var spy="(function(){var o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__u=String(u);this.__m=m;return o.apply(this,arguments)};"
+    +"XMLHttpRequest.prototype.send=function(b){var x=this;if(/inquiry\\/(list|\\d+\\/detail)/.test(x.__u)){x.addEventListener('load',function(){try{var r=JSON.parse(x.responseText);"
+    +"var sh=function(v,d){if(d>4)return typeof v;if(Array.isArray(v))return v.length?[sh(v[0],d+1),'len='+v.length]:[];if(v&&typeof v==='object'){var q={};for(var k in v)q[k]=sh(v[k],d+1);return q}return typeof v};"
+    +"document.documentElement.setAttribute('data-cs-'+(/list/.test(x.__u)?'list':'detail'),JSON.stringify({m:x.__m,u:x.__u.replace(/\\d{6,}/g,'N'),body:String(b||'').slice(0,800),status:x.status,res:sh(r,0)}))}catch(e){}})}return s.apply(this,arguments)}})()";
+  try{var sc=document.createElement('script');sc.textContent=spy;(document.head||document.documentElement).appendChild(sc);sc.remove()}catch(e){}
+  var tries=0,iv=setInterval(function(){var h=document.documentElement;['list','detail'].forEach(function(k){var v=h.getAttribute('data-cs-'+k);if(v)send(k+'api',v)});
+    if(++tries===24&&!h.getAttribute('data-cs-list'))fetch(location.href,{credentials:'include'}).then(function(r){send('csp',String(r.headers.get('content-security-policy')||'(없음)'))}).catch(function(){});
+    if(tries>120)clearInterval(iv)},5000);
   var body=document.querySelector('tbody')||document.body;
   new MutationObserver(function(ms){ms.forEach(function(m){[].forEach.call(m.addedNodes,function(nd){if(nd.nodeType!==1)return;
     var row=nd.closest?nd.closest('tr')||nd:nd;if(row.querySelector&&row.querySelector('textarea'))send('form',skel(row));else if(row.tagName==='TR'&&row.querySelector('[colspan]'))send('open',skel(row));
