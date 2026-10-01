@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      14
+// @version      15
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -39,7 +39,7 @@ function qaPairs(logs,user,chatId,since){   /* logs = 카카오 채팅 기록(�
     var bot=x.type!==1||AUTO.test(t)||(x.send_at-lastC<3000&&!hb.length);if(!bot&&cb.length)hb.push(t)});
   if(hb.length)done();return out}
 
-var CS_VER=14;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
+var CS_VER=15;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
 /* ── 네이버페이센터 고객문의 API (2026-10-01 diag로 확인) ──
    목록 GET /front-api/m/v2/inquiry/list?searchStartYmdt=…&searchEndYmdt=…(+페이지) → body.totalNewInquiry(미답변 수), body.pageResult.content[{inquiryNo, inquiryCategoryName, title, lastInquiryDate, lastInquiryCommentDate…}]
    상세 GET /front-api/m/v2/inquiry/{inquiryNo}/detail → body.comments[{inquiryCommentType, answererTypeCode, content, registrationDate}]
@@ -64,7 +64,7 @@ async function nvProbe(C,F){   /* 2026-10-01 1차 결과: 날짜 = ymd(yyyyMMdd)
   return cfg}
 /* 네이버 6개월 상담 수집 (수집 PC 한 번, 이어하기 가능) — 답변 달린 문의만, 질문 = 제목 + 고객 글, 답변 = 직원 글. 가림 후 qa-add. */
 async function nvCrawl(C,F,cfg){   /* 페이지 이름을 알면 50개(또는 10개)씩, 모르면 하루씩 (하루 10건 넘는 날은 넘친 만큼 못 읽음 — 보고에 남김) */
-  if(localStorage.getItem('cs_nv_qa_done2'))return;
+  if(localStorage.getItem('cs_nv_qa_done3'))return;
   var wait=function(ms){return new Promise(function(r){setTimeout(r,ms)})},types={},n=0,over=[],day0=new Date();day0.setHours(0,0,0,0);
   async function take(items){var buf=[];for(var k=0;k<items.length;k++){var it=items[k];if(!it.lastInquiryCommentDate)continue;
       var d=await (await fetch('/front-api/m/v2/inquiry/'+it.inquiryNo+'/detail',{credentials:'include'})).json().catch(function(){return null});await wait(700);
@@ -73,13 +73,16 @@ async function nvCrawl(C,F,cfg){   /* 페이지 이름을 알면 50개(또는 10
       var q=qaMask((it.inquiryCategoryName?'['+it.inquiryCategoryName+'] ':'')+(it.title||'')+'\n'+qs.join('\n')),a=qaMask(as.join('\n'));
       if(q.length>=4&&a.length>=10){buf.push({src:'naver',ref:String(it.inquiryNo),asked_at:at||Date.parse(it.lastInquiryDate)||Date.now(),q:q.slice(0,3000),a:a.slice(0,4000)});n++}}
     if(buf.length)await csPost(C,F,{action:'qa-add',rows:buf})}
-  if(cfg.p){var to=new Date(Date.now()+864e5),from=new Date(Date.now()-183*864e5),page=+(localStorage.getItem('cs_nv_qa_page2')||0);
-    for(;;){var L=await nvList(cfg,cfg.base+page,50,from,to);if(!L)break;var items=L.pageResult.content||[];await take(items);page++;localStorage.setItem('cs_nv_qa_page2',String(page));
-      if(L.pageResult.last||!items.length)break;await wait(700)}}
+  if(cfg.p){   /* 2026-10-01: 한 번에 6개월을 물어도 약 3개월치(6/26~)만 와서 30일씩 나눠 물음. 서버가 이미 있는 건 건너뜀 */
+    var w=+(localStorage.getItem('cs_nv_qa_win3')||0);
+    for(;w<7;w++){var to=new Date(day0.getTime()-w*30*864e5+864e5),from=new Date(day0.getTime()-(w+1)*30*864e5),page=0;
+      for(;;){var L=await nvList(cfg,cfg.base+page,50,from,to);if(!L)break;var items=L.pageResult.content||[];await take(items);page++;
+        if(L.pageResult.last||!items.length)break;await wait(700)}
+      localStorage.setItem('cs_nv_qa_win3',String(w+1))}}
   else{var dd=+(localStorage.getItem('cs_nv_qa_day2')||0);
     for(;dd<183;dd++){var day=new Date(day0.getTime()-dd*864e5),L2=await nvList(cfg,null,null,day,day);if(L2){var it2=L2.pageResult.content||[];if(L2.pageResult.totalElements>it2.length)over.push(nvDate(day,'ymd')+':'+L2.pageResult.totalElements);await take(it2)}
       localStorage.setItem('cs_nv_qa_day2',String(dd+1));await wait(700)}}
-  localStorage.setItem('cs_nv_qa_done2','1');
+  localStorage.setItem('cs_nv_qa_done3','1');
   csPost(C,F,{action:'diag',src:'naver',kind:'crawl',url:'',html:'pairs '+n+(cfg.p?' (페이지)':' (하루씩) 10건 넘은 날 '+over.length+': '+over.slice(0,30).join(' '))+'\ntypes '+JSON.stringify(types)})}
 
 function tracker(C,F){
