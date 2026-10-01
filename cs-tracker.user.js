@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      13
+// @version      14
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -39,40 +39,48 @@ function qaPairs(logs,user,chatId,since){   /* logs = 카카오 채팅 기록(�
     var bot=x.type!==1||AUTO.test(t)||(x.send_at-lastC<3000&&!hb.length);if(!bot&&cb.length)hb.push(t)});
   if(hb.length)done();return out}
 
-var CS_VER=13;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
+var CS_VER=14;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
 /* ── 네이버페이센터 고객문의 API (2026-10-01 diag로 확인) ──
    목록 GET /front-api/m/v2/inquiry/list?searchStartYmdt=…&searchEndYmdt=…(+페이지) → body.totalNewInquiry(미답변 수), body.pageResult.content[{inquiryNo, inquiryCategoryName, title, lastInquiryDate, lastInquiryCommentDate…}]
    상세 GET /front-api/m/v2/inquiry/{inquiryNo}/detail → body.comments[{inquiryCommentType, answererTypeCode, content, registrationDate}]
    날짜 형식·페이지 이름은 몰라서 nvProbe가 몇 가지를 시험해 맞는 걸 localStorage(cs_nv_cfg)에 기억하고 diag 'probe'로 보고. */
 function nvDate(d,f){var p=function(n){return String(n).padStart(2,'0')},y=d.getFullYear(),M=p(d.getMonth()+1),D=p(d.getDate());
   return f==='ymdhms'?''+y+M+D+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds()):f==='ymd'?''+y+M+D:f==='iso'?y+'-'+M+'-'+D+'T'+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()):String(+d)}
-async function nvList(cfg,page,size,from,to){var r=await fetch('/front-api/m/v2/inquiry/list?searchStartYmdt='+nvDate(from,cfg.f)+'&searchEndYmdt='+nvDate(to,cfg.f)+'&'+cfg.p+'='+page+'&size='+size,{credentials:'include'});
+async function nvList(cfg,page,size,from,to){var u='/front-api/m/v2/inquiry/list?searchStartYmdt='+nvDate(from,cfg.f)+'&searchEndYmdt='+nvDate(to,cfg.f)+(cfg.p&&page!=null?'&'+cfg.p+'='+page:'')+(cfg.s&&size?'&'+cfg.s+'='+size:'');
+  var r=await fetch(u,{credentials:'include'});
   var j=await r.json().catch(function(){return null});return j&&j.apiSuccess&&j.body&&j.body.pageResult?j.body:null}
-async function nvProbe(C,F){
-  try{var c=JSON.parse(localStorage.getItem('cs_nv_cfg')||'null');if(c)return c}catch(e){}
-  var to=new Date(Date.now()+864e5),from=new Date(Date.now()-30*864e5),log=[],found=null;
-  for(var a of ['ymdhms','ymd','iso','ms'])for(var b of ['page','pageNumber']){if(found)break;var cfg={f:a,p:b},x=await nvList(cfg,0,20,from,to),y=x&&await nvList(cfg,1,20,from,to);
-    var pr=x&&x.pageResult,pr2=y&&y.pageResult;log.push(a+'/'+b+': '+(pr?('size '+pr.pageSize+' pn '+pr.pageNumber+'→'+(pr2&&pr2.pageNumber)+' total '+pr.totalElements+' new '+x.totalNewInquiry):'실패'));
-    if(pr&&pr.pageSize===20&&pr2&&pr2.pageNumber!==pr.pageNumber){cfg.base=pr.pageNumber===0?0:1;found=cfg}
-    else if(pr&&pr.pageSize===20&&pr2&&pr2.pageNumber===1){var z=await nvList(cfg,2,20,from,to);if(z&&z.pageResult.pageNumber===2){cfg.base=1;found=cfg}}}   /* 1부터 세는 경우: 0과 1이 둘 다 첫 페이지 */
-  csPost(C,F,{action:'diag',src:'naver',kind:'probe',url:'',html:log.join('\n')+'\n=> '+JSON.stringify(found)});
-  if(found)try{localStorage.setItem('cs_nv_cfg',JSON.stringify(found))}catch(e){}
-  return found}
+async function nvProbe(C,F){   /* 2026-10-01 1차 결과: 날짜 = ymd(yyyyMMdd), page·pageNumber는 안 먹음(size도 무시, 10건 고정) → 다른 이름들 시험 */
+  try{var c=JSON.parse(localStorage.getItem('cs_nv_cfg2')||'null');if(c)return c}catch(e){}
+  var to=new Date(Date.now()+864e5),from=new Date(Date.now()-60*864e5),log=[],cfg=null;
+  for(var f of ['ymd','ymdhms','iso','ms']){var x=await nvList({f:f},null,null,from,to);log.push('날짜 '+f+': '+(x?'됨 total '+x.pageResult.totalElements:'실패'));if(x){cfg={f:f,p:null,s:null,base:0};break}}
+  if(cfg){var first=function(L){var c0=L&&L.pageResult.content||[];return c0.length?String(c0[0].inquiryNo):''},p0=first(await nvList(cfg,null,null,from,to));
+    for(var pn of ['page','pageNo','pageIndex','currentPage','pageNum','p','offset','start']){if(cfg.p)break;
+      for(var bs of [1,2]){var L=await nvList({f:cfg.f,p:pn},bs,null,from,to),f1=first(L);if(L&&f1&&f1!==p0){cfg.p=pn;cfg.base=bs===1?0:1;
+        if(bs===2){var L1=await nvList({f:cfg.f,p:pn},1,null,from,to);if(first(L1)!==p0)cfg.base=0}log.push('페이지 '+pn+': 됨 (첫 페이지 번호 '+cfg.base+')');break}}
+      if(!cfg.p)log.push('페이지 '+pn+': 안 됨')}
+    for(var sn of ['size','pageSize','rows','limit','perPage','count','pageRowCount']){var L2=await nvList({f:cfg.f,s:sn},null,30,from,to);var k=L2?(L2.pageResult.content||[]).length:0;log.push('개수 '+sn+': '+k+'건');if(k>10){cfg.s=sn;break}}}
+  csPost(C,F,{action:'diag',src:'naver',kind:'probe2',url:'',html:log.join('\n')+'\n=> '+JSON.stringify(cfg)});
+  if(cfg)try{localStorage.setItem('cs_nv_cfg2',JSON.stringify(cfg))}catch(e){}
+  return cfg}
 /* 네이버 6개월 상담 수집 (수집 PC 한 번, 이어하기 가능) — 답변 달린 문의만, 질문 = 제목 + 고객 글, 답변 = 직원 글. 가림 후 qa-add. */
-async function nvCrawl(C,F,cfg){
-  if(localStorage.getItem('cs_nv_qa_done'))return;var to=new Date(Date.now()+864e5),from=new Date(Date.now()-183*864e5),page=+(localStorage.getItem('cs_nv_qa_page')||0),types={},buf=[],n=0;
-  var wait=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
-  for(;;){var L=await nvList(cfg,cfg.base+page,50,from,to);if(!L)break;var items=L.pageResult.content||[];
-    for(var k=0;k<items.length;k++){var it=items[k];if(!it.lastInquiryCommentDate)continue;
+async function nvCrawl(C,F,cfg){   /* 페이지 이름을 알면 50개(또는 10개)씩, 모르면 하루씩 (하루 10건 넘는 날은 넘친 만큼 못 읽음 — 보고에 남김) */
+  if(localStorage.getItem('cs_nv_qa_done2'))return;
+  var wait=function(ms){return new Promise(function(r){setTimeout(r,ms)})},types={},n=0,over=[],day0=new Date();day0.setHours(0,0,0,0);
+  async function take(items){var buf=[];for(var k=0;k<items.length;k++){var it=items[k];if(!it.lastInquiryCommentDate)continue;
       var d=await (await fetch('/front-api/m/v2/inquiry/'+it.inquiryNo+'/detail',{credentials:'include'})).json().catch(function(){return null});await wait(700);
       var cm=(d&&d.body&&d.body.comments)||[],qs=[],as=[],at=0;cm.forEach(function(x){var key=x.inquiryCommentType+'/'+x.answererTypeCode;types[key]=(types[key]||0)+1;
         var isA=x.answererTypeCode!=null||/ANS|REPLY|SELLER/i.test(String(x.inquiryCommentType));(isA?as:qs).push(String(x.content||''));if(!isA&&!at)at=Date.parse(x.registrationDate)||0});
       var q=qaMask((it.inquiryCategoryName?'['+it.inquiryCategoryName+'] ':'')+(it.title||'')+'\n'+qs.join('\n')),a=qaMask(as.join('\n'));
       if(q.length>=4&&a.length>=10){buf.push({src:'naver',ref:String(it.inquiryNo),asked_at:at||Date.parse(it.lastInquiryDate)||Date.now(),q:q.slice(0,3000),a:a.slice(0,4000)});n++}}
-    if(buf.length){var r=await csPost(C,F,{action:'qa-add',rows:buf.splice(0)});if(r&&r.error)break}
-    page++;try{localStorage.setItem('cs_nv_qa_page',String(page))}catch(e){}
-    if(L.pageResult.last||!items.length){localStorage.setItem('cs_nv_qa_done','1');break}await wait(700)}
-  csPost(C,F,{action:'diag',src:'naver',kind:'crawl',url:'',html:'pairs '+n+' pages '+page+' types '+JSON.stringify(types)})}
+    if(buf.length)await csPost(C,F,{action:'qa-add',rows:buf})}
+  if(cfg.p){var to=new Date(Date.now()+864e5),from=new Date(Date.now()-183*864e5),page=+(localStorage.getItem('cs_nv_qa_page2')||0);
+    for(;;){var L=await nvList(cfg,cfg.base+page,50,from,to);if(!L)break;var items=L.pageResult.content||[];await take(items);page++;localStorage.setItem('cs_nv_qa_page2',String(page));
+      if(L.pageResult.last||!items.length)break;await wait(700)}}
+  else{var dd=+(localStorage.getItem('cs_nv_qa_day2')||0);
+    for(;dd<183;dd++){var day=new Date(day0.getTime()-dd*864e5),L2=await nvList(cfg,null,null,day,day);if(L2){var it2=L2.pageResult.content||[];if(L2.pageResult.totalElements>it2.length)over.push(nvDate(day,'ymd')+':'+L2.pageResult.totalElements);await take(it2)}
+      localStorage.setItem('cs_nv_qa_day2',String(dd+1));await wait(700)}}
+  localStorage.setItem('cs_nv_qa_done2','1');
+  csPost(C,F,{action:'diag',src:'naver',kind:'crawl',url:'',html:'pairs '+n+(cfg.p?' (페이지)':' (하루씩) 10건 넘은 날 '+over.length+': '+over.slice(0,30).join(' '))+'\ntypes '+JSON.stringify(types)})}
 
 function tracker(C,F){
   if(window.__csBoard){alert('CS 상황판: 이미 켜져 있어요. 이 탭은 그대로 열어두세요.');return}
@@ -159,9 +167,9 @@ function tracker(C,F){
   var lastN=null,lastIds=null;
   var nvCfg=null,nvTried=false;
   async function naverApi(){   /* 목록 API로 미답변 수(totalNewInquiry) + 미답변 문의번호(최근 100건 중 답변 없는 것) — 조회하기 클릭·필터와 무관 */
-    var L=await nvList(nvCfg,nvCfg.base,100,new Date(Date.now()-183*864e5),new Date(Date.now()+864e5));if(!L)return false;
+    var L=await nvList(nvCfg,null,100,new Date(Date.now()-183*864e5),new Date(Date.now()+864e5));if(!L)return false;
     var ids=(L.pageResult.content||[]).filter(function(x){return !x.lastInquiryCommentDate}).map(function(x){return String(x.inquiryNo)}),n=Number(L.totalNewInquiry);
-    if(!isFinite(n))n=ids.length;lastN=n;lastIds=ids;send(n,ids.length===n?'':'미답변 '+n+'건 중 최근 100건 안에서 '+ids.length+'건만 보임',ids);return true}
+    if(!isFinite(n))n=ids.length;lastN=n;lastIds=ids;send(n,ids.length===n?'':'미답변 '+n+'건 중 최근 목록에서 '+ids.length+'건만 보임',ids);return true}
   function naver(){
     if(!nvTried){nvTried=true;nvProbe(C,F).then(function(c){nvCfg=c;if(c)nvCrawl(C,F,c)})}
     if(nvCfg){naverApi().then(function(ok){if(!ok){nvCfg=null;naverUi()}});return}
@@ -370,7 +378,7 @@ function naverPanel(C,F){
    카카오 채팅창 팝업(/chats/<id>) → 답변 패널. 카카오 채팅 목록(/chats)·네이버 고객문의 → 수집(이 PC에서 켠 경우만, 처음 한 번 물어봄).
    초대코드는 처음 한 번만 (사이트별 localStorage). 카카오는 화면 이동이 새로고침 없이 일어나서 3초마다 경로 확인. */
 if(typeof GM_info!=='undefined')(function(){
-  var F='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup',K='cs_board_code',ON='cs_board_on',kakao=/kakao/.test(location.hostname);
+  var F='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup',K='cs_board_code',kakao=/kakao/.test(location.hostname);
   function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
   function code(){var c=ls(K);if(!c){c=prompt('CS 초대코드를 입력하세요 (처음 한 번만)');if(c)ls(K,c.trim())}return c&&c.trim()}
   var t=setInterval(function(){
@@ -379,7 +387,6 @@ if(typeof GM_info!=='undefined')(function(){
     if(!(kakao?/\/channel\/_[A-Za-z0-9]+\/chats\/?$/.test(p):/조회하기/.test(document.body.innerText)))return;
     clearInterval(t);
     if(!kakao){var cd=code();if(cd){naverDiag(cd,F);naverPanel(cd,F);nvProbe(cd,F)}}
-    if(ls(ON)==null)ls(ON,confirm('CS 상황판: 이 PC에서 상황판 숫자·처리 기록을 자동으로 모을까요?\n(수집은 한 PC만 켜면 충분해요. 상담원 PC는 "취소" — 답변 패널은 그대로 써요)')?'1':'0');
-    if(ls(ON)!=='1')return;var c2=code();if(c2)tracker(c2,F);
+    var c2=code();if(c2)tracker(c2,F);   /* 2026-10-01: 'PC에서 모을까요?' 질문 없앰 — 카카오·네이버 모두 클릭 없이 데이터로 세서 어느 PC든 괜찮고, 여러 곳이면 lease로 한 곳만 */
   },3000);
 })();
