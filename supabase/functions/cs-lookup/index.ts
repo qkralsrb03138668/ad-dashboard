@@ -10,6 +10,7 @@
 //   record { chats:[{id,a:담당자id,m,w}], names:{담당자id:이름} } → 오늘 바뀐 카카오 채팅들 → 새로 시작된 상담만 'daily:kakao:<날짜>'에 누적 ({seed:true}면 먼저 seed)
 //   seed { chats:[{id,a}] } → 최근 60일 채팅의 현재 담당자를 'kakao:ledger'에 기준(=자정 담당자)으로 저장 (처음 한 번, 셈 없음)
 //   lease { src, id }    → { ok } 탭·PC가 여러 개여도 수집은 한 곳만 (마지막 갱신 2분 반 안이면 다른 id는 거절)
+//   pick { chat, pick, rank, top } → 카카오 답변 패널에서 직원이 고른 후보 기록 ('picks:<날짜>' 배열, 하루 2000개까지) — 적중률 보려고
 //   records              → { days:[{day, kakao:{담당자:건수}, naver:건수}] }  CS 처리 기록(cs-record.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
 //   GET ?action=push&code=&src=kakao|naver&n=&err=[&ids=네이버 미답변 문의번호들] → 상황판 북마크가 카카오 10초·네이버 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
@@ -203,6 +204,14 @@ async function run(op: Row): Promise<unknown> {
       const key = `lease:${op.src}`, cur = await getAsset(key), now = Date.now();
       if (cur && cur.id !== op.id && now - cur.at < 150_000) return { ok: false };
       await putAsset(key, { id: op.id, at: now });
+      return { ok: true };
+    }
+    case "pick": {
+      const str = (x: unknown, n: number) => typeof x === "string" && x.length <= n;
+      if (!str(op.chat, 40) || !str(op.pick, 80) || !Number.isInteger(op.rank) || !Array.isArray(op.top) || op.top.length > 5 || !op.top.every((t: unknown) => str(t, 80))) throw new Error("bad pick");
+      const key = `picks:${kst(new Date())}`, cur = ((await getAsset(key)) ?? []) as Row[];
+      if (cur.length < 2000) cur.push({ at: new Date().toISOString(), chat: op.chat, pick: op.pick, rank: op.rank, top: op.top });
+      await putAsset(key, cur);
       return { ok: true };
     }
     case "record": return await recordKakao(op);

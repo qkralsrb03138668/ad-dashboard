@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      1
-// @description  카카오 채널 채팅·네이버페이 고객문의관리 화면이 열리면 CS 상황판 숫자와 처리 기록을 자동으로 모음 (북마크 대신)
+// @version      2
+// @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
 // @grant        none
@@ -108,17 +108,87 @@ function tracker(C,F){
   var timer=every(src=='kakao'?10000:60000,src=='kakao'?kakaoTick:function(){lease().then(function(ok){ok?naver():idle()})});
 }
 
+/* 카카오 채팅창(팝업, /chats/<id>) 답변 후보 패널. 자동 전송 없음 — '넣기'는 입력칸에 글만 넣음.
+   후보: ① 대화 속 전화번호·주문번호로 찾은 주문의 상태 답변(cs-lookup.html을 숨은 iframe으로 열어 replyFor로 만듦 — 지연이면 출고일 게시판 날짜)
+         ② cs-answer-rules.js 단어 규칙으로 고른 '자주 쓰는 답변' 3개 (마지막 고객 글 + 하루 안 앞 글 참고, 지연 날짜 채움)
+         ③ 39개 전체 검색. 고른 것은 서버 pick으로 기록(적중률 확인용).
+   대화는 채팅 기록 API로 읽음(읽음 처리 요청은 안 보냄 — 어차피 직원이 연 방). */
+function panel(C,F){
+  var m=location.pathname.match(/\/channel\/(_[A-Za-z0-9]+)\/chats\/(\d+)/);if(!m||window.__csPanel)return;window.__csPanel=1;
+  var ch=m[1],chat=m[2],api='/api/profiles/'+ch,PAGES='https://qkralsrb03138668.github.io',favs=null,rank=null,frame=null,seq=0,wait={},shown=[];
+  var SKIP=['성함과 연락처 남겨주세요','확인 후 안내'];
+  function el(t,css,txt){var e=document.createElement(t);if(css)e.style.cssText=css;if(txt!=null)e.textContent=txt;return e}
+  function post(o){return fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify(o)}).then(function(r){return r.json()}).catch(function(){})}
+  var btn=el('button','position:fixed;right:12px;bottom:104px;z-index:2147483646;background:#2C49D6;color:#fff;border:0;border-radius:18px;padding:8px 14px;font:600 13px sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer','💬 추천 답변');
+  var sheet=el('div','position:fixed;left:8px;right:8px;bottom:96px;max-height:68vh;overflow:auto;z-index:2147483647;background:#fff;color:#15171C;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.3);font:13px/1.5 sans-serif;padding:12px;display:none');
+  document.body.appendChild(btn);document.body.appendChild(sheet);
+  btn.onclick=function(){if(sheet.style.display==='block'){sheet.style.display='none';return}sheet.style.display='block';open()};
+  async function loadFavs(){var all=[],p,j;for(p=0;p<5;p++){j=await (await fetch(api+'/chat_favorite_answers?page='+p+'&limit=20',{credentials:'include'})).json();all=all.concat(j.items||[]);if(!j.has_next)break}
+    var seen={};return all.filter(function(a){if(seen[a.id])return false;return seen[a.id]=1}).map(function(a){return {name:a.name,text:a.description}})}
+  async function loadRules(){var src=await (await fetch(PAGES+'/ad-dashboard/cs-answer-rules.js?'+Date.now())).text();return (0,eval)(src+'\n;csRank')}
+  async function talk(){   /* 고객 글: 마지막 묶음(우리 답 이후) + 하루 안 앞 글 */
+    var logs=[],since='',p,j,its,i;for(p=0;p<3;p++){j=await (await fetch(api+'/chats/'+chat+'/chatlogs'+(since?'?since='+since:''),{credentials:'include'})).json();its=j.items||[];logs=logs.concat(its);
+      if(!j.has_prev||!its.length)break;var old=its.reduce(function(x,y){return x.send_at<y.send_at?x:y});if(Date.now()-old.send_at>864e5)break;since=old.id}
+    var seen={};logs=logs.filter(function(x){if(seen[x.id])return false;return seen[x.id]=1}).sort(function(a,b){return a.send_at-b.send_at});
+    var cust=function(x){return String(x.author_id)!==ch&&typeof x.message==='string'&&x.message};
+    var lastOurs=-1;for(i=0;i<logs.length;i++)if(!cust(logs[i])&&String(logs[i].author_id)===ch)lastOurs=i;
+    var after=logs.slice(lastOurs+1).filter(cust).map(function(x){return x.message});
+    var day=logs.filter(function(x){return cust(x)&&Date.now()-x.send_at<864e5}).map(function(x){return x.message});
+    if(!after.length&&day.length)after=[day[day.length-1]];
+    return {text:after.join(' / '),ctx:day.slice(0,Math.max(0,day.length-after.length)).join(' / '),all:logs.filter(cust).map(function(x){return x.message}).reverse()}}
+  function findQ(all){for(var i=0;i<all.length;i++){var t=all[i],o=t.match(/\d{8}-\d{7}/);if(o)return o[0];var ph=t.match(/01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}/);if(ph)return ph[0].replace(/[\s.]/g,'-')}return ''}
+  function compose(q){return new Promise(function(res){
+    if(!frame){frame=el('iframe','display:none');frame.src=PAGES+'/ad-dashboard/cs-lookup.html?embed=1&code='+encodeURIComponent(C);document.body.appendChild(frame);
+      window.addEventListener('message',function(ev){if(ev.origin!==PAGES||!ev.data||ev.data.type!=='cs-composed'||!wait[ev.data.id])return;wait[ev.data.id](ev.data);delete wait[ev.data.id]})}
+    var id=++seq;wait[id]=res;setTimeout(function(){if(wait[id]){delete wait[id];res({error:'주문조회 응답 없음'})}},25000);
+    var go=function(){frame.contentWindow.postMessage({type:'cs-compose',id:id,q:q},PAGES)};
+    if(frame.dataset.ok)go();else frame.addEventListener('load',function(){frame.dataset.ok=1;setTimeout(go,300)},{once:true})})}
+  function insert(text,key,rank){var ta=document.querySelector('#chatWrite');if(!ta)return alert('입력칸을 못 찾았어요');
+    var set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(ta,ta.value?ta.value+'\n\n'+text:text);ta.dispatchEvent(new Event('input',{bubbles:true}));ta.focus();
+    sheet.style.display='none';post({action:'pick',chat:chat,pick:key,rank:rank,top:shown.slice(0,5)})}
+  function card(title,text,key,rank,tag){var c=el('div','border:1px solid #DFE2E9;border-radius:10px;padding:8px 10px;margin:6px 0');
+    var h=el('div','display:flex;gap:6px;align-items:center');h.appendChild(el('b','flex:1',title));if(tag)h.appendChild(el('span','font-size:11px;color:#2C49D6;background:#E4E9FB;border-radius:99px;padding:1px 7px',tag));
+    var b=el('button','border:0;background:#2C49D6;color:#fff;border-radius:8px;padding:4px 10px;font:600 12px sans-serif;cursor:pointer','넣기');b.onclick=function(){insert(text,key,rank)};h.appendChild(b);c.appendChild(h);
+    c.appendChild(el('div','color:#5E6472;font-size:12px;white-space:pre-wrap;max-height:3.1em;overflow:hidden;margin-top:3px',text.replace(/^안녕하세요[^\n]*\n+/,'')));return c}
+  async function open(){
+    sheet.innerHTML='';sheet.appendChild(el('div','color:#5E6472','대화 읽는 중…'));
+    try{
+      if(!favs)favs=await loadFavs();if(!rank)rank=await loadRules();
+      var t=await talk(),q=findQ(t.all),order=null,note='';
+      if(q){var r=await compose(q);if(r.error)note='주문조회 실패: '+r.error;else if(!r.orders||!r.orders.length)note='"'+q+'"로 주문을 못 찾았어요';else order=r.orders[0]}
+      else note='대화에 전화번호·주문번호가 없어 주문은 못 찾았어요';
+      var delay=order&&order.items.map(function(i){return i.delay}).filter(Boolean)[0];
+      var when=delay?delay.split(' · ').pop().replace(/\s*출고$/,'').trim():'';
+      var names=rank(t.text,t.ctx).map(function(x){return x.name}).filter(function(n){return SKIP.indexOf(n)<0});
+      var top=names.map(function(n){return favs.find(function(f){return f.name===n})}).filter(Boolean).slice(0,3);
+      sheet.innerHTML='';
+      var head=el('div','display:flex;align-items:center;margin-bottom:4px');head.appendChild(el('b','flex:1;font-size:14px','추천 답변'));var x=el('button','border:0;background:none;font-size:16px;cursor:pointer','✕');x.onclick=function(){sheet.style.display='none'};head.appendChild(x);sheet.appendChild(head);
+      sheet.appendChild(el('div','color:#9AA0AD;font-size:11px;margin-bottom:6px','넣기를 누르면 입력칸에 들어가기만 해요. 고쳐서 직접 보내세요.'));
+      shown=[];
+      if(order){shown.push('order');sheet.appendChild(card('주문 상태 답변 · '+order.date+' 주문',order.reply,'order',0,order.items.map(function(i){return i.status_text}).filter(function(v,i,a){return a.indexOf(v)==i}).join(', ')))}
+      top.forEach(function(f,i){var txt=when?f.text.replace(/(예상 출고일은 )[^\n]*?( ?입니다)/,'$1'+when+'$2'):f.text;shown.push(f.name);sheet.appendChild(card(f.name,txt,f.name,i+1,i===0&&!order?'1순위':''))});
+      if(!order&&!top.length)sheet.appendChild(el('div','color:#5E6472;margin:6px 0','맞는 자주 쓰는 답변을 못 찾았어요. 아래에서 검색하세요.'));
+      if(note){var n=el('div','color:#C7791F;font-size:12px;margin:6px 0',note);sheet.appendChild(n);if(!order){var f0=favs.find(function(f){return f.name==='성함과 연락처 남겨주세요'});if(f0)sheet.appendChild(card(f0.name,f0.text,f0.name,9))}}
+      var box=el('input','width:100%;box-sizing:border-box;margin-top:8px;padding:7px 9px;border:1px solid #DFE2E9;border-radius:8px;font:13px sans-serif');box.placeholder='자주 쓰는 답변 '+favs.length+'개에서 검색';var res=el('div');
+      box.oninput=function(){res.innerHTML='';var k=box.value.trim();if(!k)return;favs.filter(function(f){return f.name.indexOf(k)>=0||f.text.indexOf(k)>=0}).slice(0,8).forEach(function(f){res.appendChild(card(f.name,f.text,f.name,-1))})};
+      sheet.appendChild(box);sheet.appendChild(res);
+    }catch(e){sheet.innerHTML='';sheet.appendChild(el('div','color:#CC3F38','추천을 못 만들었어요: '+e.message))}
+  }
+}
+
 /* Tampermonkey 자동 실행 — 북마크로 eval될 때는 GM_info가 없어서 건너뜀.
-   PC마다 처음 한 번: 이 PC에서 수집할지 + 초대코드 (사이트별 localStorage). 카카오는 채널 채팅 화면이 될 때까지 기다림(화면 이동이 새로고침 없이 일어나서). */
+   카카오 채팅창 팝업(/chats/<id>) → 답변 패널. 카카오 채팅 목록(/chats)·네이버 고객문의 → 수집(이 PC에서 켠 경우만, 처음 한 번 물어봄).
+   초대코드는 처음 한 번만 (사이트별 localStorage). 카카오는 화면 이동이 새로고침 없이 일어나서 3초마다 경로 확인. */
 if(typeof GM_info!=='undefined')(function(){
-  var F='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup',K='cs_board_code',ON='cs_board_on';
+  var F='https://pydxcqfztjogmztvayux.supabase.co/functions/v1/cs-lookup',K='cs_board_code',ON='cs_board_on',kakao=/kakao/.test(location.hostname);
   function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
-  function ready(){return /kakao/.test(location.hostname)?/\/channel\/_[A-Za-z0-9]+\/chats/.test(location.pathname):/조회하기/.test(document.body.innerText)}
+  function code(){var c=ls(K);if(!c){c=prompt('CS 초대코드를 입력하세요 (처음 한 번만)');if(c)ls(K,c.trim())}return c&&c.trim()}
   var t=setInterval(function(){
-    if(!ready())return;clearInterval(t);
-    if(ls(ON)==null)ls(ON,confirm('CS 상황판: 이 PC에서 상황판 숫자·처리 기록을 자동으로 모을까요?\n(한 PC만 켜도 충분해요. 나중에 바꾸려면 상황판 안내 참고)')?'1':'0');
-    if(ls(ON)!=='1')return;
-    var c=ls(K)||prompt('CS 상황판 초대코드를 입력하세요 (처음 한 번만)');
-    if(!c)return;ls(K,c.trim());tracker(c.trim(),F);
+    var p=location.pathname;
+    if(kakao&&/\/chats\/\d+/.test(p)){clearInterval(t);var c=code();if(c)panel(c,F);return}
+    if(!(kakao?/\/channel\/_[A-Za-z0-9]+\/chats\/?$/.test(p):/조회하기/.test(document.body.innerText)))return;
+    clearInterval(t);
+    if(ls(ON)==null)ls(ON,confirm('CS 상황판: 이 PC에서 상황판 숫자·처리 기록을 자동으로 모을까요?\n(수집은 한 PC만 켜면 충분해요. 상담원 PC는 "취소" — 답변 패널은 그대로 써요)')?'1':'0');
+    if(ls(ON)!=='1')return;var c2=code();if(c2)tracker(c2,F);
   },3000);
 })();
