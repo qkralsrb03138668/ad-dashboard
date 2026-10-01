@@ -28,7 +28,7 @@ const admgr = {
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
   selAds: new Set(),
   customRange: lsGet('adc_admgr_range', null),   // 직접 지정 기간 {since, until} (2026-09-16)   // 광고 탭 선택 (복사용 — 2026-09-16)
-  judgeFilter: 'all', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
+  judgeFilter: 'live', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
@@ -466,6 +466,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     judgeChips = `<div class="filter-tabs ag-judge" style="margin-bottom:12px;">
       <span class="ag-lbl">판정</span>
       ${chip('all', '전체', all.length, admgr.judgeFilter === 'all', "admgrJudgeSet('all')")}
+      ${chip('live', '운영중 <small class="ag-muted">test 제외</small>', all.filter(x => !admgrIsTest(x.r)).length, admgr.judgeFilter === 'live', "admgrJudgeSet('live')")}
       ${chip('cut', '<span class="ag-dot red"></span>감액 ÷10 <small class="ag-muted">구매 0</small>', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}${cnt('rebound') ? chip('rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 5+</small>', cnt('rebound'), admgr.judgeFilter === 'rebound', "admgrJudgeSet('rebound')") : ''}${cnt('testing') ? chip('testing', '<span class="ag-dot gray"></span>테스트중 <small class="ag-muted">세트명 test</small>', cnt('testing'), admgr.judgeFilter === 'testing', "admgrJudgeSet('testing')") : ''}
       ${bb.byObj ? `<span class="ag-vsep"></span>${chip('nochg', '<i class="fa-solid fa-pen-slash" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 미변경', vis.filter(r => !admgrIsTest(r) && !(bb.byObj.get(r.id) || []).length).length, admgr.judgeFilter === 'nochg', "admgrJudgeSet('nochg')")}` : ''}
       <span style="flex:1;"></span>
@@ -473,6 +474,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
     </div>`;
     if (admgr.judgeFilter === 'nochg') vis = bb.byObj ? vis.filter(r => !admgrIsTest(r) && !(bb.byObj.get(r.id) || []).length) : vis;   // 오늘 예산 변경 이력 없는 세트 (Meta 활동 로그 기준)
+    else if (admgr.judgeFilter === 'live') vis = vis.filter(r => !admgrIsTest(r));   // 운영중 = 세트명에 test 없는 세트 전부 (기본값, 2026-10-01)
     else if (admgr.judgeFilter !== 'all') vis = all.filter(x => x.j.key === admgr.judgeFilter).map(x => x.r);
   }
   let chgChips = '';
