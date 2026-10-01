@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      11
+// @version      12
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -38,6 +38,40 @@ function qaPairs(logs,user,chatId,since){   /* logs = 카카오 채팅 기록(�
     if(String(x.author_id)===String(user)){if(hb.length)done();if(MENU.test(t))return;if(!cb.length)cAt=x.send_at;cb.push(t);lastC=x.send_at;return}
     var bot=x.type!==1||AUTO.test(t)||(x.send_at-lastC<3000&&!hb.length);if(!bot&&cb.length)hb.push(t)});
   if(hb.length)done();return out}
+
+/* ── 네이버페이센터 고객문의 API (2026-10-01 diag로 확인) ──
+   목록 GET /front-api/m/v2/inquiry/list?searchStartYmdt=…&searchEndYmdt=…(+페이지) → body.totalNewInquiry(미답변 수), body.pageResult.content[{inquiryNo, inquiryCategoryName, title, lastInquiryDate, lastInquiryCommentDate…}]
+   상세 GET /front-api/m/v2/inquiry/{inquiryNo}/detail → body.comments[{inquiryCommentType, answererTypeCode, content, registrationDate}]
+   날짜 형식·페이지 이름은 몰라서 nvProbe가 몇 가지를 시험해 맞는 걸 localStorage(cs_nv_cfg)에 기억하고 diag 'probe'로 보고. */
+function nvDate(d,f){var p=function(n){return String(n).padStart(2,'0')},y=d.getFullYear(),M=p(d.getMonth()+1),D=p(d.getDate());
+  return f==='ymdhms'?''+y+M+D+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds()):f==='ymd'?''+y+M+D:f==='iso'?y+'-'+M+'-'+D+'T'+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()):String(+d)}
+async function nvList(cfg,page,size,from,to){var r=await fetch('/front-api/m/v2/inquiry/list?searchStartYmdt='+nvDate(from,cfg.f)+'&searchEndYmdt='+nvDate(to,cfg.f)+'&'+cfg.p+'='+page+'&size='+size,{credentials:'include'});
+  var j=await r.json().catch(function(){return null});return j&&j.apiSuccess&&j.body&&j.body.pageResult?j.body:null}
+async function nvProbe(C,F){
+  try{var c=JSON.parse(localStorage.getItem('cs_nv_cfg')||'null');if(c)return c}catch(e){}
+  var to=new Date(Date.now()+864e5),from=new Date(Date.now()-30*864e5),log=[],found=null;
+  for(var a of ['ymdhms','ymd','iso','ms'])for(var b of ['page','pageNumber']){if(found)break;var cfg={f:a,p:b},x=await nvList(cfg,0,20,from,to),y=x&&await nvList(cfg,1,20,from,to);
+    var pr=x&&x.pageResult,pr2=y&&y.pageResult;log.push(a+'/'+b+': '+(pr?('size '+pr.pageSize+' pn '+pr.pageNumber+'→'+(pr2&&pr2.pageNumber)+' total '+pr.totalElements+' new '+x.totalNewInquiry):'실패'));
+    if(pr&&pr.pageSize===20&&pr2&&pr2.pageNumber!==pr.pageNumber){cfg.base=pr.pageNumber===0?0:1;found=cfg}
+    else if(pr&&pr.pageSize===20&&pr2&&pr2.pageNumber===1){var z=await nvList(cfg,2,20,from,to);if(z&&z.pageResult.pageNumber===2){cfg.base=1;found=cfg}}}   /* 1부터 세는 경우: 0과 1이 둘 다 첫 페이지 */
+  csPost(C,F,{action:'diag',src:'naver',kind:'probe',url:'',html:log.join('\n')+'\n=> '+JSON.stringify(found)});
+  if(found)try{localStorage.setItem('cs_nv_cfg',JSON.stringify(found))}catch(e){}
+  return found}
+/* 네이버 6개월 상담 수집 (수집 PC 한 번, 이어하기 가능) — 답변 달린 문의만, 질문 = 제목 + 고객 글, 답변 = 직원 글. 가림 후 qa-add. */
+async function nvCrawl(C,F,cfg){
+  if(localStorage.getItem('cs_nv_qa_done'))return;var to=new Date(Date.now()+864e5),from=new Date(Date.now()-183*864e5),page=+(localStorage.getItem('cs_nv_qa_page')||0),types={},buf=[],n=0;
+  var wait=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
+  for(;;){var L=await nvList(cfg,cfg.base+page,50,from,to);if(!L)break;var items=L.pageResult.content||[];
+    for(var k=0;k<items.length;k++){var it=items[k];if(!it.lastInquiryCommentDate)continue;
+      var d=await (await fetch('/front-api/m/v2/inquiry/'+it.inquiryNo+'/detail',{credentials:'include'})).json().catch(function(){return null});await wait(700);
+      var cm=(d&&d.body&&d.body.comments)||[],qs=[],as=[],at=0;cm.forEach(function(x){var key=x.inquiryCommentType+'/'+x.answererTypeCode;types[key]=(types[key]||0)+1;
+        var isA=x.answererTypeCode!=null||/ANS|REPLY|SELLER/i.test(String(x.inquiryCommentType));(isA?as:qs).push(String(x.content||''));if(!isA&&!at)at=Date.parse(x.registrationDate)||0});
+      var q=qaMask((it.inquiryCategoryName?'['+it.inquiryCategoryName+'] ':'')+(it.title||'')+'\n'+qs.join('\n')),a=qaMask(as.join('\n'));
+      if(q.length>=4&&a.length>=10){buf.push({src:'naver',ref:String(it.inquiryNo),asked_at:at||Date.parse(it.lastInquiryDate)||Date.now(),q:q.slice(0,3000),a:a.slice(0,4000)});n++}}
+    if(buf.length){var r=await csPost(C,F,{action:'qa-add',rows:buf.splice(0)});if(r&&r.error)break}
+    page++;try{localStorage.setItem('cs_nv_qa_page',String(page))}catch(e){}
+    if(L.pageResult.last||!items.length){localStorage.setItem('cs_nv_qa_done','1');break}await wait(700)}
+  csPost(C,F,{action:'diag',src:'naver',kind:'crawl',url:'',html:'pairs '+n+' pages '+page+' types '+JSON.stringify(types)})}
 
 function tracker(C,F){
   if(window.__csBoard){alert('CS 상황판: 이미 켜져 있어요. 이 탭은 그대로 열어두세요.');return}
@@ -122,7 +156,16 @@ function tracker(C,F){
     send(null,'검색결과를 못 찾음 — 고객문의관리 화면을 새로고침해 주세요');
   }
   var lastN=null,lastIds=null;
+  var nvCfg=null,nvTried=false;
+  async function naverApi(){   /* 목록 API로 미답변 수(totalNewInquiry) + 미답변 문의번호(최근 100건 중 답변 없는 것) — 조회하기 클릭·필터와 무관 */
+    var L=await nvList(nvCfg,nvCfg.base,100,new Date(Date.now()-183*864e5),new Date(Date.now()+864e5));if(!L)return false;
+    var ids=(L.pageResult.content||[]).filter(function(x){return !x.lastInquiryCommentDate}).map(function(x){return String(x.inquiryNo)}),n=Number(L.totalNewInquiry);
+    if(!isFinite(n))n=ids.length;lastN=n;lastIds=ids;send(n,ids.length===n?'':'미답변 '+n+'건 중 최근 100건 안에서 '+ids.length+'건만 보임',ids);return true}
   function naver(){
+    if(!nvTried){nvTried=true;nvProbe(C,F).then(function(c){nvCfg=c;if(c)nvCrawl(C,F,c)})}
+    if(nvCfg){naverApi().then(function(ok){if(!ok){nvCfg=null;naverUi()}});return}
+    naverUi()}
+  function naverUi(){
     var ae=document.activeElement,busy=document.querySelector('textarea[id^="answer-box-"]')||(ae&&/TEXTAREA|INPUT/.test(ae.tagName));
     if(busy){if(lastN!=null)send(lastN,'',lastIds);return}   /* 직원이 답변 중 — 마지막 숫자만 다시 보냄 */
     var go=find('조회하기');
