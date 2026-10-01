@@ -13,6 +13,8 @@
 //   pick { chat, pick, rank, top } → 카카오 답변 패널에서 직원이 고른 후보 기록 ('picks:<날짜>' 배열, 하루 2000개까지) — 적중률 보려고
 //   diag { src, kind, html } → 화면 구조 보고(고객 글은 지운 뼈대) 'diag:<src>:<kind>'에 저장 — 내가 직접 못 여는 화면(네이버페이센터) 파악용
 //   favs / favs-save { favs:[{name,text}] } → 카카오 '자주 쓰는 답변' 사본 (카카오 패널이 저장, 네이버 패널이 읽음 — 네이버 화면에선 카카오 목록을 직접 못 읽어서)
+//   qa-add { rows:[{src, ref, asked_at(ms), q, a, fav}] } → 상담 데이터(cs_qa)에 추가 (같은 src·ref·asked_at은 건너뜀) + 1년 지난 줄 삭제
+//   similar { text, n } → 비슷한 과거 질문 n개 [{q, a, asked_at, src, score}] — 글자 2개씩 묶음(bigram) TF-IDF 코사인, 목록은 함수 메모리에 10분 캐시
 //   records              → { days:[{day, kakao:{담당자:건수}, naver:건수}] }  CS 처리 기록(cs-record.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
 //   GET ?action=push&code=&src=kakao|naver&n=&err=[&ids=네이버 미답변 문의번호들] → 상황판 북마크가 카카오 10초·네이버 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
@@ -184,6 +186,47 @@ async function records(): Promise<unknown> {
   return { days: Object.values(days).sort((a, b) => b.day.localeCompare(a.day)) };
 }
 
+// ── 상담 데이터 (cs_qa) ──
+// ponytail: 전부 메모리에 올려 매번 훑음 — 1년치 수천 건이면 충분. 수만 건이 되면 DB 쪽 검색(pg_trgm·벡터)으로.
+type QA = { id: number; src: string; asked_at: string; q: string; a: string; fav: string | null; v: Map<string, number>; n: number };
+let qaCache: { at: number; rows: QA[]; idf: Map<string, number> } | null = null;
+const grams = (t: string) => { const s = String(t).replace(/\[[^\]]*\]|https?:\S+/g, " ").replace(/[^가-힣a-zA-Z0-9]+/g, ""); const m = new Map<string, number>(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); m.set(g, (m.get(g) ?? 0) + 1); } return m; };
+async function qaLoad(): Promise<NonNullable<typeof qaCache>> {
+  if (qaCache && Date.now() - qaCache.at < 10 * 60_000) return qaCache;
+  const all: Row[] = [];
+  for (let off = 0; off < 50_000; off += 1000) {
+    const r = await dbRest(`cs_qa?select=id,src,asked_at,q,a,fav&order=asked_at.desc&limit=1000&offset=${off}`);
+    const part = r.ok ? await r.json() : []; all.push(...part); if (part.length < 1000) break;
+  }
+  const df = new Map<string, number>(), rows: QA[] = all.map((x) => { const g = grams(x.q); g.forEach((_, k) => df.set(k, (df.get(k) ?? 0) + 1)); return { ...x, v: g, n: 0 } as QA; });
+  const idf = new Map<string, number>(); df.forEach((c, k) => idf.set(k, Math.log(1 + rows.length / c)));
+  rows.forEach((r) => { let s = 0; r.v.forEach((c, k) => { s += (c * (idf.get(k) ?? 0)) ** 2; }); r.n = Math.sqrt(s); });
+  qaCache = { at: Date.now(), rows, idf };
+  return qaCache;
+}
+async function similar(text: string, n: number): Promise<unknown> {
+  const { rows, idf } = await qaLoad(), qv = grams(text);
+  let qn = 0; qv.forEach((c, k) => { qn += (c * (idf.get(k) ?? 0)) ** 2; }); qn = Math.sqrt(qn);
+  if (!qn) return { items: [] };
+  const scored = rows.map((r) => { let dot = 0; qv.forEach((c, k) => { const d = r.v.get(k); if (d) { const w = idf.get(k) ?? 0; dot += c * w * d * w; } }); return { r, s: r.n ? dot / (qn * r.n) : 0 }; })
+    .filter((x) => x.s >= 0.2).sort((a, b) => b.s - a.s);
+  const seen = new Set<string>(), items: Row[] = [];
+  for (const { r, s } of scored) { const k = r.a.slice(0, 60); if (seen.has(k)) continue; seen.add(k); items.push({ q: r.q, a: r.a, asked_at: r.asked_at, src: r.src, fav: r.fav, score: Math.round(s * 100) }); if (items.length >= n) break; }
+  return { items, total: rows.length };
+}
+async function qaAdd(op: Row): Promise<unknown> {
+  const rows = op.rows, str = (x: unknown, m: number) => typeof x === "string" && x.length > 0 && x.length <= m;
+  if (!Array.isArray(rows) || rows.length > 500 || !rows.every((x: Row) => x && ["kakao", "naver"].includes(x.src) && str(x.ref, 40) && Number.isFinite(x.asked_at) && str(x.q, 3000) && str(x.a, 4000) && (x.fav == null || str(x.fav, 80)))) throw new Error("bad qa rows");
+  if (rows.length) {
+    const r = await dbRest("cs_qa?on_conflict=src,ref,asked_at", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify(rows.map((x: Row) => ({ src: x.src, ref: x.ref, asked_at: new Date(x.asked_at).toISOString(), q: x.q, a: x.a, fav: x.fav ?? null }))) });
+    if (!r.ok) throw new Error("qa 저장 실패: " + (await r.text()).slice(0, 200));
+  }
+  await dbRest(`cs_qa?asked_at=lt.${encodeURIComponent(new Date(Date.now() - 365 * 86400_000).toISOString())}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });   // 보관 1년
+  qaCache = null;
+  return { ok: true, n: rows.length };
+}
+
 async function run(op: Row): Promise<unknown> {
   switch (op?.action) {
     case "ping": return { ok: true };
@@ -232,6 +275,8 @@ async function run(op: Row): Promise<unknown> {
       await putAsset("favs", f.map((x: Row) => ({ name: x.name, text: x.text })));
       return { ok: true };
     }
+    case "qa-add": return await qaAdd(op);
+    case "similar": return await similar(String(op.text ?? "").slice(0, 2000), Math.min(5, Number(op.n) || 3));
     case "record": return await recordKakao(op);
     case "seed": return await seedKakao(op);
     case "records": return await records();
