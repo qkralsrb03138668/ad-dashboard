@@ -1,16 +1,19 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      3
+// @version      4
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      danarobe.sellmate.co.kr
+// @require      https://qkralsrb03138668.github.io/ad-dashboard/cs-answer-rules.js
 // @run-at       document-idle
 // @updateURL    https://qkralsrb03138668.github.io/ad-dashboard/cs-tracker.user.js
 // @downloadURL  https://qkralsrb03138668.github.io/ad-dashboard/cs-tracker.user.js
 // ==/UserScript==
-// 고친 뒤엔 @version을 올릴 것 — Tampermonkey가 하루 한 번 새 버전을 받아 감. 상황판 북마크(cs-board.html)도 이 파일을 받아 실행.
+// 고친 뒤엔 @version을 올릴 것 — Tampermonkey가 하루 한 번 새 버전을 받아 감(@require 규칙 파일도 그때 새로 받음). 상황판 북마크(cs-board.html)도 이 파일을 받아 실행.
+// (GM_xmlhttpRequest 권한) 셀메이트(다른 사이트)를 이 브라우저의 셀메이트 로그인 그대로 조회하려고 — 셀메이트 탭을 안 열어도 됨. 북마크로 실행될 땐 GM이 없어 셀메이트만 빠짐.
 //
 // tracker(C,F): 카카오·네이버 탭에서 카카오 10초·네이버 1분마다 숫자를 서버로 보냄
 //    카카오: 왼쪽 메뉴(shadow DOM) '내 채팅' 옆 .txt_badge — 카카오 화면이 알아서 수시로 갱신
@@ -108,6 +111,45 @@ function tracker(C,F){
   var timer=every(src=='kakao'?10000:60000,src=='kakao'?kakaoTick:function(){lease().then(function(ok){ok?naver():idle()})});
 }
 
+/* 셀메이트 조회 (cs-overlay-private.js의 search()와 같은 요청 2개, 2026-09-22 확인) — Tampermonkey GM_xmlhttpRequest로 셀메이트 로그인 쿠키 그대로.
+     POST /cs/new_cs_search.asp mode=list&search_how=all&date_type=all&search_text=… → 주문 행 HTML (lineClick('idx','happo','주문일',…))
+     POST /cs/new_cs_ok.asp mode=lineClick&valuePoint=idx|happo&selectValue=…&orderDate=… → JSON {list:[{dealerNo, dealerName, proOpt, outputPossible, in_list…}]}
+   셀메이트 화면이 바뀌면 여기와 cs-overlay-private.js를 같이 고칠 것. */
+function smSearch(q){
+  if(typeof GM_xmlhttpRequest==='undefined')return Promise.reject(new Error('셀메이트 조회는 Tampermonkey에서만 돼요'));
+  var BASE='https://danarobe.sellmate.co.kr';
+  function req(path,body){return new Promise(function(res,rej){GM_xmlhttpRequest({method:'POST',url:BASE+path,data:body,headers:{'Content-Type':'application/x-www-form-urlencoded'},timeout:20000,
+    onload:function(r){res({url:r.finalUrl||'',text:r.responseText||''})},onerror:function(){rej(new Error('셀메이트 연결 실패'))},ontimeout:function(){rej(new Error('셀메이트 응답 없음'))}})})}
+  return (async function(){
+    var r=await req('/cs/new_cs_search.asp','mode=list&search_how=all&date_type=all&search_text='+encodeURIComponent(q));
+    if(/login/i.test(r.url)||(r.text.indexOf('lineClick')<0&&r.text.indexOf('주문이 없습니다')<0))throw new Error('셀메이트 로그인이 필요해요 (이 크롬에서 셀메이트에 로그인)');
+    var rows=[],m,re=/lineClick\(([^)]*)\)/g;while((m=re.exec(r.text))){var a2=[],x,re2=/'([^']*)'/g;while((x=re2.exec(m[1])))a2.push(x[1]);rows.push({idx:a2[0],happo:a2[1],date:a2[2]})}
+    var items=[],seen={};
+    for(var i=0;i<rows.length&&i<20;i++){var row=rows[i],key=row.happo||row.idx;if(seen[key])continue;seen[key]=1;
+      var vp=row.happo?'valuePoint=happo&selectValue='+row.happo:'valuePoint=idx&selectValue='+row.idx;
+      var d=await req('/cs/new_cs_ok.asp','mode=lineClick&'+vp+'&orderDate='+row.date+'&ord_status=all'),j;try{j=JSON.parse(d.text)}catch(e){continue}
+      (j.list||[]).forEach(function(x){var inl=[];try{inl=JSON.parse(x.in_list||'[]')}catch(e){}var st=inl[0]||{};
+        items.push({order_id:String(x.dealerNo||''),name:String(x.dealerName||x.proName||''),opt:String(x.proOpt||'').trim(),qty:Number(x.proCount)||1,possible:Number(x.outputPossible),sent:String(x.sendDate||''),cancel:Number(x.cancel)||0,
+          stock:typeof st.nowJaego==='number'?st.nowJaego:null,in_date:st.inputDate&&st.inputDate!=='1900-01-01'?String(st.inputDate):''})})}
+    return items})()}
+
+/* 네이버페이센터 고객문의 화면 구조 보고 — 나(Claude)는 이 사이트를 직접 못 열어서, 고객 글을 지운 뼈대(태그·class·버튼 글자·입력칸)를 서버에 한 번 보냄.
+   page = 처음 화면, open = 직원이 문의를 펼쳐 답변칸(textarea)이 보일 때 그 주변. 버전마다 한 번. */
+function naverDiag(C,F){
+  var KEY='cs_diag_v4';try{if(localStorage.getItem(KEY)==='done')return}catch(e){}
+  function skel(root){var out=[],n=0;
+    (function walk(el,d){if(n++>4000||d>40)return;
+      if(el.nodeType===3){var t=el.textContent.trim();if(t)out.push('  '.repeat(d)+(t.length<=14&&!/\d{3,}/.test(t)?JSON.stringify(t):'[글 '+t.length+'자]'));return}
+      if(el.nodeType!==1||/^(SCRIPT|STYLE|SVG|PATH|NOSCRIPT)$/.test(el.tagName))return;
+      var at=['id','class','name','type','role','placeholder','aria-label','title','href'].map(function(k){var v=el.getAttribute(k);if(v==null)return '';if(k==='href')v=v.replace(/[?#].*$/,'');return ' '+k+'="'+String(v).slice(0,60)+'"'}).join('');
+      out.push('  '.repeat(d)+'<'+el.tagName.toLowerCase()+at+'>');[].forEach.call(el.childNodes,function(c){walk(c,d+1)})})(root,0);return out.join('\n')}
+  function send(kind,root){return fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify({action:'diag',src:'naver',kind:kind,url:location.pathname,html:skel(root)})}).catch(function(){})}
+  send('page',document.body);
+  var sent=false,ob=new MutationObserver(function(){if(sent)return;var ta=document.querySelector('textarea');if(!ta)return;sent=true;ob.disconnect();
+    var box=ta;for(var i=0;i<8&&box.parentElement;i++)box=box.parentElement;send('open',box).then(function(){try{localStorage.setItem(KEY,'done')}catch(e){}})});
+  ob.observe(document.body,{childList:true,subtree:true});
+}
+
 /* 카카오 채팅창(팝업, /chats/<id>) 답변 후보 패널. 자동 전송 없음 — '넣기'는 입력칸에 글만 넣음.
    후보: ① 대화 속 전화번호·주문번호로 찾은 주문의 상태 답변(cs-lookup.html을 숨은 iframe으로 열어 replyFor로 만듦 — 지연이면 출고일 게시판 날짜)
          ② cs-answer-rules.js 단어 규칙으로 고른 '자주 쓰는 답변' 3개 (마지막 고객 글 + 하루 안 앞 글 참고, 지연 날짜 채움)
@@ -149,11 +191,11 @@ function panel(C,F){
     if(!after.length&&day.length)after=[day[day.length-1]];
     return {text:after.join(' / '),ctx:day.slice(0,Math.max(0,day.length-after.length)).join(' / '),all:logs.filter(cust).map(function(x){return x.message}).reverse()}}
   function findQ(all){for(var i=0;i<all.length;i++){var t=all[i],o=t.match(/\d{8}-\d{7}/);if(o)return o[0];var ph=t.match(/01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}/);if(ph)return ph[0].replace(/[\s.]/g,'-')}return ''}
-  function compose(q){return new Promise(function(res){
+  function compose(q,sm){return new Promise(function(res){
     if(!frame){frame=el('iframe','display:none');frame.src=PAGES+'/ad-dashboard/cs-lookup.html?embed=1&code='+encodeURIComponent(C);document.body.appendChild(frame);
       window.addEventListener('message',function(ev){if(ev.origin!==PAGES||!ev.data||ev.data.type!=='cs-composed'||!wait[ev.data.id])return;wait[ev.data.id](ev.data);delete wait[ev.data.id]})}
     var id=++seq;wait[id]=res;setTimeout(function(){if(wait[id]){delete wait[id];res({error:'주문조회 응답 없음'})}},25000);
-    var go=function(){frame.contentWindow.postMessage({type:'cs-compose',id:id,q:q},PAGES)};
+    var go=function(){frame.contentWindow.postMessage({type:'cs-compose',id:id,q:q,sm:sm||null},PAGES)};
     if(frame.dataset.ok)go();else frame.addEventListener('load',function(){frame.dataset.ok=1;setTimeout(go,300)},{once:true})})}
   function insert(text,key,rank){var ta=document.querySelector('#chatWrite');if(!ta)return alert('입력칸을 못 찾았어요');
     var set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(ta,ta.value?ta.value+'\n\n'+text:text);ta.dispatchEvent(new Event('input',{bubbles:true}));ta.focus();
@@ -165,10 +207,12 @@ function panel(C,F){
   async function open(auto){
     if(!auto){sheet.innerHTML='';sheet.appendChild(el('div','color:#5E6472','대화 읽는 중…'))}
     try{
-      if(!favs)favs=await loadFavs();if(!rank)rank=await loadRules();
+      if(!favs)favs=await loadFavs();if(!rank)rank=typeof csRank==='function'?csRank:await loadRules();
       var t=await talk(),q=findQ(t.all),order=null,note='';
       if(auto&&t.text+'|'+q===lastKey)return;lastKey=t.text+'|'+q;
-      if(q){var r=composed[q]||(composed[q]=await compose(q));if(r.error)delete composed[q];if(r.error)note='주문조회 실패: '+r.error;else if(!r.orders||!r.orders.length)note='"'+q+'"로 주문을 못 찾았어요';else order=r.orders[0]}
+      var sm=null,smNote='';
+      if(q){try{sm=await smSearch(q)}catch(e){smNote=e.message}
+        var r=composed[q]||(composed[q]=await compose(q,sm));if(r.error)delete composed[q];if(r.error)note='주문조회 실패: '+r.error;else if(!r.orders||!r.orders.length)note='"'+q+'"로 주문을 못 찾았어요';else order=r.orders[0]}
       else note='대화에 전화번호·주문번호가 없어 주문은 못 찾았어요';
       var delay=order&&order.items.map(function(i){return i.delay}).filter(Boolean)[0];
       var when=delay?delay.split(' · ').pop().replace(/\s*출고$/,'').trim():'';
@@ -179,7 +223,12 @@ function panel(C,F){
       if(!isSide()){var x=el('button','border:0;background:none;font-size:16px;cursor:pointer','✕');x.onclick=function(){sheet.style.display='none'};head.appendChild(x)}sheet.appendChild(head);
       sheet.appendChild(el('div','color:#9AA0AD;font-size:11px;margin-bottom:6px','넣기를 누르면 입력칸에 들어가기만 해요. 고쳐서 직접 보내세요.'));
       shown=[];
-      if(order){shown.push('order');sheet.appendChild(card('주문 상태 답변 · '+order.date+' 주문',order.reply,'order',0,order.items.map(function(i){return i.status_text}).filter(function(v,i,a){return a.indexOf(v)==i}).join(', ')))}
+      if(order){shown.push('order');sheet.appendChild(card('주문 상태 답변 · '+order.date+' 주문',order.reply,'order',0,order.items.map(function(i){return i.status_text}).filter(function(v,i,a){return a.indexOf(v)==i}).join(', ')));
+        var info=el('div','font-size:12px;color:#5E6472;margin:-2px 0 8px;padding:6px 9px;background:#fff;border-radius:8px;line-height:1.55');
+        order.items.forEach(function(i){var t=i.name+(i.opt?' ('+String(i.opt).split(',').map(function(x){return x.split('=').pop().trim()}).join(', ')+')':'')+' — '+(i.status_text||'');
+          if(i.sm)t+=' · 셀메이트 '+(i.sm.possible===1?'출고가능':i.sm.possible===0?'출고불가':'?')+(i.sm.stock!=null?' · 재고 '+i.sm.stock:'')+(i.sm.in_date?' · 입고예정 '+i.sm.in_date:'');
+          if(i.delay)t+=' · 게시판: '+i.delay.split(' · ').pop();info.appendChild(el('div','',t))});
+        if(smNote)info.appendChild(el('div','color:#C7791F',smNote));sheet.appendChild(info)}
       top.forEach(function(f,i){var txt=when?f.text.replace(/(예상 출고일은 )[^\n]*?( ?입니다)/,'$1'+when+'$2'):f.text;shown.push(f.name);sheet.appendChild(card(f.name,txt,f.name,i+1,i===0&&!order?'1순위':''))});
       if(!order&&!top.length)sheet.appendChild(el('div','color:#5E6472;margin:6px 0','맞는 자주 쓰는 답변을 못 찾았어요. 아래에서 검색하세요.'));
       if(note){var n=el('div','color:#C7791F;font-size:12px;margin:6px 0',note);sheet.appendChild(n);if(!order){var f0=favs.find(function(f){return f.name==='성함과 연락처 남겨주세요'});if(f0)sheet.appendChild(card(f0.name,f0.text,f0.name,9))}}
@@ -202,6 +251,7 @@ if(typeof GM_info!=='undefined')(function(){
     if(kakao&&/\/chats\/\d+/.test(p)){clearInterval(t);var c=code();if(c)panel(c,F);return}
     if(!(kakao?/\/channel\/_[A-Za-z0-9]+\/chats\/?$/.test(p):/조회하기/.test(document.body.innerText)))return;
     clearInterval(t);
+    if(!kakao){var cd=code();if(cd)naverDiag(cd,F)}
     if(ls(ON)==null)ls(ON,confirm('CS 상황판: 이 PC에서 상황판 숫자·처리 기록을 자동으로 모을까요?\n(수집은 한 PC만 켜면 충분해요. 상담원 PC는 "취소" — 답변 패널은 그대로 써요)')?'1':'0');
     if(ls(ON)!=='1')return;var c2=code();if(c2)tracker(c2,F);
   },3000);
