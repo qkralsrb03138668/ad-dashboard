@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      12
+// @version      13
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -39,6 +39,7 @@ function qaPairs(logs,user,chatId,since){   /* logs = 카카오 채팅 기록(�
     var bot=x.type!==1||AUTO.test(t)||(x.send_at-lastC<3000&&!hb.length);if(!bot&&cb.length)hb.push(t)});
   if(hb.length)done();return out}
 
+var CS_VER=13;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
 /* ── 네이버페이센터 고객문의 API (2026-10-01 diag로 확인) ──
    목록 GET /front-api/m/v2/inquiry/list?searchStartYmdt=…&searchEndYmdt=…(+페이지) → body.totalNewInquiry(미답변 수), body.pageResult.content[{inquiryNo, inquiryCategoryName, title, lastInquiryDate, lastInquiryCommentDate…}]
    상세 GET /front-api/m/v2/inquiry/{inquiryNo}/detail → body.comments[{inquiryCommentType, answererTypeCode, content, registrationDate}]
@@ -86,7 +87,7 @@ function tracker(C,F){
   function lease(){return post({action:'lease',src:src,id:me}).then(function(r){lead=!!r.ok;return lead},function(){lead=true;return true})}
   function idle(){tag.textContent='○ CS 상황판: 다른 탭이 수집 중 (이 탭은 대기)'}
   function send(n,e,ids){
-    var u=F+'?action=push&code='+encodeURIComponent(C)+'&src='+src+'&n='+(n==null?'':n)+'&err='+encodeURIComponent(e||'')+(ids?'&ids='+ids.join(','):'');
+    var u=F+'?action=push&code='+encodeURIComponent(C)+'&src='+src+'&n='+(n==null?'':n)+'&err='+encodeURIComponent(e||'')+(ids?'&ids='+ids.join(','):'')+'&v='+CS_VER;
     tag.textContent='● CS 상황판 전송 중 · '+new Date().toTimeString().slice(0,5)+' · '+(n==null?e:n+'건')+rec;
     fetch(u).then(function(r){if(r.status==401){timer.stop();tag.textContent='CS 상황판: 초대코드가 맞지 않아요 — 북마크를 다시 만드세요'}}).catch(function(){new Image().src=u});
   }
@@ -377,7 +378,7 @@ if(typeof GM_info!=='undefined')(function(){
     if(kakao&&/\/chats\/\d+/.test(p)){clearInterval(t);var c=code();if(c)panel(c,F);return}
     if(!(kakao?/\/channel\/_[A-Za-z0-9]+\/chats\/?$/.test(p):/조회하기/.test(document.body.innerText)))return;
     clearInterval(t);
-    if(!kakao){var cd=code();if(cd){naverDiag(cd,F);naverPanel(cd,F)}}
+    if(!kakao){var cd=code();if(cd){naverDiag(cd,F);naverPanel(cd,F);nvProbe(cd,F)}}
     if(ls(ON)==null)ls(ON,confirm('CS 상황판: 이 PC에서 상황판 숫자·처리 기록을 자동으로 모을까요?\n(수집은 한 PC만 켜면 충분해요. 상담원 PC는 "취소" — 답변 패널은 그대로 써요)')?'1':'0');
     if(ls(ON)!=='1')return;var c2=code();if(c2)tracker(c2,F);
   },3000);

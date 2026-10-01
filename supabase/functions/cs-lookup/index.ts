@@ -187,31 +187,35 @@ async function records(): Promise<unknown> {
 }
 
 // ── 상담 데이터 (cs_qa) ──
-// ponytail: 전부 메모리에 올려 매번 훑음 — 1년치 수천 건이면 충분. 수만 건이 되면 DB 쪽 검색(pg_trgm·벡터)으로.
-type QA = { id: number; src: string; asked_at: string; q: string; a: string; fav: string | null; v: Map<string, number>; n: number };
-let qaCache: { at: number; rows: QA[]; idf: Map<string, number> } | null = null;
+// 역색인(글자 2개 묶음 → 그 묶음이 든 질문 번호들)을 함수 메모리에 10분 캐시. 1년치 1~2만 건까지는 이걸로 충분.
+// ponytail: 매 10분·콜드 스타트마다 전부 다시 읽어 색인 — 수만 건이 넘으면 색인을 DB에 저장하거나 pg_trgm·벡터 검색으로.
+type QA = { src: string; asked_at: string; q: string; a: string; fav: string | null };
+let qaCache: { at: number; rows: QA[]; post: Map<string, number[]>; norm: Float64Array; idf: Map<string, number> } | null = null;
 const grams = (t: string) => { const s = String(t).replace(/\[[^\]]*\]|https?:\S+/g, " ").replace(/[^가-힣a-zA-Z0-9]+/g, ""); const m = new Map<string, number>(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); m.set(g, (m.get(g) ?? 0) + 1); } return m; };
 async function qaLoad(): Promise<NonNullable<typeof qaCache>> {
   if (qaCache && Date.now() - qaCache.at < 10 * 60_000) return qaCache;
-  const all: Row[] = [];
-  for (let off = 0; off < 50_000; off += 1000) {
-    const r = await dbRest(`cs_qa?select=id,src,asked_at,q,a,fav&order=asked_at.desc&limit=1000&offset=${off}`);
-    const part = r.ok ? await r.json() : []; all.push(...part); if (part.length < 1000) break;
+  const rows: QA[] = [];
+  for (let off = 0; off < 30_000; off += 1000) {
+    const r = await dbRest(`cs_qa?select=src,asked_at,q,a,fav&order=asked_at.desc&limit=1000&offset=${off}`);
+    const part = r.ok ? await r.json() : []; rows.push(...part); if (part.length < 1000) break;
   }
-  const df = new Map<string, number>(), rows: QA[] = all.map((x) => { const g = grams(x.q); g.forEach((_, k) => df.set(k, (df.get(k) ?? 0) + 1)); return { ...x, v: g, n: 0 } as QA; });
-  const idf = new Map<string, number>(); df.forEach((c, k) => idf.set(k, Math.log(1 + rows.length / c)));
-  rows.forEach((r) => { let s = 0; r.v.forEach((c, k) => { s += (c * (idf.get(k) ?? 0)) ** 2; }); r.n = Math.sqrt(s); });
-  qaCache = { at: Date.now(), rows, idf };
+  const post = new Map<string, number[]>();   // 묶음 → [질문번호, 횟수, 질문번호, 횟수, …]
+  rows.forEach((x, i) => grams(x.q).forEach((c, g) => { let p = post.get(g); if (!p) post.set(g, p = []); p.push(i, c); }));
+  const idf = new Map<string, number>(), norm = new Float64Array(rows.length);
+  post.forEach((p, g) => { const w = Math.log(1 + rows.length / (p.length / 2)); idf.set(g, w); for (let k = 0; k < p.length; k += 2) norm[p[k]] += (p[k + 1] * w) ** 2; });
+  for (let i = 0; i < norm.length; i++) norm[i] = Math.sqrt(norm[i]);
+  qaCache = { at: Date.now(), rows, post, norm, idf };
   return qaCache;
 }
 async function similar(text: string, n: number): Promise<unknown> {
-  const { rows, idf } = await qaLoad(), qv = grams(text);
-  let qn = 0; qv.forEach((c, k) => { qn += (c * (idf.get(k) ?? 0)) ** 2; }); qn = Math.sqrt(qn);
-  if (!qn) return { items: [] };
-  const scored = rows.map((r) => { let dot = 0; qv.forEach((c, k) => { const d = r.v.get(k); if (d) { const w = idf.get(k) ?? 0; dot += c * w * d * w; } }); return { r, s: r.n ? dot / (qn * r.n) : 0 }; })
-    .filter((x) => x.s >= 0.2).sort((a, b) => b.s - a.s);
+  const { rows, post, norm, idf } = await qaLoad(), qv = grams(text), dot = new Map<number, number>();
+  let qn = 0;
+  qv.forEach((c, g) => { const w = idf.get(g); if (!w) return; qn += (c * w) ** 2; const p = post.get(g)!; for (let k = 0; k < p.length; k += 2) dot.set(p[k], (dot.get(p[k]) ?? 0) + c * w * p[k + 1] * w); });
+  if (!qn) return { items: [], total: rows.length };
+  qn = Math.sqrt(qn);
+  const scored = [...dot].map(([i, d]) => ({ i, s: norm[i] ? d / (qn * norm[i]) : 0 })).filter((x) => x.s >= 0.2).sort((a, b) => b.s - a.s);
   const seen = new Set<string>(), items: Row[] = [];
-  for (const { r, s } of scored) { const k = r.a.slice(0, 60); if (seen.has(k)) continue; seen.add(k); items.push({ q: r.q, a: r.a, asked_at: r.asked_at, src: r.src, fav: r.fav, score: Math.round(s * 100) }); if (items.length >= n) break; }
+  for (const { i, s } of scored) { const r = rows[i], k = r.a.slice(0, 60); if (seen.has(k)) continue; seen.add(k); items.push({ q: r.q, a: r.a, asked_at: r.asked_at, src: r.src, fav: r.fav, score: Math.round(s * 100) }); if (items.length >= n) break; }
   return { items, total: rows.length };
 }
 async function qaAdd(op: Row): Promise<unknown> {
@@ -297,7 +301,7 @@ Deno.serve(async (req) => {
       if (!["kakao", "naver"].includes(src) || !/^\d{0,5}$/.test(n) || (idq !== null && !/^[\d,]{0,2000}$/.test(idq))) return j({ error: "bad params" }, 400);
       const ids = idq ? idq.split(",").filter(Boolean) : idq === "" ? [] : null;
       if (src === "naver" && ids && n !== "") await trackNaver(ids, Number(n));
-      await putAsset(`status:${src}`, { n: n === "" ? null : Number(n), err: (p.get("err") ?? "").slice(0, 120), ...(ids ? { ids } : {}) });
+      await putAsset(`status:${src}`, { n: n === "" ? null : Number(n), err: (p.get("err") ?? "").slice(0, 120), ...(ids ? { ids } : {}), v: (p.get("v") ?? "").slice(0, 6) });   // v = 수집 스크립트 버전
       return j({ ok: true });
     }
     if (u.searchParams.get("action") !== "overlay") return j({ error: "unknown action" }, 400);
