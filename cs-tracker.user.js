@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      7
+// @version      8
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -21,7 +21,7 @@
 //           + 1분마다 처리 기록: 채팅 목록 API(카카오 화면이 쓰는 것, 100개씩·since=마지막 last_log_id)에서 오늘 바뀐 채팅마다
 //             채팅 기록(GET .../chats/<id>/chatlogs, 20개씩·since=가장 오래된 id로 이전 페이지)을 자정 전까지 읽어
 //             m(어제 고객 말에 답 못 한 채 자정 넘김)·w(오늘 고객이 씀) 계산 → 서버가 '오늘 새로 시작된 상담'만 셈 (kakao-step.ts)
-//    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 "검색결과 내역 (총 N건)" 읽기 + 목록의 문의번호(9~10자리) — 사라진 번호 = 답변 처리(서버가 셈)
+//    네이버: '6개월'(끝 날짜를 오늘로) → '조회하기' 누르고 첫 페이지에서 답변일시가 '미답변'인 줄 세기(필터는 '전체' 그대로) + 그 줄들의 문의번호 — 사라진 번호 = 답변 처리(서버가 셈)
 function tracker(C,F){
   if(window.__csBoard){alert('CS 상황판: 이미 켜져 있어요. 이 탭은 그대로 열어두세요.');return}
   var h=location.hostname,src=/kakao\.com$/.test(h)?'kakao':/naver\.com$/.test(h)?'naver':'';
@@ -88,15 +88,18 @@ function tracker(C,F){
   function kakaoTick(){
     if(kc++%6==0)lease().then(function(ok){if(!ok)return idle();kakao();record().catch(function(){rec=' · 처리기록 실패(다음 분에 재시도)'})});
     else if(lead)kakao()}
+  /* 네이버 미답변 세기 (2026-10-01 사용자: 답변여부 필터는 '전체'로 둠) — 조회 결과 첫 페이지(10줄)에서 답변일시 칸이 '미답변'인 줄.
+     ponytail: 첫 페이지만 봄. 상단 '고객문의 미답변 N건'이 더 크면 경고만 — 다 세려면 네이버 목록 API(front-api/m/v2/inquiry/list) 요청 형식을 알아내 직접 부를 것 */
   function naverRead(){
     var ds=docs();
-    for(var i=0;i<ds.length;i++){var t=ds[i].body.innerText,m=t.match(/검색결과\s*내역\s*\(\s*총\s*([\d,]+)\s*건/);if(!m)continue;
-      var k=t.indexOf('답변여부');
-      if(k>=0&&t.slice(k,k+40).indexOf('미답변')<0)return send(null,'답변여부가 미답변이 아님 — 미답변으로 바꿔주세요');
-      var ids=(t.slice(m.index).match(/(^|\s)\d{9,10}(?=\s)/g)||[]).map(function(x){return x.trim()});
-      ids=ids.filter(function(x,i){return ids.indexOf(x)==i});var n=parseInt(m[1].replace(/,/g,''),10);
-      lastN=n;lastIds=ids;return send(n,ids.length==n?'':'문의번호 '+ids.length+'/'+n+'개만 읽힘 — 답변 처리 기록이 빠질 수 있음',ids)}
-    send(null,'검색결과 숫자를 못 찾음 — 고객문의관리 화면을 새로고침해 주세요');
+    for(var i=0;i<ds.length;i++){var d=ds[i];if(!/검색결과\s*내역/.test(d.body.innerText))continue;
+      var rows=[].filter.call(d.querySelectorAll('tbody tr'),function(tr){return !tr.querySelector('[colspan]')&&tr.children.length>=6});
+      var un=rows.filter(function(tr){var c=tr.children;return (c[c.length-2].innerText||'').trim()==='미답변'});
+      var ids=un.map(function(tr){return tr.children[0].innerText.trim()}).filter(function(x){return /^\d{6,}$/.test(x)});
+      var st=[].find.call(d.querySelectorAll('dd'),function(x){return /고객문의 미답변/.test(x.innerText)}),top=st?parseInt((st.querySelector('b')||{}).innerText||'',10):NaN;
+      var n=un.length,note=!isNaN(top)&&top>n?'네이버 상단 미답변 '+top+'건 — 첫 페이지 밖에 더 있을 수 있어요':'';
+      lastN=n;lastIds=ids;return send(n,note,ids)}
+    send(null,'검색결과를 못 찾음 — 고객문의관리 화면을 새로고침해 주세요');
   }
   var lastN=null,lastIds=null;
   function naver(){
