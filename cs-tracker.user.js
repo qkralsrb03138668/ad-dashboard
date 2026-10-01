@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      5
+// @version      6
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -133,21 +133,24 @@ function smSearch(q){
           stock:typeof st.nowJaego==='number'?st.nowJaego:null,in_date:st.inputDate&&st.inputDate!=='1900-01-01'?String(st.inputDate):''})})}
     return items})()}
 
-/* 네이버페이센터 고객문의 화면 구조 보고 — 나(Claude)는 이 사이트를 직접 못 열어서, 고객 글을 지운 뼈대(태그·class·버튼 글자·입력칸)를 서버에 한 번 보냄.
-   page = 처음 화면, open = 직원이 문의를 펼쳐 답변칸(textarea)이 보일 때 그 주변. 버전마다 한 번. */
+/* 네이버페이센터 고객문의 화면 구조 보고 — 나(Claude)는 이 사이트를 직접 못 열어서, 고객 글을 지운 뼈대(태그·class·버튼 글자·입력칸)를 서버 diag로 보냄.
+   page = 처음 화면 · api = 화면이 불러온 데이터 주소(경로·파라미터 이름만, 값 없음) · open = 문의를 펼친 칸 · form = 펼친 칸에 답변 입력칸(textarea)이 있을 때.
+   종류별로 한 번씩 (localStorage). 2026-10-01: 첫 보고 때 미답변이 0건이라 답변칸을 못 봄 → 펼친 칸은 답변 끝난 문의라도 보내게. */
 function naverDiag(C,F){
-  var KEY='cs_diag_v4';try{if(localStorage.getItem(KEY)==='done')return}catch(e){}
+  var V='cs_diag6_';function done(k){try{return localStorage.getItem(V+k)==='1'}catch(e){return false}}function mark(k){try{localStorage.setItem(V+k,'1')}catch(e){}}
   function skel(root){var out=[],n=0;
     (function walk(el,d){if(n++>4000||d>40)return;
       if(el.nodeType===3){var t=el.textContent.trim();if(t)out.push('  '.repeat(d)+(t.length<=14&&!/\d{3,}/.test(t)?JSON.stringify(t):'[글 '+t.length+'자]'));return}
       if(el.nodeType!==1||/^(SCRIPT|STYLE|SVG|PATH|NOSCRIPT)$/.test(el.tagName))return;
-      var at=['id','class','name','type','role','placeholder','aria-label','title','href'].map(function(k){var v=el.getAttribute(k);if(v==null)return '';if(k==='href')v=v.replace(/[?#].*$/,'');return ' '+k+'="'+String(v).slice(0,60)+'"'}).join('');
+      var at=['id','class','name','type','role','placeholder','aria-label','title','href','colspan','maxlength'].map(function(k){var v=el.getAttribute(k);if(v==null)return '';if(k==='href')v=v.replace(/[?#].*$/,'');return ' '+k+'="'+String(v).slice(0,60)+'"'}).join('');
       out.push('  '.repeat(d)+'<'+el.tagName.toLowerCase()+at+'>');[].forEach.call(el.childNodes,function(c){walk(c,d+1)})})(root,0);return out.join('\n')}
-  function send(kind,root){return fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify({action:'diag',src:'naver',kind:kind,url:location.pathname,html:skel(root)})}).catch(function(){})}
-  send('page',document.body);
-  var sent=false,ob=new MutationObserver(function(){if(sent)return;var ta=document.querySelector('textarea');if(!ta)return;sent=true;ob.disconnect();
-    var box=ta;for(var i=0;i<8&&box.parentElement;i++)box=box.parentElement;send('open',box).then(function(){try{localStorage.setItem(KEY,'done')}catch(e){}})});
-  ob.observe(document.body,{childList:true,subtree:true});
+  function send(kind,html){if(done(kind))return;mark(kind);fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify({action:'diag',src:'naver',kind:kind,url:location.pathname,html:html})}).catch(function(){})}
+  function apis(){var seen={};return performance.getEntriesByType('resource').filter(function(e){return /xmlhttprequest|fetch/.test(e.initiatorType)}).map(function(e){try{var u=new URL(e.name);return e.initiatorType+' '+u.host+u.pathname.replace(/\d{6,}/g,'N')+(u.search?' ?'+[].concat(Array.from(u.searchParams.keys())).join(','):'')}catch(x){return ''}}).filter(function(x){if(!x||seen[x])return false;return seen[x]=1}).join('\n')}
+  send('page',skel(document.body));setTimeout(function(){send('api',apis())},4000);
+  var body=document.querySelector('tbody')||document.body;
+  new MutationObserver(function(ms){ms.forEach(function(m){[].forEach.call(m.addedNodes,function(nd){if(nd.nodeType!==1)return;
+    var row=nd.closest?nd.closest('tr')||nd:nd;if(row.querySelector&&row.querySelector('textarea'))send('form',skel(row));else if(row.tagName==='TR'&&row.querySelector('[colspan]'))send('open',skel(row));
+    if(!done('api2'))setTimeout(function(){send('api2',apis())},1500)})})}).observe(body,{childList:true,subtree:true});
 }
 
 /* 카카오 채팅창(팝업, /chats/<id>) 답변 후보 패널. 자동 전송 없음 — '넣기'는 입력칸에 글만 넣음.
