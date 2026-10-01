@@ -12,6 +12,7 @@
 //   lease { src, id }    → { ok } 탭·PC가 여러 개여도 수집은 한 곳만 (마지막 갱신 2분 반 안이면 다른 id는 거절)
 //   pick { chat, pick, rank, top } → 카카오 답변 패널에서 직원이 고른 후보 기록 ('picks:<날짜>' 배열, 하루 2000개까지) — 적중률 보려고
 //   diag { src, kind, html } → 화면 구조 보고(고객 글은 지운 뼈대) 'diag:<src>:<kind>'에 저장 — 내가 직접 못 여는 화면(네이버페이센터) 파악용
+//   favs / favs-save { favs:[{name,text}] } → 카카오 '자주 쓰는 답변' 사본 (카카오 패널이 저장, 네이버 패널이 읽음 — 네이버 화면에선 카카오 목록을 직접 못 읽어서)
 //   records              → { days:[{day, kakao:{담당자:건수}, naver:건수}] }  CS 처리 기록(cs-record.html)용
 //   GET ?action=overlay&code=<초대코드> → 셀메이트 위 조회창 스크립트(cs_assets.overlay, 공개 저장소 밖) — 상담원 북마크가 <script src>로 받아감
 //   GET ?action=push&code=&src=kakao|naver&n=&err=[&ids=네이버 미답변 문의번호들] → 상황판 북마크가 카카오 10초·네이버 1분마다 보내는 미답변 수 (cs_assets 'status:<src>'에 저장)
@@ -70,6 +71,10 @@ async function search(raw: string): Promise<unknown> {
     const same = (v: unknown) => String(v ?? "").replace(/\D/g, "") === d;
     const hit = (o: Row) => same(o.buyer?.cellphone) || same(o.buyer?.phone) || ((o.receivers ?? []) as Row[]).some((r) => same(r.cellphone) || same(r.phone));
     rows = (await orders(`${range}&buyer_cellphone=${p}`, token)).filter(hit);
+  } else if (/^\d{16}$/.test(q)) {                              // 네이버페이 주문번호 (네이버 고객문의 패널) — 카페24 market_order_no
+    kind = "naver";
+    rows = await orders(`${range}&market_order_no=${q}`, token);
+    if (rows.length > 3) rows = [];   // 필터가 무시되면 최신 주문들이 통째로 옴 → 다른 고객 주문을 보여주지 않게 버림
   } else {                                                      // 이름
     kind = "name";
     if (q.length > 20) throw new Error("검색어가 너무 깁니다");
@@ -218,6 +223,13 @@ async function run(op: Row): Promise<unknown> {
     case "diag": {
       if (!["naver", "kakao"].includes(op.src) || !/^[a-z0-9-]{1,20}$/.test(String(op.kind)) || typeof op.html !== "string") throw new Error("bad diag");
       await putAsset(`diag:${op.src}:${op.kind}`, { at: new Date().toISOString(), url: String(op.url ?? "").slice(0, 200), html: op.html.slice(0, 120_000) });
+      return { ok: true };
+    }
+    case "favs": return { favs: (await getAsset("favs")) ?? [] };
+    case "favs-save": {
+      const f = op.favs;
+      if (!Array.isArray(f) || !f.length || f.length > 100 || !f.every((x: Row) => x && typeof x.name === "string" && x.name.length <= 80 && typeof x.text === "string" && x.text.length <= 4000)) throw new Error("bad favs");
+      await putAsset("favs", f.map((x: Row) => ({ name: x.name, text: x.text })));
       return { ok: true };
     }
     case "record": return await recordKakao(op);
