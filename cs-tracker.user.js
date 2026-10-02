@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      16
+// @version      17
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
 // @grant        GM_xmlhttpRequest
 // @connect      danarobe.sellmate.co.kr
+// @connect      127.0.0.1
 // @require      https://qkralsrb03138668.github.io/ad-dashboard/cs-answer-rules.js
 // @require      https://qkralsrb03138668.github.io/ad-dashboard/cs-reply.js
 // @run-at       document-idle
@@ -39,7 +40,7 @@ function qaPairs(logs,user,chatId,since){   /* logs = 카카오 채팅 기록(�
     var bot=x.type!==1||AUTO.test(t)||(x.send_at-lastC<3000&&!hb.length);if(!bot&&cb.length)hb.push(t)});
   if(hb.length)done();return out}
 
-var CS_VER=16;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
+var CS_VER=17;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
 /* ── 네이버페이센터 고객문의 API (2026-10-01 diag로 확인) ──
    목록 GET /front-api/m/v2/inquiry/list?searchStartYmdt=…&searchEndYmdt=…(+페이지) → body.totalNewInquiry(미답변 수), body.pageResult.content[{inquiryNo, inquiryCategoryName, title, lastInquiryDate, lastInquiryCommentDate…}]
    상세 GET /front-api/m/v2/inquiry/{inquiryNo}/detail → body.comments[{inquiryCommentType, answererTypeCode, content, registrationDate}]
@@ -265,11 +266,22 @@ function ansCard(title,text,onInsert,tag){var c=el('div','border:1px solid #DFE2
   var b=el('button','border:0;background:#2C49D6;color:#fff;border-radius:8px;padding:4px 10px;font:600 12px sans-serif;cursor:pointer','넣기');b.type='button';b.onclick=function(){onInsert(text)};h.appendChild(b);c.appendChild(h);
   var pv=el('div','color:#5E6472;font-size:12px;white-space:pre-wrap;max-height:3.1em;overflow:hidden;margin-top:3px');c.appendChild(pv);
   c.setText=function(t){text=t;pv.textContent=t.replace(/^안녕하세요[^\n]*\n+/,'')};c.setText(text);return c}
+/* 이 맥의 AI(cs-ai-local/server.mjs, Claude 구독 Haiku)가 켜져 있으면 문의 유형을 물어서 그 유형 답변을 맨 위로 — 2026-10-02 사장님 혼자 실사용 테스트.
+   먼저 단어 규칙으로 그리고, AI 답(약 10초)이 오면 다시 그림. AI가 꺼져 있거나 Tampermonkey 밖(북마크)이면 그냥 단어 규칙. 마음에 들면 API 키로 서버에서 하게 바꿀 것. */
+var aiCache={};
+function aiType(text,ctx){var k=ctx+'\n'+text;if(aiCache[k])return aiCache[k];
+  return aiCache[k]=new Promise(function(res){if(typeof GM_xmlhttpRequest==='undefined')return res(null);
+    GM_xmlhttpRequest({method:'POST',url:'http://127.0.0.1:8787/classify',headers:{'Content-Type':'application/json','x-cs-code':'4471'},data:JSON.stringify({text:text,ctx:ctx}),timeout:60000,
+      onload:function(r){try{var j=JSON.parse(r.responseText);res(j&&j.t?j:null)}catch(e){res(null)}},onerror:function(){res(null)},ontimeout:function(){res(null)}})}).then(function(r){if(!r)delete aiCache[k];return r})}
+function renderWithAi(box,o){var st=el('div','font:11.5px sans-serif;color:#7A4BD6;margin:0 0 4px','🤖 AI가 문의 읽는 중…'),area=el('div');box.appendChild(st);box.appendChild(area);renderAnswers(area,o);
+  aiType(o.text,o.ctx).then(function(ai){if(area.parentNode!==box)return;if(!ai){st.textContent='AI 꺼짐 — 단어 규칙으로 추천 중 (바탕화면 CS-AI-켜기를 실행하면 켜져요)';st.style.color='#9AA0AD';return}
+    st.textContent='🤖 AI 판단: '+ai.t+(ai.t2?' (다음 후보: '+ai.t2+')':'');area.innerHTML='';renderAnswers(area,Object.assign({},o,{ai:ai}))})}
 /* 후보 목록을 box에 그림: ① 주문 상태 답변(품목 체크) ② 자주 쓰는 답변 3개 ③ 검색 */
 function renderAnswers(box,o){   /* o = {lk, text, ctx, favs, similar:[{q,a,asked_at,score}], insert(text,key,rank,shown)} */
   var SKIP=['성함과 연락처 남겨주세요','확인 후 안내'],lk=o.lk||{},order=lk.order,shown=[],ins=function(key,rank){return function(t){o.insert(t,key,rank,shown)}};
   /* 배송 문의일 때만 주문 상태 답변을 맨 위에 (2026-10-01: 색상 변경 문의에 배송 답변이 1번으로 나와 헷갈림) */
   var ranked=typeof csRank==='function'?csRank(o.text,o.ctx):[],shipQ=/언제|배송|출고|발송|도착|받을 ?수|출발/.test(o.text)&&!(ranked[0]&&/교환|반품|철회|사이즈|불량|취소/.test(ranked[0].name));
+  var aiT=o.ai?[o.ai.t,o.ai.t2].filter(Boolean):[];if(o.ai&&o.ai.t)shipQ=['배송 일정 문의','출고 지연 문의','당일발송 문의','합배송·부분배송·선출고'].indexOf(o.ai.t)>=0;
   var tail=el('div');
   function similarBlock(){var sm=(o.similar||[]).filter(function(x){return x.score>=20}).slice(0,3);if(!sm.length)return;
     box.appendChild(el('div','font:600 12px sans-serif;color:#5E6472;margin:10px 0 2px','비슷한 과거 상담 (직원이 실제로 보낸 답변 — 날짜·상품명은 꼭 고쳐서)'));
@@ -290,10 +302,10 @@ function renderAnswers(box,o){   /* o = {lk, text, ctx, favs, similar:[{q,a,aske
   if(realBox)box=realBox;
   if(!shipQ)similarBlock();
   var delay=order&&CSR.summary(order,lk.delays,lk.sm).items.map(function(i){return i.delay}).filter(Boolean)[0],when=delay?delay.split(' · ').pop().replace(/\s*출고$/,'').trim():'';
-  var favs=o.favs||[],names=ranked.map(function(x){return x.name}).filter(function(n){return SKIP.indexOf(n)<0});
+  var favs=o.favs||[],names=aiT.concat(ranked.map(function(x){return x.name}).filter(function(n){return SKIP.indexOf(n)<0&&aiT.indexOf(n)<0}));
   /* 자주 쓰는 답변(카카오 등록) + 상담데이터 답변(lib — 6개월 상담에서 유형별로 만든 것, [ ] 칸은 직원이 채움) 합쳐 점수순 4개 */
   names.map(function(n){return favs.find(function(f){return f.name===n})}).filter(Boolean).slice(0,4).forEach(function(f,i){
-    var txt=when?f.text.replace(/(예상 출고일은 )[^\n]*?( ?입니다)/,'$1'+when+'$2').replace(/\[(출고 예정일|날짜)\]/g,when):f.text;shown.push(f.name);box.appendChild(ansCard(f.name,txt,ins(f.name,i+1),(f.lib?'상담데이터':'')+(i===0&&!order?(f.lib?' · ':'')+'1순위':'')))});
+    var txt=when?f.text.replace(/(예상 출고일은 )[^\n]*?( ?입니다)/,'$1'+when+'$2').replace(/\[(출고 예정일|날짜)\]/g,when):f.text;shown.push(f.name);box.appendChild(ansCard(f.name,txt,ins(f.name,i+1),[aiT.indexOf(f.name)>=0?'AI 판단':'',f.lib?'상담데이터':'',i===0&&!order?'1순위':''].filter(Boolean).join(' · ')))});
   if(!order&&shown.length===0)box.appendChild(el('div','color:#5E6472;margin:6px 0;font:12px sans-serif',favs.length?'맞는 자주 쓰는 답변을 못 찾았어요. 아래에서 검색하세요.':'자주 쓰는 답변 목록이 아직 없어요 (카카오 채팅창을 한 번 열면 생겨요)'));
   if(!order&&lk.note){box.appendChild(el('div','color:#C7791F;font:12px sans-serif;margin:6px 0',lk.note));var f0=favs.find(function(f){return f.name==='성함과 연락처 남겨주세요'});if(f0)box.appendChild(ansCard(f0.name,f0.text,ins(f0.name,9)))}
   if(shipQ)similarBlock();
@@ -349,7 +361,7 @@ function panel(C,F){
       if(!isSide()){var x=el('button','border:0;background:none;font-size:16px;cursor:pointer','✕');x.onclick=function(){sheet.style.display='none'};head.appendChild(x)}
       sheet.appendChild(head);sheet.appendChild(el('div','color:#9AA0AD;font-size:11px;margin-bottom:6px','넣기를 누르면 입력칸에 들어가기만 해요. 고쳐서 직접 보내세요.'));
       var simq=t.text.replace(/\s/g,'').length<12?(t.ctx+' '+t.text):t.text,sim=await csPost(C,F,{action:'similar',text:simq,n:3});
-      renderAnswers(sheet,{lk:lk,text:t.text,ctx:t.ctx,favs:favs,similar:(sim&&sim.items)||[],insert:insert});
+      renderWithAi(sheet,{lk:lk,text:t.text,ctx:t.ctx,favs:favs,similar:(sim&&sim.items)||[],insert:insert});
     }catch(e){sheet.innerHTML='';sheet.appendChild(el('div','color:#CC3F38','추천을 못 만들었어요: '+e.message))}
   }
 }
@@ -371,7 +383,7 @@ function naverPanel(C,F){
       box.innerHTML='';var h=el('div','display:flex;align-items:center;margin-bottom:2px');h.appendChild(el('b','flex:1;font-size:14px','💬 추천 답변'));box.appendChild(h);
       box.appendChild(el('div','color:#9AA0AD;font-size:11px;margin-bottom:4px','넣기를 누르면 아래 답변칸에 들어가기만 해요. 고친 뒤 [답변 등록하기]는 직접 누르세요.'));
       var sim=await csPost(C,F,{action:'similar',text:text||head,n:3});
-      renderAnswers(box,{lk:lk,text:head+' '+text,ctx:'',favs:fv,similar:(sim&&sim.items)||[],insert:function(t,key,rank,shown){setInput(ta,t);if(ta.value.length>1000)alert('네이버 답변은 1000자까지예요 — 지금 '+ta.value.length+'자');
+      renderWithAi(box,{lk:lk,text:head+' '+text,ctx:'',favs:fv,similar:(sim&&sim.items)||[],insert:function(t,key,rank,shown){setInput(ta,t);if(ta.value.length>1000)alert('네이버 답변은 1000자까지예요 — 지금 '+ta.value.length+'자');
         csPost(C,F,{action:'pick',chat:'naver-'+(m?m[1]:''),pick:key,rank:rank,top:shown.slice(0,5)})}});
     }catch(e){box.innerHTML='';box.appendChild(el('div','color:#CC3F38','추천을 못 만들었어요: '+e.message))}})()}
   var scan=function(){document.querySelectorAll('textarea[id^="answer-box-"]').forEach(attach)};scan();
