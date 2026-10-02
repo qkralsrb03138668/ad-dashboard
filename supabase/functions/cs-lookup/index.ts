@@ -13,6 +13,7 @@
 //   pick { chat, pick, rank, top } → 카카오 답변 패널에서 직원이 고른 후보 기록 ('picks:<날짜>' 배열, 하루 2000개까지) — 적중률 보려고
 //   diag { src, kind, html } → 화면 구조 보고(고객 글은 지운 뼈대) 'diag:<src>:<kind>'에 저장 — 내가 직접 못 여는 화면(네이버페이센터) 파악용
 //   favs / favs-save { favs:[{name,text}] } → 카카오 '자주 쓰는 답변' 사본 (카카오 패널이 저장, 네이버 패널이 읽음 — 네이버 화면에선 카카오 목록을 직접 못 읽어서)
+//     favs 응답의 lib = '상담데이터 답변'(유형별 23개, cs_assets 'lib' — 6개월 상담에서 만든 것, 관리자가 SQL로 넣음). 유형 고르기 규칙은 cs-answer-rules.js L
 //   qa-add { rows:[{src, ref, asked_at(ms), q, a, fav}] } → 상담 데이터(cs_qa)에 추가 (같은 src·ref·asked_at은 건너뜀) + 1년 지난 줄 삭제
 //   similar { text, n } → 비슷한 과거 질문 n개 [{q, a, asked_at, src, score}] — 글자 2개씩 묶음(bigram) TF-IDF 코사인, 목록은 함수 메모리에 10분 캐시
 //   records              → { days:[{day, kakao:{담당자:건수}, naver:건수}] }  CS 처리 기록(cs-record.html)용
@@ -189,14 +190,14 @@ async function records(): Promise<unknown> {
 // ── 상담 데이터 (cs_qa) ──
 // 역색인(글자 2개 묶음 → 그 묶음이 든 질문 번호들)을 함수 메모리에 10분 캐시. 1년치 1~2만 건까지는 이걸로 충분.
 // ponytail: 매 10분·콜드 스타트마다 전부 다시 읽어 색인 — 수만 건이 넘으면 색인을 DB에 저장하거나 pg_trgm·벡터 검색으로.
-type QA = { src: string; asked_at: string; q: string; a: string; fav: string | null };
+type QA = { src: string; ref: string; asked_at: string; q: string; a: string; fav: string | null };
 let qaCache: { at: number; rows: QA[]; post: Map<string, number[]>; norm: Float64Array; idf: Map<string, number> } | null = null;
 const grams = (t: string) => { const s = String(t).replace(/\[[^\]]*\]|https?:\S+/g, " ").replace(/[^가-힣a-zA-Z0-9]+/g, ""); const m = new Map<string, number>(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); m.set(g, (m.get(g) ?? 0) + 1); } return m; };
 async function qaLoad(): Promise<NonNullable<typeof qaCache>> {
   if (qaCache && Date.now() - qaCache.at < 10 * 60_000) return qaCache;
   const rows: QA[] = [];
   for (let off = 0; off < 30_000; off += 1000) {
-    const r = await dbRest(`cs_qa?select=src,asked_at,q,a,fav&order=asked_at.desc&limit=1000&offset=${off}`);
+    const r = await dbRest(`cs_qa?select=src,ref,asked_at,q,a,fav&order=asked_at.desc&limit=1000&offset=${off}`);
     const part = r.ok ? await r.json() : []; rows.push(...part); if (part.length < 1000) break;
   }
   const post = new Map<string, number[]>();   // 묶음 → [질문번호, 횟수, 질문번호, 횟수, …]
@@ -207,7 +208,7 @@ async function qaLoad(): Promise<NonNullable<typeof qaCache>> {
   qaCache = { at: Date.now(), rows, post, norm, idf };
   return qaCache;
 }
-async function similar(text: string, n: number): Promise<unknown> {
+async function similar(text: string, n: number, excludeRef = ''): Promise<unknown> {   // excludeRef: 그 채팅방·문의는 빼고 (적중률 시험용)
   const { rows, post, norm, idf } = await qaLoad(), qv = grams(text), dot = new Map<number, number>();
   let qn = 0;
   qv.forEach((c, g) => { const w = idf.get(g); if (!w) return; qn += (c * w) ** 2; const p = post.get(g)!; for (let k = 0; k < p.length; k += 2) dot.set(p[k], (dot.get(p[k]) ?? 0) + c * w * p[k + 1] * w); });
@@ -215,7 +216,7 @@ async function similar(text: string, n: number): Promise<unknown> {
   qn = Math.sqrt(qn);
   const scored = [...dot].map(([i, d]) => ({ i, s: norm[i] ? d / (qn * norm[i]) : 0 })).filter((x) => x.s >= 0.2).sort((a, b) => b.s - a.s);
   const seen = new Set<string>(), items: Row[] = [];
-  for (const { i, s } of scored) { const r = rows[i], k = r.a.slice(0, 60); if (seen.has(k)) continue; seen.add(k); items.push({ q: r.q, a: r.a, asked_at: r.asked_at, src: r.src, fav: r.fav, score: Math.round(s * 100) }); if (items.length >= n) break; }
+  for (const { i, s } of scored) { const r = rows[i], k = r.a.slice(0, 60); if (seen.has(k) || (excludeRef && r.ref === excludeRef)) continue; seen.add(k); items.push({ q: r.q, a: r.a, asked_at: r.asked_at, src: r.src, fav: r.fav, score: Math.round(s * 100) }); if (items.length >= n) break; }
   return { items, total: rows.length };
 }
 async function qaAdd(op: Row): Promise<unknown> {
@@ -272,7 +273,7 @@ async function run(op: Row): Promise<unknown> {
       await putAsset(`diag:${op.src}:${op.kind}`, { at: new Date().toISOString(), url: String(op.url ?? "").slice(0, 200), html: op.html.slice(0, 120_000) });
       return { ok: true };
     }
-    case "favs": return { favs: (await getAsset("favs")) ?? [] };
+    case "favs": return { favs: (await getAsset("favs")) ?? [], lib: (await getAsset("lib")) ?? [] };
     case "favs-save": {
       const f = op.favs;
       if (!Array.isArray(f) || !f.length || f.length > 100 || !f.every((x: Row) => x && typeof x.name === "string" && x.name.length <= 80 && typeof x.text === "string" && x.text.length <= 4000)) throw new Error("bad favs");
@@ -280,7 +281,7 @@ async function run(op: Row): Promise<unknown> {
       return { ok: true };
     }
     case "qa-add": return await qaAdd(op);
-    case "similar": return await similar(String(op.text ?? "").slice(0, 2000), Math.min(5, Number(op.n) || 3));
+    case "similar": return await similar(String(op.text ?? "").slice(0, 2000), Math.min(10, Number(op.n) || 3), String(op.exclude_ref ?? ""));
     case "record": return await recordKakao(op);
     case "seed": return await seedKakao(op);
     case "records": return await records();
