@@ -72,10 +72,14 @@ async function sbCall(fn, params, payload) {
     if (ds) {
       let dead = false;
       try { await dnrbApi({ action: 'verify', token: ds.token }); } catch (e) { dead = e.status === 401 || e.status === 403; }
-      if (dead) localStorage.removeItem(DNRB_KEY);
+      if (dead) { localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); }   // 만료 확정 → 바로 로그인 화면 + 다시 들어오는 길 안내 (2026-10-06)
       throw new Error(dead ? DNRB_RELOGIN : '로그인 확인이 잠시 안 됐어요 — 잠시 후 다시 시도하세요');
     }
-    if (localStorage.getItem(DNRB_KEY)) throw new Error(DNRB_RELOGIN);   // 저장본은 있는데 기한(7일)이 지남
+    if (localStorage.getItem(DNRB_KEY)) { localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); throw new Error(DNRB_RELOGIN); }   // 저장본은 있는데 기한(7일)이 지남
+    if (AUTH.session) {   // 직접 로그인 세션이 만료(갱신 실패) — 화면은 로그인돼 보이는데 서버가 거부. 로그아웃 처리 후 로그인 화면으로
+      const m = '로그인이 만료됐어요 — 다시 로그인하세요';
+      AUTH.session = null; AUTH.sb.auth.signOut().catch(() => {}); authGate(m); throw new Error(m);
+    }
   }
   if (!body) body = {};   // HTML·빈 응답: 상태 코드로 문장을 만든다 (성공(2xx)인데 JSON이 아니면 그것도 오류)
   const msg = body.error ? (body.message || body.error)              // 우리 서버 함수가 준 오류 (한국어)
