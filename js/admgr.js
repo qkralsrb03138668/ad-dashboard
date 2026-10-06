@@ -68,7 +68,7 @@ async function sbCall(fn, params, payload) {
      · 우리 서버가 401을 줘도 바로 세션을 지우지 않는다 — 워크스페이스에 직접 다시 물어 진짜 거절(401 만료·403 권한 해제)일 때만 지운다. 인증 서버가 잠깐 느려도 로그아웃되지 않게.
      · 7일 토큰이 화면을 켜둔 채 만료되면 ds가 null이라 토큰 없이 나가 401 → "새로고침 후 로그인"이라고 하면 워크스페이스 계정은 자체 로그인 화면에서 막힌다. 다시 들어오는 길을 알려준다.
      ⚠ 403은 세션과 무관 — 2026-09-22 실사고: 서버에 '메뉴 권한 없으면 403'을 넣었더니 마케터의 소재 미리보기(adstats) 403에 세션이 통째로 지워져 그 뒤 화면이 전부 안 보였다. 403 = 그 동작만 권한 없음 */
-  if (res.status === 401 && typeof dnrbSession === 'function') {
+  if (res.status === 401 && fn !== 'auth-admin' && typeof dnrbSession === 'function') {   // auth-admin(로그인 화면의 status 호출)은 제외 — 로그인 화면이 다시 로그인 화면을 부르는 되돌이 방지
     if (ds) {
       let dead = false;
       try { await dnrbApi({ action: 'verify', token: ds.token }); } catch (e) { dead = e.status === 401 || e.status === 403; }
@@ -78,7 +78,7 @@ async function sbCall(fn, params, payload) {
     if (localStorage.getItem(DNRB_KEY)) { localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); throw new Error(DNRB_RELOGIN); }   // 저장본은 있는데 기한(7일)이 지남
     if (AUTH.session) {   // 직접 로그인 세션이 만료(갱신 실패) — 화면은 로그인돼 보이는데 서버가 거부. 로그아웃 처리 후 로그인 화면으로
       const m = '로그인이 만료됐어요 — 다시 로그인하세요';
-      AUTH.session = null; AUTH.sb.auth.signOut().catch(() => {}); authGate(m); throw new Error(m);
+      AUTH.session = null; if (AUTH.sb) AUTH.sb.auth.signOut().catch(() => {}); authGate(m); throw new Error(m);
     }
   }
   if (!body) body = {};   // HTML·빈 응답: 상태 코드로 문장을 만든다 (성공(2xx)인데 JSON이 아니면 그것도 오류)

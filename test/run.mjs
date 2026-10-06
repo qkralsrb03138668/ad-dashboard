@@ -85,6 +85,13 @@ console.log('서버 호출 (sbCall) — 오류가 항상 사람이 읽는 문장
     await rejects(() => sbCall('meta-ads', {}), /워크스페이스에서 광고 대시보드 메뉴/);                                     // 화면 켜둔 채 7일 만료
     localStorage.removeItem('dnrb_sso');
     n++; console.log('  ✓ sbCall(SSO): 403은 세션 유지 · 401은 워크스페이스에 다시 확인 후에만 폐기 · 만료 안내');
+    // 직접 로그인 세션 만료(2026-10-06): 세션 비우고 로그인 화면 — 로그인 화면의 status(auth-admin) 호출은 다시 로그인 화면을 부르지 않는다
+    const AUTH = g('AUTH'); let signedOut = 0; AUTH.sb = { auth: { signOut: async () => { signedOut++; } } }; AUTH.session = { access_token: 'old' };
+    two([401, '{"error":"로그인이 필요합니다"}'], [200, '{}']);
+    await rejects(() => sbCall('meta-ads', {}), /로그인이 만료됐어요/); assert.equal(AUTH.session, null); assert.equal(signedOut, 1);
+    await rejects(() => sbCall('auth-admin', { action: 'status' }), /로그인이 필요해요/); assert.equal(signedOut, 1);   // 되돌이 없음
+    AUTH.sb = null;
+    n++; console.log('  ✓ sbCall(직접 로그인 만료): 세션 비움·로그아웃 1회·auth-admin은 제외');
   })();
   ctx.fetch = async () => { throw new Error('테스트에선 네트워크 없음'); };
 }
