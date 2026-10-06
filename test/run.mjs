@@ -86,10 +86,16 @@ console.log('서버 호출 (sbCall) — 오류가 항상 사람이 읽는 문장
     localStorage.removeItem('dnrb_sso');
     n++; console.log('  ✓ sbCall(SSO): 403은 세션 유지 · 401은 워크스페이스에 다시 확인 후에만 폐기 · 만료 안내');
     // 직접 로그인 세션 만료(2026-10-06): 세션 비우고 로그인 화면 — 로그인 화면의 status(auth-admin) 호출은 다시 로그인 화면을 부르지 않는다
-    const AUTH = g('AUTH'); let signedOut = 0; AUTH.sb = { auth: { signOut: async () => { signedOut++; } } }; AUTH.session = { access_token: 'old' };
+    const AUTH = g('AUTH'); let signedOut = 0, scope = null, refreshOk = false;
+    AUTH.sb = { auth: { signOut: async (o) => { signedOut++; scope = o && o.scope; }, refreshSession: async () => ({ data: { session: refreshOk ? { access_token: 'new' } : null } }) } };
+    AUTH.session = { access_token: 'old' };
     two([401, '{"error":"로그인이 필요합니다"}'], [401, '{"error":"로그인이 필요합니다"}']);   // (two의 URL 분기가 auth-admin도 '워크스페이스'로 잡으므로 같은 401로)
-    await rejects(() => sbCall('meta-ads', {}), /로그인이 만료됐어요/); assert.equal(AUTH.session, null); assert.equal(signedOut, 1);
-    await rejects(() => sbCall('auth-admin', { action: 'status' }), /로그인이 필요합니다/); assert.equal(signedOut, 1);   // 되돌이 없음(세션 처리 안 함, 문장만)
+    await rejects(() => sbCall('meta-ads', {}), /로그인이 만료됐어요/); assert.equal(AUTH.session, null); assert.equal(signedOut, 1); assert.equal(scope, 'local');   // 갱신 실패 → 이 기기만 로그아웃
+    refreshOk = true; AUTH.session = { access_token: 'old' }; let calls = 0;
+    ctx.fetch = async (url, init) => { calls++; const ok = init.headers.Authorization === 'Bearer new'; return { ok, status: ok ? 200 : 401, text: async () => ok ? '{"fine":1}' : '{"error":"로그인이 필요합니다"}', json: async () => ({}) }; };
+    assert.equal((await sbCall('meta-ads', {})).fine, 1); assert.equal(calls, 2); assert.equal(signedOut, 1);   // 갱신 성공 → 새 토큰으로 1회 재시도, 로그아웃 없음
+    two([401, '{"error":"로그인이 필요합니다"}'], [401, '{"error":"로그인이 필요합니다"}']); AUTH.session = { access_token: 'old' }; refreshOk = false;
+    await rejects(() => sbCall('auth-admin', { action: 'status' }), /로그인이 필요합니다/); assert.equal(signedOut, 1); AUTH.session = null;   // 되돌이 없음(세션 처리 안 함, 문장만)
     AUTH.sb = null;
     n++; console.log('  ✓ sbCall(직접 로그인 만료): 세션 비움·로그아웃 1회·auth-admin은 제외');
   })();

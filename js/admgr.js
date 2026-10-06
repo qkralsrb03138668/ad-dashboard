@@ -47,7 +47,7 @@ function metaHeaders(cfg) {
 }
 /* 서버 함수 공통 호출 (2026-09-08 1단계) — 모든 API 오류가 사람이 읽는 한 문장으로 나오는 유일한 자리.
    payload 없음 = GET, FormData = 그대로 POST, 그 외 = JSON POST. 게이트웨이 HTML 응답·네트워크 끊김도 여기서 문장으로 바꾼다. */
-async function sbCall(fn, params, payload) {
+async function sbCall(fn, params, payload, _retried) {
   const cfg = admgrCfg();
   if (!cfg) throw new Error('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)');
   const url = cfg.SUPABASE_URL + '/functions/v1/' + fn + '?' + new URLSearchParams(params);
@@ -76,9 +76,16 @@ async function sbCall(fn, params, payload) {
       throw new Error(dead ? DNRB_RELOGIN : '로그인 확인이 잠시 안 됐어요 — 잠시 후 다시 시도하세요');
     }
     if (localStorage.getItem(DNRB_KEY)) { localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); throw new Error(DNRB_RELOGIN); }   // 저장본은 있는데 기한(7일)이 지남
-    if (AUTH.session) {   // 직접 로그인 세션이 만료(갱신 실패) — 화면은 로그인돼 보이는데 서버가 거부. 로그아웃 처리 후 로그인 화면으로
+    if (AUTH.session) {
+      /* 직접 로그인 토큰이 서버에서 거부됨. 폰 탭이 뒤에 오래 있으면 자동 갱신 타이머가 멈춰 1시간짜리 토큰이 만료된 채 나간다(iOS) —
+         먼저 한 번 갱신해 같은 요청을 다시 보내고, 갱신도 안 될 때만 로그인 화면으로. (2026-10-06)
+         ⚠ signOut은 반드시 scope:'local' — 기본값(global)은 이 계정의 모든 기기 세션을 지워 다른 기기·탭이 새로고침마다 풀리던 실사고 */
+      if (!_retried && AUTH.sb) {
+        const { data } = await AUTH.sb.auth.refreshSession().catch(() => ({ data: {} }));
+        if (data && data.session) { AUTH.session = data.session; return sbCall(fn, params, payload, true); }
+      }
       const m = '로그인이 만료됐어요 — 다시 로그인하세요';
-      AUTH.session = null; if (AUTH.sb) AUTH.sb.auth.signOut().catch(() => {}); authGate(m); throw new Error(m);
+      AUTH.session = null; if (AUTH.sb) AUTH.sb.auth.signOut({ scope: 'local' }).catch(() => {}); authGate(m); throw new Error(m);
     }
   }
   if (!body) body = {};   // HTML·빈 응답: 상태 코드로 문장을 만든다 (성공(2xx)인데 JSON이 아니면 그것도 오류)

@@ -58,7 +58,7 @@ async function authLoadMe() {
   try { AUTH.me = await authApi({ action: 'me' }); }
   catch (e) { AUTH.me = null; }
   if (!AUTH.me || !AUTH.me.role) {
-    await AUTH.sb.auth.signOut(); AUTH.session = null;
+    await AUTH.sb.auth.signOut({ scope: 'local' }); AUTH.session = null;   // 이 기기만 (global이면 다른 기기까지 풀림)
     await authGate('이 계정은 대시보드 권한이 없어요. 관리자에게 등록을 요청하세요.'); return;
   }
   $('login-gate').style.display = 'none'; authApplyRole();
@@ -95,7 +95,7 @@ async function authSubmit() {
   } catch (e) { authErr(e.message); }
   finally { btn.disabled = false; }
 }
-async function authLogout() { localStorage.removeItem(DNRB_KEY); if (AUTH.sb) await AUTH.sb.auth.signOut(); location.reload(); }
+async function authLogout() { localStorage.removeItem(DNRB_KEY); if (AUTH.sb) await AUTH.sb.auth.signOut({ scope: 'local' }); location.reload(); }   // 이 기기만 로그아웃
 async function authChangePw() {
   const pw = prompt('새 비밀번호 (8자 이상)'); if (pw === null) return;
   if (pw.length < 8) { toast('8자 이상이어야 해요'); return; }
