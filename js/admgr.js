@@ -359,7 +359,7 @@ function renderAdmgr(keepScroll) {
   const pageY = window.scrollY;   // innerHTML 교체 순간 페이지가 줄었다 늘어나며 스크롤이 튀는 것 방지 (2026-09-06 사용자 지적)
   const hadFocus = document.activeElement && document.activeElement.id === 'admgr-q';
 
-  /* ── 상단 도구 바 (2026-09-14 리디자인 A+B): 상태 알약 + 주 동작 1개(새로고침) + 23:55 세팅 + ⋯ 메뉴. 설명문은 툴팁으로 ── */
+  /* ── 상단 도구 바 (2026-09-14 리디자인 A+B): 상태 알약 + 주 동작 1개(새로고침) + 23:45 세팅 + ⋯ 메뉴. 설명문은 툴팁으로 ── */
   const own = ADMGR_OWN.includes(admgr.view);
   const busy = admgrBusy();
   const w = admgr.write;
@@ -388,7 +388,7 @@ function renderAdmgr(keepScroll) {
       <b class="ag-mtitle">${admgr.solo === 'test' ? '테스트 소재' : admgr.solo === 'best' ? '베스트소재' : '광고관리자'}</b>
       ${status}
       <span style="flex:1;"></span>
-      ${canWrite ? `<button class="btn-ghost ag-btn ag-hide-m" onclick="admgrMidMenu(event)" title="23:55 세팅 — 반영 세팅 시작/완료 · 원복 승인 · 예약 목록"><i class="fa-regular fa-clock"></i> 23:55 세팅${midState}</button>` : ''}
+      ${canWrite ? `<button class="btn-ghost ag-btn ag-hide-m" onclick="admgrMidMenu(event)" title="23:45 세팅 — 반영 세팅 시작/완료 · 원복 승인 · 예약 목록"><i class="fa-regular fa-clock"></i> 23:45 세팅${midState}</button>` : ''}
       ${nd ? `<button class="btn-analyze ag-btn ag-btn-publish" style="background:#0a7c3f;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산·켜기/끄기를 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 게시 ${nd}</button>` : ''}
       ${cfg && !admgr.demo ? `<button class="btn-analyze ag-btn" onclick="admgrRefresh()" ${busy ? 'disabled' : ''} title="${own ? '서버에서 다시 불러오기' : 'Meta에서 다시 불러오기'}"><i class="fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i><span class="ag-hide-m"> ${busy ? '불러오는 중' : '새로고침'}</span></button>` : ''}
       ${!cfg || admgr.demo ? `<button class="btn-sample ag-btn" onclick="admgrDemo()"><i class="fa-solid fa-wand-magic-sparkles"></i> 데모 데이터로 보기</button>` : ''}
@@ -536,7 +536,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 구매 수 기준 — 0건(지출 있음)=감액 ÷10 · 1~2건=곧 도달 · 3건+=증액 검토. 아래 줄의 마진·지출%는 참고">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:55 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:55에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:55 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 구매 수 기준 — 0건(지출 있음)=감액 ÷10 · 1~2건=곧 도달 · 3건+=증액 검토. 아래 줄의 마진·지출%는 참고">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:45 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:45에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:45 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
         <tr class="ag-row ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'sel' : ''}" onclick="admgrRowClick(event,'${isCamp ? 'camp' : 'set'}','${r.id}')" title="행을 클릭하면 선택/해제">
@@ -615,8 +615,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         <div class="row"><span>CPC</span><span>${cpcTd(r)}</span></div>
         ${showChg ? `<div class="row"><span>최근 변경</span><span>${admgrChgCell(r)}</span></div>` : ''}
         ${parent ? `<div class="row"><span>${isSet ? '캠페인' : '광고세트'}</span><span class="mc-par">${esc(admgrBase(parent))}</span></div>` : ''}
-        ${pend ? `<div class="row"><span>23:55 예약</span><span style="color:#b45309;font-weight:700;">₩${comma(pend.new_budget)}</span></div>` : ''}
-        ${showMid ? `<div class="mc-mid"><div class="mc-midt">23:55 세팅</div>${admgrMidCell(r, level)}</div>` : ''}
+        ${pend ? `<div class="row"><span>23:45 예약</span><span style="color:#b45309;font-weight:700;">₩${comma(pend.new_budget)}</span></div>` : ''}
+        ${showMid ? `<div class="mc-mid"><div class="mc-midt">23:45 세팅</div>${admgrMidCell(r, level)}</div>` : ''}
         <div class="mc-links">
           ${admgr.view !== 'ad' ? `<button onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'}<i class="fa-solid fa-chevron-right"></i></button>` : ''}
           <button onclick="event.stopPropagation();admgrSelectEnter('${kind}','${r.id}')">선택 모드<i class="fa-regular fa-square-check"></i></button>
@@ -683,7 +683,7 @@ function admgrRangeModal() {
         `<button class="filter-tab" style="font-size:.72rem;" onclick="admgrRangeQuick('${v}')">${t}</button>`).join('')}
     </div>
     <div id="ag-range-err" style="display:none;font-size:.72rem;color:#dc2626;margin-top:8px;"></div>
-    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">최대 400일 · 판정·23:55 세팅·최근 변경 열은 '오늘'에서만 보여요</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">최대 400일 · 판정·23:45 세팅·최근 변경 열은 '오늘'에서만 보여요</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
       <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
       <button class="btn-analyze" onclick="admgrRangeApply()">조회</button></div>`;

@@ -1,4 +1,4 @@
-/* ④-3 광고관리자: 예산 변경·23:55 예약/원복·PIN·열 표시/너비·최근 변경 이력
+/* ④-3 광고관리자: 예산 변경·23:45 예약/원복·PIN·열 표시/너비·최근 변경 이력
    (index.html에서 분리 — 2026-09-08 2단계. 파일 순서는 index.html의 <script> 순서, 전역 함수·변수를 그대로 공유) */
 'use strict';
 
@@ -12,9 +12,9 @@ async function admgrWriteInit() {
     await admgrWritePending();
   } catch { /* 쓰기 기능 없이 표시 (조회 실패는 치명적이지 않음) */ }
 }
-/* ═══ 23:55 반영 결과 알림창 (2026-09-08 사용자 요청) — 원복 승인분·23:55 예약분이 실행되면 한 번 띄운다.
-   서버 pending 응답의 lastrun(가장 최근 23:55 이후 실행 행)을 보고, 같은 실행(run_day)은 adc_admgr_runseen 으로 한 번만.
-   승인 행이 아직 pending이면(실행 중) 건너뛰고 다음 확인 때 다시 본다. 23:55~00:40 사이엔 1분마다 서버만 확인(Meta 호출 없음) */
+/* ═══ 23:45 반영 결과 알림창 (2026-09-08 사용자 요청) — 원복 승인분·23:45 예약분이 실행되면 한 번 띄운다.
+   서버 pending 응답의 lastrun(가장 최근 23:45 이후 실행 행)을 보고, 같은 실행(run_day)은 adc_admgr_runseen 으로 한 번만.
+   승인 행이 아직 pending이면(실행 중) 건너뛰고 다음 확인 때 다시 본다. 23:45~00:40 사이엔 1분마다 서버만 확인(Meta 호출 없음) */
 function admgrRunNotify(d) {
   const rows = d.lastrun || []; if (!rows.length) return;
   const key = d.run_day || rows[0].applied_at.slice(0, 10);
@@ -31,29 +31,29 @@ function admgrRunNotify(d) {
     body += `<div style="font-weight:800;margin:4px 0 6px;">원복 승인분 ${appr.status === 'applied' ? `<span style="color:#15803d;">완료</span>` : `<span style="color:#dc2626;">실패</span>`} <span style="font-weight:600;color:#6b7280;font-size:.75rem;">${esc(appr.error || '')}</span></div>`;
     body += resets.length ? `<details ${resets.length <= 12 ? 'open' : ''}><summary style="cursor:pointer;font-size:.78rem;color:#4f46e5;">원복 ${ok(resets)}/${resets.length}건 목록</summary><div style="max-height:32vh;overflow:auto;">${resets.map(line).join('')}</div></details>` : `<div style="font-size:.78rem;color:#6b7280;">되돌릴 세트가 없었어요 (전부 시작 예산 그대로)</div>`;
   }
-  if (mids.length) body += `<div style="font-weight:800;margin:12px 0 6px;">23:55 예약 반영 ${ok(mids)}/${mids.length}건</div><div style="max-height:32vh;overflow:auto;">${mids.map(line).join('')}</div>`;
-  $('abm-title').textContent = `23:55 반영 결과 — ${key.slice(5).replace('-', '/')}`;
+  if (mids.length) body += `<div style="font-weight:800;margin:12px 0 6px;">23:45 예약 반영 ${ok(mids)}/${mids.length}건</div><div style="max-height:32vh;overflow:auto;">${mids.map(line).join('')}</div>`;
+  $('abm-title').textContent = `23:45 반영 결과 — ${key.slice(5).replace('-', '/')}`;
   $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="font-size:.8rem;line-height:1.6;color:#374151;">${body}</div>
     <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="lsSet('adc_admgr_runseen','${key}');closeModal('admgr-budget-modal')">확인</button></div>`;
   $('admgr-budget-modal').classList.add('show');
   lsSet('adc_admgr_runseen', key);   // 띄운 순간 '봤음' 처리 — ✕로 닫아도 다시 안 뜨게 (2026-09-13 사용자 제보: 확인 버튼을 안 누르면 계속 떴다)
 }
-setInterval(() => {   // 23:55 실행 창 동안 화면이 열려 있으면 결과를 바로 알림 (우리 서버만 조회)
+setInterval(() => {   // 23:45 실행 창 동안 화면이 열려 있으면 결과를 바로 알림 (우리 서버만 조회)
   if (!admgr.data || admgr.demo || !admgrCfg()) return;
   const k = admgrKst(new Date().toISOString()); if (!k) return;
   const hm = k.getUTCHours() * 60 + k.getUTCMinutes();
-  if (hm >= 23 * 60 + 56 || hm < 40) admgrWritePending();
+  if (hm >= 23 * 60 + 46 || hm < 40) admgrWritePending();
 }, 60 * 1000);
 async function admgrWritePending() {
   try {
     const d = await metaBudgetCall({ action: 'pending' });
     const pend = d.pending || [];
-    admgr.write.resetRow = pend.find(p => p.mode === 'reset_approve' && p.apply_date === todayStr(0)) || null;   // 오늘 23:55 원복 승인
+    admgr.write.resetRow = pend.find(p => p.mode === 'reset_approve' && p.apply_date === todayStr(0)) || null;   // 오늘 23:45 원복 승인
     admgr.write.pendingByObj = new Map(pend.filter(p => p.mode !== 'reset_approve').map(p => [p.object_id, p]));
     admgr.write.daystart = new Map((d.daystart || []).map(r => [String(r.adset_id), Number(r.budget)]));   // 오늘 시작 예산(00:10 스냅샷) — 자정세팅 열
     renderAdmgr(true);
-    admgrRunNotify(d);   // 23:55 반영 결과 알림창 (한 번만)
+    admgrRunNotify(d);   // 23:45 반영 결과 알림창 (한 번만)
   } catch { /* 무시 */ }
 }
 /* 예산 셀 — 일예산 있는 행은 클릭 편집(연필), 자정 예약이 있으면 배지 */
@@ -69,16 +69,16 @@ function admgrBudgetCell(r, level) {
       ${dirty ? `<div style="font-size:.6rem;color:#b45309;padding-left:16px;">임시 저장 ₩${comma(d)}</div>` : ''}`;
   }
   const pend = w.pendingByObj && w.pendingByObj.get(r.id);
-  if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="${pend.apply_date} 23:55에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 23:55 ${won(pend.new_budget)}</span></div>`;
+  if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="${pend.apply_date} 23:45에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 23:45 ${won(pend.new_budget)}</span></div>`;
   return base;
 }
 /* '자정세팅' 열 (2026-09-04 사용자 요청) — 버튼 한 번 = 현재 일예산 뒤에 0 하나 붙인 금액(×10)으로 자정 예약.
    이미 그 금액으로 예약돼 있으면 ✓ 배지. 취소는 예산 연필 팝업의 '자정 예약 취소'. 서버 상한(30만원)을 넘으면 버튼이 흐려지고 안내. */
 function admgrMidCell(r, level) {
   if (!(r.budget > 0)) return '<span style="color:#d1d5db;">—</span>';
-  /* 2026-09-07 사용자가 자정세팅법을 바꿈: "매일 처음 세팅된 일예산으로 23:55에 자동 원복(승인제)".
-     → 첫 줄 = 시작 예산 + 23:55 원복 상태. ×10 기본값은 폐기(시작 예산이 이미 ×10 수준이라 상한만 넘겼음).
-     아래 입력칸+⏰는 23:55에 따로 금액을 걸고 싶을 때만(기본 빈칸). 2026-09-07 저녁: 예약 시각 00:00 → 23:55(원복과 같은 실행에서 원복 대신 적용), 용어 '자정'→'23:55' */
+  /* 2026-09-07 사용자가 자정세팅법을 바꿈: "매일 처음 세팅된 일예산으로 23:45에 자동 원복(승인제)".
+     → 첫 줄 = 시작 예산 + 23:45 원복 상태. ×10 기본값은 폐기(시작 예산이 이미 ×10 수준이라 상한만 넘겼음).
+     아래 입력칸+⏰는 23:45에 따로 금액을 걸고 싶을 때만(기본 빈칸). 2026-09-07 저녁: 예약 시각 00:00 → 23:45(원복과 같은 실행에서 원복 대신 적용), 용어 '자정'→'23:45' */
   const w = admgr.write;
   const start = w.daystart && w.daystart.get(r.id);
   const cur = Math.round(r.budget);
@@ -87,26 +87,26 @@ function admgrMidCell(r, level) {
   if (start == null) startTxt = `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;" title="00:10 스냅샷이 아직 없어요 (오늘 도입 시 '스냅샷 복원' 후 표시)">시작 기록 없음</div>`;
   else {
     const st = Math.round(start), diff = st !== cur;
-    const tail = pend ? `<span style="color:#b45309;" title="23:55 예약이 있어 원복 대신 예약 금액으로 바뀌어요">· 23:55 예약 우선</span>`
+    const tail = pend ? `<span style="color:#b45309;" title="23:45 예약이 있어 원복 대신 예약 금액으로 바뀌어요">· 23:45 예약 우선</span>`
       : w.resetRow
-      ? (diff ? `<b style="color:#15803d;">→ 23:55 원복</b>` : `<span style="color:#15803d;">· 23:55 유지</span>`)
-      : (diff ? `<span style="color:#b45309;" title="상단 '23:55 원복 승인'을 누르면 23:55에 시작 예산으로 돌아가요">· 승인 전</span>` : '');
+      ? (diff ? `<b style="color:#15803d;">→ 23:45 원복</b>` : `<span style="color:#15803d;">· 23:45 유지</span>`)
+      : (diff ? `<span style="color:#b45309;" title="상단 '23:45 원복 승인'을 누르면 23:45에 시작 예산으로 돌아가요">· 승인 전</span>` : '');
     startTxt = `<div style="font-size:.66rem;color:#374151;white-space:nowrap;" title="오늘 00:10에 기록된 하루 시작 예산">시작 <b>${comma(st)}</b> ${tail}</div>`;
   }
   const max = (w.st && w.st.max_budget) || 300000;
   const val = pend ? Math.round(pend.new_budget) : '';
   /* 텍스트 입력(위아래 화살표 없음, 클릭한 자리에 커서) — 2026-09-06 사용자 요청 */
-  const inp = `<input type="text" inputmode="numeric" value="${val}" placeholder="23:55 예약" onclick="event.stopPropagation()" ${pend ? 'readonly' : ''}
+  const inp = `<input type="text" inputmode="numeric" value="${val}" placeholder="23:45 예약" onclick="event.stopPropagation()" ${pend ? 'readonly' : ''}
       onkeydown="if(event.key==='Enter'){event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.value)}"
       style="width:84px;padding:2px 6px;font-size:.72rem;font-weight:700;text-align:right;border:1.5px solid ${pend ? '#86efac' : '#e5e7eb'};border-radius:7px;background:${pend ? '#f0fdf4' : '#fff'};color:#1e1b4b;font-family:inherit;outline:none;" />`;
   /* 예약돼 있으면 ⏰가 ✓(초록)으로 바뀌고, 한 번 더 누르면 예약 취소 */
   const btn = pend
     ? `<button class="filter-tab" style="padding:2px 8px;font-size:.72rem;color:#fff;background:#16a34a;border-color:transparent;white-space:nowrap;"
-        onclick="event.stopPropagation();admgrMidUnschedule(${pend.id})" title="23:55 예약됨 — 한 번 더 누르면 예약 취소"><i class="fa-solid fa-check"></i></button>`
+        onclick="event.stopPropagation();admgrMidUnschedule(${pend.id})" title="23:45 예약됨 — 한 번 더 누르면 예약 취소"><i class="fa-solid fa-check"></i></button>`
     : `<button class="filter-tab" style="padding:2px 8px;font-size:.72rem;color:#6b7280;border-color:#e5e7eb;background:#fff;white-space:nowrap;"
         onclick="event.stopPropagation();admgrMidQuick('${r.id}','${level}',this.previousElementSibling.value)"
-        title="입력한 금액으로 23:55 예약 (1,000 ~ ${comma(max)}원) — 23:55 전에 걸면 오늘, 지나면 내일"><i class="fa-regular fa-clock"></i></button>`;
-  const note = pend ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 23:55 · ${comma(pend.new_budget)}원 예약됨</div>` : '';
+        title="입력한 금액으로 23:45 예약 (1,000 ~ ${comma(max)}원) — 23:45 전에 걸면 오늘, 지나면 내일"><i class="fa-regular fa-clock"></i></button>`;
+  const note = pend ? `<div style="font-size:.6rem;color:#15803d;font-weight:700;">✓ ${pend.apply_date} 23:45 · ${comma(pend.new_budget)}원 예약됨</div>` : '';
   return `<div style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;">${startTxt}<div style="display:inline-flex;align-items:center;gap:4px;">${inp}${btn}</div>${note}</div>`;
 }
 /* ✓ 버튼 = 예약 취소 (admgrMidCancel은 예약 목록 모달용이라 별도 — 셀에서는 목록을 다시 열지 않는다) */
@@ -114,7 +114,7 @@ async function admgrMidUnschedule(pid) {
   if (!admgr.write.pin) { admgrPinPrompt(() => admgrMidUnschedule(pid)); return; }
   try {
     await metaBudgetCall({ action: 'cancel' }, { id: pid, pin: admgr.write.pin });
-    toast('23:55 예약을 취소했어요');
+    toast('23:45 예약을 취소했어요');
     await admgrWritePending();
   } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('취소 실패: ' + e.message); }
 }
@@ -125,12 +125,12 @@ async function admgrMidQuick(id, level, amountStr) {
   const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
   if (!node || !(node.budget > 0)) return;
   const typed = Math.round(Number(String(amountStr || '').replace(/[^0-9]/g, '')));   // 텍스트 입력칸 — 콤마·공백 무시
-  const target = typed;   // 2026-09-07: 빈칸이면 예약 안 함 (×10 기본값 폐기 — 23:55 원복이 시작 예산 복귀를 맡음)
-  if (!(target > 0)) { toast('23:55에 걸 금액을 먼저 입력해 주세요'); return; }
+  const target = typed;   // 2026-09-07: 빈칸이면 예약 안 함 (×10 기본값 폐기 — 23:45 원복이 시작 예산 복귀를 맡음)
+  if (!(target > 0)) { toast('23:45에 걸 금액을 먼저 입력해 주세요'); return; }
   if (target < 1000 || target > w.st.max_budget) { toast(`예산은 1,000원 ~ ${comma(w.st.max_budget)}원 사이여야 해요 (입력: ${comma(target)}원)`); return; }
   try {
     const d = await metaBudgetCall({ action: 'schedule' }, { object_id: id, object_name: node.name, level, new_budget: target, pin: w.pin });
-    toast(`${d.apply_date} 23:55에 ${comma(target)}원으로 예약했어요`);
+    toast(`${d.apply_date} 23:45에 ${comma(target)}원으로 예약했어요`);
     admgrWritePending();
   } catch (e) {
     if (String(e.message).includes('PIN')) admgrPinInvalidate();
@@ -170,7 +170,7 @@ function admgrApplyNow(id, level, val) {
     } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('반영 실패: ' + e.message); }
   });
 }
-/* ⋯ 메뉴 · 23:55 세팅 메뉴 — 상단 버튼 난립 대신 팝오버 (2026-09-14 리디자인). #admgr-bpop 재사용 */
+/* ⋯ 메뉴 · 23:45 세팅 메뉴 — 상단 버튼 난립 대신 팝오버 (2026-09-14 리디자인). #admgr-bpop 재사용 */
 function admgrPopAt(ev, html, w) {
   const r0 = ev.currentTarget.getBoundingClientRect();
   const pop = $('admgr-bpop'); pop.innerHTML = html; pop.style.display = 'block';
@@ -186,22 +186,22 @@ function admgrMoreMenu(ev) {
   admgrPopAt(ev, `<div class="ag-menu">
     ${w.st && dnrbCan('budget') ? (w.pin ? agItem('fa-lock-open', '잠그기', 'admgrPinClear()', '다음 예산 변경부터 PIN을 다시 물어요') : agItem('fa-lock', 'PIN 인증', 'admgrPinPrompt()', '한 번 인증하면 이 화면을 열어두는 동안 유효')) : ''}
     ${admgrMobile() ? '' : agItem('fa-table-columns', '열 표시·순서', `admgrColsAnchor={left:${Math.round(rect.left)},bottom:${Math.round(rect.bottom)}};admgrColsMenuRender()`)}
-    ${admgrMobile() && !ADMGR_OWN.includes(admgr.view) ? `${w.st && dnrbCan('budget') && !admgr.demo ? `<div class="ag-menu-sep">23:55 세팅</div>${admgrMidItems()}<div class="ag-menu-sep"></div>` : ''}
+    ${admgrMobile() && !ADMGR_OWN.includes(admgr.view) ? `${w.st && dnrbCan('budget') && !admgr.demo ? `<div class="ag-menu-sep">23:45 세팅</div>${admgrMidItems()}<div class="ag-menu-sep"></div>` : ''}
       ${agItem(admgr.activeOnly ? 'fa-square-check' : 'fa-square', '활성만 보기', 'admgrToggleActive()', admgr.activeOnly ? '켜져 있거나 오늘 지출이 있는 것만' : '꺼진 것도 전부 보기')}` : ''}
     ${admgrMobile() && admgr.view === 'set' && admgrCfg() && !admgr.demo ? `<div class="ag-menu-sep">만든 사람</div>${admgrMakerMenuItems()}` : ''}
     ${admgrMobile() ? `<div class="ag-menu-sep">다른 탭</div>${agItem('fa-flask', '테스트 소재', "admgrSetView('test')")}${agItem('fa-power-off', 'OFF 광고', "admgrSetView('offad')")}${agItem('fa-star', '베스트', "admgrSetView('best')")}` : ''}
-    ${npend && !admgrMobile() ? agItem('fa-list', `23:55 예약 목록 (${npend})`, 'admgrMidList()') : ''}
+    ${npend && !admgrMobile() ? agItem('fa-list', `23:45 예약 목록 (${npend})`, 'admgrMidList()') : ''}
     ${nd ? agItem('fa-eraser', `임시 저장 전체 취소 (${nd})`, 'admgrClearDrafts()', 'Meta에는 아무 변화 없어요') : ''}
     ${!admgrCfg() || admgr.demo ? '' : agItem('fa-wand-magic-sparkles', '데모 데이터로 보기', 'admgrDemo()')}
   </div>`);
 }
-function admgrMidItems() {   // 23:55 세팅 메뉴 항목 — PC 23:55 세팅 버튼과 폰 ⋯ 메뉴가 같이 쓴다 (2026-09-18)
+function admgrMidItems() {   // 23:45 세팅 메뉴 항목 — PC 23:45 세팅 버튼과 폰 ⋯ 메뉴가 같이 쓴다 (2026-09-18)
   const w = admgr.write, npend = w.pendingByObj ? w.pendingByObj.size : 0;
-  const mid = w.midMode === 'setting' ? agItem('fa-check', '반영 세팅 완료하기', 'admgrMidBtn()', `예산을 클릭해 23:55 금액을 넣는 중${npend ? ` · 예약 ${npend}건` : ''}`)
-    : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:55 반영 세팅 시작 — 예산을 클릭해 23:55에 반영될 금액을 입력하세요')")
-    : agItem('fa-clock', '23:55 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:55 반영으로 저장돼요');
+  const mid = w.midMode === 'setting' ? agItem('fa-check', '반영 세팅 완료하기', 'admgrMidBtn()', `예산을 클릭해 23:45 금액을 넣는 중${npend ? ` · 예약 ${npend}건` : ''}`)
+    : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:45 반영 세팅 시작 — 예산을 클릭해 23:45에 반영될 금액을 입력하세요')")
+    : agItem('fa-clock', '23:45 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:45 반영으로 저장돼요');
   return `${mid}
-    ${w.resetRow ? agItem('fa-xmark', '원복 승인 취소', 'admgrResetApprove()', '오늘 23:55에 시작 예산으로 돌아가지 않아요') : agItem('fa-arrow-rotate-left', '23:55 원복 승인', 'admgrResetApprove()', '오늘 23:55에 모든 세트를 하루 시작 예산(00:10 기록)으로')}
+    ${w.resetRow ? agItem('fa-xmark', '원복 승인 취소', 'admgrResetApprove()', '오늘 23:45에 시작 예산으로 돌아가지 않아요') : agItem('fa-arrow-rotate-left', '23:45 원복 승인', 'admgrResetApprove()', '오늘 23:45에 모든 세트를 하루 시작 예산(00:10 기록)으로')}
     ${agItem('fa-list', `예약 목록${npend ? ` (${npend})` : ''}`, 'admgrMidList()')}`;
 }
 function admgrMidMenu(ev) { admgrPopAt(ev, `<div class="ag-menu">${admgrMidItems()}</div>`, 300); }
@@ -211,12 +211,12 @@ async function admgrResetApprove() {
   try {
     if (w.resetRow) {
       await metaBudgetCall({ action: 'cancel' }, { id: w.resetRow.id, pin: w.pin });
-      toast('오늘 23:55 원복 승인을 취소했어요');
+      toast('오늘 23:45 원복 승인을 취소했어요');
     } else {
       const now = new Date(); const hm = now.getHours() * 60 + now.getMinutes();
-      if (hm >= 23 * 60 + 55) { toast('오늘 23:55는 이미 지났어요 — 내일 다시 승인해 주세요'); return; }
+      if (hm >= 23 * 60 + 45) { toast('오늘 23:45는 이미 지났어요 — 내일 다시 승인해 주세요'); return; }
       await metaBudgetCall({ action: 'approve_reset' }, { pin: w.pin });
-      toast('승인 완료 — 오늘 23:55에 모든 광고세트가 하루 시작 예산으로 돌아가요');
+      toast('승인 완료 — 오늘 23:45에 모든 광고세트가 하루 시작 예산으로 돌아가요');
     }
     await admgrWritePending();
   } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('실패: ' + e.message); }
@@ -338,30 +338,30 @@ function admgrPinClear() {
 function admgrPinInvalidate() { admgr.write.pin = null; try { localStorage.removeItem('adc_admgr_pin'); } catch { /* 무시 */ } renderAdmgr(true); }
 function admgrMidBtn() {
   const w = admgr.write;
-  if (w.midMode === 'setting') { w.midMode = 'done'; toast('23:55 반영 세팅 완료 — 버튼을 누르면 예약 목록이 열려요'); renderAdmgr(true); }
+  if (w.midMode === 'setting') { w.midMode = 'done'; toast('23:45 반영 세팅 완료 — 버튼을 누르면 예약 목록이 열려요'); renderAdmgr(true); }
   else if (w.midMode === 'done') admgrMidList();
   else {
     if (!w.pin) { admgrPinPrompt(admgrMidBtn); return; }   // 인증부터
     w.midMode = 'setting';
-    toast('23:55 반영 세팅 시작 — 예산을 클릭해 23:55에 반영될 금액을 입력하세요');
+    toast('23:45 반영 세팅 시작 — 예산을 클릭해 23:45에 반영될 금액을 입력하세요');
     renderAdmgr(true);
   }
 }
 function admgrMidList() {   // 자정 예약 목록 (히스토리 모달 껍데기 재사용)
   const w = admgr.write;
   const rows = [...(w.pendingByObj ? w.pendingByObj.values() : [])];
-  $('abm-title').textContent = '23:55 반영 예약 목록'; $('abm-sub').style.display = 'none';
+  $('abm-title').textContent = '23:45 반영 예약 목록'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = (rows.length ? `<div class="table-wrap"><table style="font-size:.78rem;">
-      <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>23:55 반영값</th><th>적용</th><th></th></tr></thead>
+      <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>23:45 반영값</th><th>적용</th><th></th></tr></thead>
       <tbody>${rows.map(p => `<tr>
         <td class="name-cell" style="text-align:left;">${esc(p.object_name || p.object_id)}<div style="font-size:.64rem;color:#9ca3af;">${p.level === 'campaign' ? '캠페인' : '광고세트'}</div></td>
         <td style="white-space:nowrap;">${p.old_budget ? won(Math.round(p.old_budget)) : '—'}</td>
         <td style="white-space:nowrap;font-weight:800;color:#b45309;">${won(Math.round(p.new_budget))}</td>
-        <td style="white-space:nowrap;">${p.apply_date} 23:55</td>
+        <td style="white-space:nowrap;">${p.apply_date} 23:45</td>
         <td><button class="btn-ghost btn-danger-ghost" style="padding:2px 10px;font-size:.7rem;" onclick="admgrMidCancel(${p.id})">취소</button></td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty-state" style="padding:20px;"><p>23:55 반영 예약이 없어요.</p></div>')
+    : '<div class="empty-state" style="padding:20px;"><p>23:45 반영 예약이 없어요.</p></div>')
     + `<div style="display:flex;gap:6px;margin-top:10px;">
-      <button class="btn-ghost" style="flex:1;justify-content:center;color:#b45309;border-color:#fcd34d;" onclick="admgr.write.midMode='setting';closeModal('admgr-budget-modal');renderAdmgr(true);toast('23:55 반영 세팅을 다시 시작해요')">새 세팅 시작</button>
+      <button class="btn-ghost" style="flex:1;justify-content:center;color:#b45309;border-color:#fcd34d;" onclick="admgr.write.midMode='setting';closeModal('admgr-budget-modal');renderAdmgr(true);toast('23:45 반영 세팅을 다시 시작해요')">새 세팅 시작</button>
       <button class="btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
@@ -389,11 +389,11 @@ function admgrBudgetPop(ev, id, level) {
   const draft = admgrDraft[id];
   /* Meta 광고관리자식 편집창: 일일 [₩ 금액 KRW] / 취소 · [임시 저장] [게시]. 세팅 모드에선 게시 대신 자정 반영 */
   const primary = setting
-    ? `<button id="bpop-sched" class="btn-analyze" style="background:#f59e0b;padding:7px 16px;" onclick="admgrBudgetWrite('schedule')"><i class="fa-regular fa-clock"></i> 23:55 반영으로 저장</button>`
+    ? `<button id="bpop-sched" class="btn-analyze" style="background:#f59e0b;padding:7px 16px;" onclick="admgrBudgetWrite('schedule')"><i class="fa-regular fa-clock"></i> 23:45 반영으로 저장</button>`
     : `<button id="bpop-apply" class="btn-analyze" style="background:#0a7c3f;padding:7px 18px;" onclick="admgrApplyNow('${id}','${level}',document.getElementById('bpop-amount').value)">게시</button>`;
   pop.innerHTML = `
-    <div style="font-size:.72rem;color:#6b7280;word-break:break-all;margin-bottom:8px;">${esc(admgrBP.name)}${pend ? ` · <span style="color:#b45309;">23:55 예약 ₩${comma(pend.new_budget)}</span>` : ''}</div>
-    ${setting ? '<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#b45309;font-size:.68rem;font-weight:700;padding:4px 8px;margin-bottom:8px;"><i class="fa-regular fa-clock"></i> 23:55 반영 세팅중</div>' : ''}
+    <div style="font-size:.72rem;color:#6b7280;word-break:break-all;margin-bottom:8px;">${esc(admgrBP.name)}${pend ? ` · <span style="color:#b45309;">23:45 예약 ₩${comma(pend.new_budget)}</span>` : ''}</div>
+    ${setting ? '<div class="info-bar" style="background:#fffbeb;border-color:#fde68a;color:#b45309;font-size:.68rem;font-weight:700;padding:4px 8px;margin-bottom:8px;"><i class="fa-regular fa-clock"></i> 23:45 반영 세팅중</div>' : ''}
     ${warn}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
       <span style="font-size:.8rem;font-weight:700;color:#1e1b4b;white-space:nowrap;">일일</span>
@@ -410,7 +410,7 @@ function admgrBudgetPop(ev, id, level) {
       <button class="btn-ghost" style="padding:7px 14px;" onclick="admgrDraftSave('${id}',document.getElementById('bpop-amount').value);document.getElementById('admgr-bpop').style.display='none'">임시 저장</button>
       ${primary}
     </div>
-    ${pend ? `<a onclick="admgrBudgetCancel(${pend.id})" style="display:block;margin-top:8px;font-size:.7rem;color:#9ca3af;cursor:pointer;">23:55 예약 취소</a>` : ''}`;
+    ${pend ? `<a onclick="admgrBudgetCancel(${pend.id})" style="display:block;margin-top:8px;font-size:.7rem;color:#9ca3af;cursor:pointer;">23:45 예약 취소</a>` : ''}`;
   const r0 = (ev.target.closest('td, .mcard') || ev.target).getBoundingClientRect();   // 폰 카드에는 td가 없어 null 오류가 났다 (2026-09-13)
   pop.style.display = 'block';
   const pw = 270, ph = pop.offsetHeight || 230;
@@ -445,7 +445,7 @@ async function admgrBudgetWrite(mode) {
     const d = await metaBudgetCall({ action: mode }, { object_id: admgrBP.id, object_name: admgrBP.name, level: admgrBP.level, new_budget: amount, pin: w.pin });
     $('admgr-bpop').style.display = 'none';
     if (mode === 'apply') { toast(`일예산을 ${comma(amount)}원으로 변경했어요`); admgrFetch(); }
-    else toast(`${d.apply_date} 23:55에 ${comma(amount)}원으로 변경 예약했어요`);
+    else toast(`${d.apply_date} 23:45에 ${comma(amount)}원으로 변경 예약했어요`);
     admgrWritePending();
   } catch (e) {
     if (String(e.message).includes('PIN')) admgrPinInvalidate();
@@ -459,7 +459,7 @@ async function admgrBudgetCancel(pid) {
   try {
     await metaBudgetCall({ action: 'cancel' }, { id: pid, pin: w.pin });
     $('admgr-bpop').style.display = 'none';
-    toast('23:55 예약을 취소했어요');
+    toast('23:45 예약을 취소했어요');
     admgrWritePending();
   } catch (e) {
     if (String(e.message).includes('PIN')) admgrPinInvalidate();
@@ -471,9 +471,9 @@ async function admgrBudgetCancel(pid) {
    렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리)
    2026-10-01: 캠페인·광고세트·광고 탭이 한 설정을 같이 쓴다 — 이름 열(캠페인/광고세트/광고)은 '이름'으로 묶고, 그 탭에 없는 열은 건너뛴다 */
 const ADMGR_NAME_LABELS = ['캠페인', '광고세트', '광고'];
-const admgrColNorm = l => ADMGR_NAME_LABELS.includes(l) ? '이름' : l;
+const admgrColNorm = l => ADMGR_NAME_LABELS.includes(l) ? '이름' : l === '23:55 세팅' ? '23:45 세팅' : l;   // '23:55 세팅'은 옛 저장값 (2026-10-07 23:45로 변경)
 function admgrColsKey() { return 'adc_admgr_cols'; }
-const ADMGR_COLS_DEFAULT = { hidden: ['23:55 세팅', '최근 변경', '전환값', 'CPC', '클릭'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:55 세팅', '예산', '지출', '클릭', 'ROAS', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
+const ADMGR_COLS_DEFAULT = { hidden: ['23:45 세팅', '최근 변경', '전환값', 'CPC', '클릭'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:45 세팅', '예산', '지출', '클릭', 'ROAS', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
 const admgrColsOk = c => c && Array.isArray(c.hidden) && Array.isArray(c.order);
 const admgrColsNorm = c => ({ hidden: [...new Set(c.hidden.map(admgrColNorm))], order: [...new Set(c.order.map(admgrColNorm))] });
 function admgrColsDefKey() { return 'adc_admgr_colsdef'; }   // 내가 저장한 기본값 (이 브라우저)
@@ -746,7 +746,7 @@ async function admgrBudgetImpact(i) {
     <div style="font-size:.66rem;color:#9ca3af;margin-top:6px;">Meta 예산 반영 지연(~1시간)을 고려해 변경 시간대와 다음 1시간은 뺐어요 · 참고용 — 시간대·요일 효과가 섞여 있어 확정 판단은 금물</div></div>`;
 }
 
-/* ═══ 폰 예산 수정 하단 판 (2026-09-18 스펙 A) — 빠른 버튼은 입력칸만 채우고, 저장은 임시 저장/게시/23:55 반영 중 하나로.
+/* ═══ 폰 예산 수정 하단 판 (2026-09-18 스펙 A) — 빠른 버튼은 입력칸만 채우고, 저장은 임시 저장/게시/23:45 반영 중 하나로.
    입력칸·오류칸·예약 버튼 id는 팝업과 같게 써서 admgrNumInput·admgrBudgetWrite·admgrBudgetCancel을 그대로 재사용 ═══ */
 function admgrBudgetSheet(id, level) {
   const w = admgr.write, R = admgrRows();
@@ -767,15 +767,15 @@ function admgrBudgetSheet(id, level) {
       <div class="ags-head"><div style="min-width:0;"><b>${esc(admgrProductOf({ adset_name: admgrBase(node.name) }))}</b><small>${esc(admgrBase(node.name))}</small></div>
         <button class="ags-x" onclick="admgrSheetClose()" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button></div>
       ${w.st && w.st.token_set ? '' : '<div class="ags-warn">Meta 쓰기 토큰이 아직 설정되지 않아 게시할 수 없어요</div>'}
-      <label class="ags-lbl" for="bpop-amount">일일 예산${setting ? ' · <span style="color:#b45309;">23:55 반영 세팅중</span>' : ''}</label>
+      <label class="ags-lbl" for="bpop-amount">일일 예산${setting ? ' · <span style="color:#b45309;">23:45 반영 세팅중</span>' : ''}</label>
       <div class="ags-amt"><span>₩</span><input id="bpop-amount" type="text" inputmode="numeric" autocomplete="off" value="${comma(Math.round(Number(draft || cur) || 0))}" oninput="admgrNumInput(this);admgrSheetMark(null)" /><em>KRW</em></div>
-      <div class="ags-info">현재 ${comma(cur)}${start ? ` · 오늘 시작 ${comma(start)}` : ''}${draft && draft !== cur ? ` · <b style="color:#b45309;">임시 저장 ${comma(draft)}</b>` : ''}${pend ? ` · <b style="color:#b45309;">23:55 예약 ${comma(pend.new_budget)}</b>` : ''}</div>
+      <div class="ags-info">현재 ${comma(cur)}${start ? ` · 오늘 시작 ${comma(start)}` : ''}${draft && draft !== cur ? ` · <b style="color:#b45309;">임시 저장 ${comma(draft)}</b>` : ''}${pend ? ` · <b style="color:#b45309;">23:45 예약 ${comma(pend.new_budget)}</b>` : ''}</div>
       <div id="bpop-err" class="ags-err" style="display:none;"></div>
       <div class="ags-quick">${quick.map(([t, v, cls], i) => `<button class="${cls || ''}" data-i="${i}" onclick="admgrSheetQuick(${v},${i})"><b>${t}</b><small>${v > max ? '상한 초과' : comma(v)}</small></button>`).join('')}</div>
-      ${pend ? `<button class="ags-link" onclick="admgrSheetCancelPend(${pend.id})">23:55 예약 취소</button>` : ''}
+      ${pend ? `<button class="ags-link" onclick="admgrSheetCancelPend(${pend.id})">23:45 예약 취소</button>` : ''}
       <div class="ags-btns">
         <button class="btn-ghost" onclick="admgrSheetSave()">임시 저장</button>
-        ${setting ? `<button id="bpop-sched" class="btn-analyze" style="background:#f59e0b;" onclick="admgrSheetSchedule()"><i class="fa-regular fa-clock"></i> 23:55 반영으로 저장</button>`
+        ${setting ? `<button id="bpop-sched" class="btn-analyze" style="background:#f59e0b;" onclick="admgrSheetSchedule()"><i class="fa-regular fa-clock"></i> 23:45 반영으로 저장</button>`
           : `<button id="bpop-apply" class="btn-analyze" onclick="admgrSheetPublish()"><i class="fa-solid fa-paper-plane"></i> 게시</button>`}
       </div>
     </div>`;

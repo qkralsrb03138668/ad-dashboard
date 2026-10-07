@@ -324,7 +324,7 @@ async function fetchBudgetHistory(c: Creds, s: string, e: string) {
   for (const w of ours) {
     const t = new Date(String(w.applied_at)).getTime();
     const id = String(w.object_id), nv = num(w.new_budget);
-    if (w.old_budget != null && num(w.old_budget) === nv) continue;   // 같은 금액 재적용(23:55 원복 등) — Meta도 로그를 안 남기니 변경 아님
+    if (w.old_budget != null && num(w.old_budget) === nv) continue;   // 같은 금액 재적용(23:45 원복 등) — Meta도 로그를 안 남기니 변경 아님
     if (events.some((ev) => ev.object_id === id && ev.new_value === nv && Math.abs(new Date(ev.time).getTime() - t) < 10 * 60_000)) continue;
     events.push({ time: new Date(t).toISOString().replace(/\.\d{3}Z$/, "+0000"), level: String(w.level), object_id: id, object_name: String(w.object_name ?? ""), old_value: num(w.old_budget), new_value: nv, note: "대시보드" });
   }

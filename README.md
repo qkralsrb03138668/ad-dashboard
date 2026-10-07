@@ -57,7 +57,7 @@ js/checkboard.js                  소재 업로드(체크보드)
 js/register.js                    소재 등록 (파일 → 카페24 상품 매칭 → Meta 보관함)
 js/upload.js                      광고 업로드 (Meta)
 js/admgr.js                       광고관리자: 상태·정렬·계층 3탭·오늘의 판정
-js/admgr-budget.js                광고관리자: 예산 변경·23:55 예약/원복·PIN·열 표시/너비·최근 변경
+js/admgr-budget.js                광고관리자: 예산 변경·23:45 예약/원복·PIN·열 표시/너비·최근 변경
 js/admgr-tabs.js                  광고관리자: 테스트 소재·OFF·베스트소재 탭·미리보기·데모
 js/data.js                        데이터 관리: 성과 기록·Meta CSV·JSON 백업/복원·샘플
 js/perf.js                        판매 성과 (카페24)
