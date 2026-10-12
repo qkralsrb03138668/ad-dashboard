@@ -238,6 +238,9 @@ function uplLog(msg, cls) {
 }
 function uplSetStatus(f, s) { f.status = s; uplRenderFiles(); }
 async function uplUploadMedia(f, pin) {
+  /* 끌어다 놓은 뒤 원본이 이동·삭제·수정되면 브라우저가 파일을 못 읽어 fetch가 "Failed to fetch"로만 실패한다 (2026-10-12 실사례: 3개 전부 0초 실패, 서버는 정상) → 먼저 1바이트 읽어 분명한 메시지로 */
+  try { await f.file.slice(0, 1).arrayBuffer(); }
+  catch { throw new Error('파일을 읽을 수 없어요 — 끌어다 놓은 뒤 원본이 옮겨지거나 지워진 것 같아요. 파인더에서 파일을 다시 끌어다 놓아 주세요'); }
   if (f.kind === 'image') {
     const fd = new FormData(); fd.append('pin', pin); fd.append('file', f.file, f.file.name);
     const r = await uplCall({ action: 'image' }, fd);
