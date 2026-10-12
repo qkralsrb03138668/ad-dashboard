@@ -698,7 +698,7 @@ function admgrReportHtml(rep, thumbs) {
   return head + alert + todo + admgrProAttrHtml(rep) + why + admgrProConfHtml(rep) + admgrProTeamHtml(rep) + admgrProPlayHtml(rep) + list + aiSec + admgrProAppendixHtml(rep);
 }
 const admgrRp = { kind: 'test', cur: null };   // 모달에 지금 떠 있는 리포트 — cur = { title, text(), html() } (복사·인쇄 공용)
-function admgrReportRefresh() { admgrRp.kind === 'best' ? admgrBestReport() : admgrTestReport(); }
+function admgrReportRefresh() { if (admgrRp.kind === 'end') return; admgrRp.kind === 'best' ? admgrBestReport() : admgrTestReport(); }
 function admgrReportModal() {
   let m = $('admgr-report');
   if (m) return m;
@@ -754,7 +754,7 @@ async function admgrTestReport() {
 }
 function admgrReportOpen(kind, title) {   // 모달 열고 기간 읽기 — 두 리포트 공용
   admgrReportModal().classList.add('show');
-  admgrRp.kind = kind; $('rp-title').textContent = title; $('rp-copy-sum').style.display = '';
+  admgrRp.kind = kind; $('rp-title').textContent = title; $('rp-copy-sum').style.display = ''; $('rp-days').style.display = '';
   const sel = $('rp-days');
   if (!sel.dataset.init) { sel.value = String(lsGet('adc_admgr_rpdays', 7)); sel.dataset.init = '1'; }
   const days = +sel.value || 7; lsSet('adc_admgr_rpdays', days);
@@ -779,6 +779,141 @@ function admgrReportPrint() {
     <script>Promise.all([...document.images].map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))).then(()=>setTimeout(()=>{focus();print();},300));</script></body></html>`;
   document.body.appendChild(f);
   toast('인쇄 창이 열려요 — 대상에서 "PDF로 저장"을 고르세요');
+}
+/* ═══ 테스트 완료 리포트 (2026-10-12 사용자 요청: "테스트 완료 처리를 하면 리포트가 만들어지게") ═══
+   [테스트 종료]로 이름에서 _test를 지운 세트들의 소재를 그 순간 성과(등록 이후 누적)로 결과·이유·다음 할 일까지 한 장으로 남긴다.
+   저장: shared_state `test_end_reports` { items: [rec…] } 최신순 100건 — rec.rows는 그때 숫자를 그대로 복사해 둔 것(나중에 다시 계산하지 않음) */
+const ADMGR_END_RES = { good: ['우수', '#16a34a', '#dcfce7'], meh: ['애매', '#c2410c', '#ffedd5'], off: ['OFF', '#dc2626', '#fee2e2'], thin: ['판단 보류', '#6b7280', '#f3f4f6'] };
+function admgrEndResult(a, base) {   // → { res, label, why, diag, fix, next }
+  const d = a.imp === undefined ? null : admgrFunnelDiag(a, base);
+  const roas = a.spend ? (a.value || 0) / a.spend : 0;
+  let res, label, why = '';
+  if (a.meta.verdict === 'good') { res = 'good'; label = '우수 (판정)'; }
+  else if (a.meta.verdict === 'meh') { res = 'meh'; label = '애매 (판정)'; }
+  else if (a.st === 'off' || a.st === 'rejected') { res = 'off'; label = a.st === 'rejected' ? '거부·문제' : 'OFF (꺼짐)'; }
+  else {
+    const r = admgrRecommend(a);
+    if (!r) { res = 'thin'; label = ADMGR_ST_LABEL[a.st] || '판정 전'; }
+    else { res = r.k === 'off' ? 'off' : r.k === 'good' ? 'good' : r.k === 'wait' && !r.sample ? 'meh' : 'thin'; label = r.label; why = r.why; }
+  }
+  if (!why) why = `ROAS ${roas.toFixed(2)} · 구매 ${comma(a.purchases || 0)}건 · 지출 ${won(a.spend || 0)}`;
+  const actionable = d && ['hook', 'click', 'landing', 'cart', 'detail', 'loss'].includes(d.k);
+  const next = res === 'good' ? '추가소재 제작 — 같은 소구점으로 변형 2~3개' + (a.meta.asset_req_at ? ' (요청 들어가 있음)' : '')
+    : res === 'off' ? (actionable ? d.fix : '정리 — 다른 소구점으로 다시 테스트')
+    : res === 'meh' ? '일반 운영에서 예산 그대로 지켜보기'
+    : '데이터 부족 — 결론 내지 말고 참고만';
+  return { res, label, why, diag: d ? d.label : '', fix: d ? d.fix : '', next };
+}
+async function admgrEndReportMake(sets) {
+  const t = admgr.test;
+  // 테스트 데이터는 지금 상태를 먼저 잡아 둔다 — 종료 직후 테스트 탭이 새로 받아오면서 t.data가 바뀌기 때문
+  let all = t.loaded ? ((t.data || {}).ads || []).map(a => ({ ...a, meta: t.state.get(a.id) || {} })) : null;
+  try {
+    if (!all) { await admgrTestFetch(); all = ((t.data || {}).ads || []).map(a => ({ ...a, meta: t.state.get(a.id) || {} })); }
+    all.forEach(a => { a.st = admgrTestStatusOf(a, a.meta); });
+    const base = admgrFunnelBase(all.filter(a => !a.meta.hidden));
+    const ids = new Map(sets.map(s => [String(s.id), s.name]));
+    let ads = all.filter(a => ids.has(String(a.adset_id)) && !a.gone);
+    if (!ads.length) ads = all.filter(a => ids.has(String(a.adset_id)));
+    const thumbs = t.thumbs || (t.thumbs = {});
+    const need = [...new Set(ads.filter(a => !(a.id in thumbs)).map(a => a.adset_id))];
+    for (let i = 0; i < need.length; i += 100) {
+      try { const r = await metaGet({ action: 'creatives', set_ids: need.slice(i, i + 100).join(',') }); (r.ads || []).forEach(x => { thumbs[x.id] = x.image || x.thumb || ''; }); } catch (e) { /* 썸네일 없이도 리포트는 만든다 */ }
+    }
+    const rows = ads.map(a => { const r = admgrEndResult(a, base), set = ids.get(String(a.adset_id)) || a.adset_name;
+      return { id: a.id, set, prod: admgrProductOf({ adset_name: set }), dp: admgrDPlus(a), spend: Math.round(a.spend || 0), purch: a.purchases || 0, value: Math.round(a.value || 0), thumb: thumbs[a.id] || '', ...r }; })
+      .sort((x, y) => x.prod.localeCompare(y.prod, 'ko') || y.spend - x.spend);
+    const missing = sets.filter(s => !rows.some(r => r.set === s.name)).map(s => s.name);
+    const now = new Date().toISOString();
+    const rec = { id: now, at: now, by: (AUTH.me && (AUTH.me.name || AUTH.me.email)) || ADMGR_USER, sets: sets.length, rows, missing };
+    if (!admgr.demo) {
+      for (let tries = 0; tries < 2; tries++) {
+        const cur = await sbCall('client-log', { action: 'state_get', key: 'test_end_reports' });
+        const items = [rec, ...((cur.data && cur.data.items) || [])].slice(0, 100);
+        const r = await sbCall('client-log', { action: 'state_set' }, { key: 'test_end_reports', base: cur.ver || null, data: { items } });
+        if (!r.conflict) break;
+      }
+    }
+    admgr.endReports = [rec, ...(admgr.endReports || []).filter(x => x.id !== rec.id)];
+    return rec;
+  } catch (e) { toast('완료 리포트 실패: ' + e.message); return null; }
+}
+function admgrEndReportSum(rec) {
+  const n = k => rec.rows.filter(r => r.res === k).length;
+  const sp = rec.rows.reduce((s, r) => s + r.spend, 0), pu = rec.rows.reduce((s, r) => s + r.purch, 0), va = rec.rows.reduce((s, r) => s + r.value, 0);
+  const byProd = (k) => { const m = new Map(); rec.rows.filter(r => r.res === k).forEach(r => (m.get(r.prod) || m.set(r.prod, []).get(r.prod)).push(r)); return [...m.entries()]; };
+  const todo = [
+    ...byProd('good').map(([p, L]) => ({ kind: 'good', text: `${p} — 추가소재 제작 (우수 ${L.length}개${L.some(r => /요청/.test(r.next)) ? ', 요청 들어가 있음' : ''})` })),
+    ...byProd('off').map(([p, L]) => { const f = L.map(r => r.diag).filter(x => x && !/특이 없음|퍼널 균형|데이터 없음|노출 부족/.test(x)); const top = f.sort((x, y) => f.filter(v => v === y).length - f.filter(v => v === x).length)[0];
+      return { kind: 'off', text: `${p} — ${top ? `${top} (${L.find(r => r.diag === top).next})` : '정리, 다른 소구점으로 재시도'}${L.length > 1 ? ` · OFF ${L.length}개` : ''}` }; }),
+  ];
+  return { n: { good: n('good'), meh: n('meh'), off: n('off'), thin: n('thin') }, sp, pu, va, roas: sp ? va / sp : 0, todo };
+}
+function admgrEndReportHtml(rec) {
+  const S = admgrEndReportSum(rec);
+  const pill = k => { const [l, c, bg] = ADMGR_END_RES[k]; return `<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:800;color:${c};background:${bg};">${l}</span>`; };
+  const kpi = (label, val, color) => `<div style="background:#f8fafc;border:1px solid #e7e8ee;border-radius:12px;padding:10px 14px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><b style="font-size:1.2rem;color:${color || '#1e1b4b'};">${val}</b></div>`;
+  const prods = [...new Set(rec.rows.map(r => r.prod))];
+  const row = r => `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #f1f2f6;">
+      <div style="width:52px;height:52px;flex:none;border-radius:8px;background:#f3f4f6;overflow:hidden;">${r.thumb ? `<img src="${esc(r.thumb)}" style="width:100%;height:100%;object-fit:cover;" />` : ''}</div>
+      <div style="min-width:0;flex:1;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">${pill(r.res)}<b style="font-size:.8rem;color:#1f2937;word-break:break-all;">${esc(r.set)}</b></div>
+        <div style="font-size:.74rem;color:#4b5563;margin-top:2px;">${[r.dp == null ? '' : 'D+' + r.dp, '지출 ' + won(r.spend), '구매 ' + comma(r.purch), r.purch ? 'CPA ' + won(r.spend / r.purch) : '', r.spend ? 'ROAS ' + (r.value / r.spend).toFixed(2) : ''].filter(Boolean).join(' · ')}</div>
+        <div style="font-size:.74rem;color:#6b7280;">${esc(r.label)} — ${esc(r.why)}${r.diag ? ` · 퍼널: <b>${esc(r.diag)}</b>` : ''}</div>
+        <div style="font-size:.76rem;color:#312e81;margin-top:2px;">→ ${esc(r.next)}</div></div></div>`;
+  return `<div style="font-size:1.02rem;font-weight:800;color:#1e1b4b;">테스트 완료 리포트 <span style="font-weight:600;color:#6b7280;font-size:.8rem;margin-left:4px;">${esc(new Date(rec.at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }))} · ${esc(rec.by)} · 세트 ${rec.sets}개 · 성과는 등록 이후 누적</span></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0;" class="rp-why">${kpi('소재', rec.rows.length + '개')}${kpi('지출', won(S.sp))}${kpi('구매', comma(S.pu) + '건')}${kpi('ROAS', S.roas.toFixed(2), S.roas >= 3 ? '#16a34a' : S.roas < 1.5 ? '#dc2626' : null)}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:.8rem;">${['good', 'meh', 'off', 'thin'].map(k => `${pill(k)} <b style="margin-right:8px;">${S.n[k]}</b>`).join('')}</div>
+    <div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:8px 14px;margin-bottom:6px;"><div style="font-size:.8rem;font-weight:800;color:#5b21b6;margin-bottom:4px;">다음 할 일</div>
+      ${S.todo.length ? S.todo.map(x => `<div style="font-size:.85rem;padding:3px 0;${x.kind === 'off' ? 'color:#b91c1c;' : 'color:#1e1b4b;'}">· ${esc(x.text)}</div>`).join('') : '<div style="font-size:.82rem;color:#6b7280;">우수·OFF로 갈린 소재가 없어요 — 애매·보류 소재는 일반 운영에서 지켜보기</div>'}</div>
+    ${rec.missing && rec.missing.length ? `<div style="font-size:.72rem;color:#b45309;margin:6px 0;">테스트 데이터에 없어 빠진 세트 ${rec.missing.length}개: ${esc(rec.missing.join(', '))}</div>` : ''}
+    ${prods.map(p => `<div style="margin-top:14px;"><div style="font-weight:800;font-size:.88rem;color:#312e81;">${esc(p)} <span style="font-weight:600;color:#9ca3af;font-size:.72rem;">${rec.rows.filter(r => r.prod === p).length}개</span></div>${rec.rows.filter(r => r.prod === p).map(row).join('')}</div>`).join('')}`;
+}
+function admgrEndReportText(rec) {
+  const S = admgrEndReportSum(rec), R = ADMGR_END_RES;
+  return [`[테스트 완료 리포트] ${new Date(rec.at).toLocaleDateString('ko-KR')} · ${rec.by} · 세트 ${rec.sets}개`,
+    `소재 ${rec.rows.length}개 · 지출 ${won(S.sp)} · 구매 ${comma(S.pu)}건 · ROAS ${S.roas.toFixed(2)}`,
+    ['good', 'meh', 'off', 'thin'].map(k => `${R[k][0]} ${S.n[k]}`).join(' / '),
+    '', '■ 다음 할 일', ...(S.todo.length ? S.todo.map(x => '· ' + x.text) : ['· 없음']),
+    '', '■ 소재별 결과', ...rec.rows.map(r => `· [${R[r.res][0]}] ${r.set} — 지출 ${won(r.spend)} · 구매 ${r.purch} · ROAS ${r.spend ? (r.value / r.spend).toFixed(2) : '-'}${r.diag ? ' · ' + r.diag : ''} → ${r.next}`)].join('\n');
+}
+async function admgrEndReportsLoad() {
+  if (admgr.demo) return admgr.endReports || [];
+  const r = await sbCall('client-log', { action: 'state_get', key: 'test_end_reports' });
+  admgr.endReports = (r && r.data && r.data.items) || [];
+  return admgr.endReports;
+}
+async function admgrEndReportShow(id) {
+  admgrReportModal().classList.add('show');
+  admgrRp.kind = 'end'; $('rp-title').textContent = '테스트 완료 리포트';
+  $('rp-days').style.display = 'none'; $('rp-copy-sum').style.display = 'none';
+  const list = admgr.endReports && admgr.endReports.some(x => x.id === id) ? admgr.endReports : await admgrEndReportsLoad().catch(() => []);
+  const rec = list.find(x => x.id === id);
+  if (!rec) { $('rp-body').innerHTML = '<div class="empty-state"><p>리포트를 찾지 못했어요</p></div>'; return; }
+  admgrRp.cur = { title: `테스트 완료 리포트 ${rec.at.slice(0, 10)}`, text: () => admgrEndReportText(rec), html: () => admgrEndReportHtml(rec) };
+  $('rp-body').innerHTML = `<button class="filter-tab" style="margin-bottom:10px;" onclick="admgrEndReportList()">‹ 완료 리포트 목록</button>` + admgrEndReportHtml(rec);
+}
+async function admgrEndReportList() {
+  admgrReportModal().classList.add('show');
+  admgrRp.kind = 'end'; admgrRp.cur = null; $('rp-title').textContent = '테스트 완료 리포트';
+  $('rp-days').style.display = 'none'; $('rp-copy-sum').style.display = 'none';
+  $('rp-body').innerHTML = '<div class="empty-state"><p>불러오는 중…</p></div>';
+  let list;
+  try { list = await admgrEndReportsLoad(); } catch (e) { $('rp-body').innerHTML = `<div class="empty-state"><p>불러오지 못했어요: ${esc(e.message)}</p></div>`; return; }
+  $('rp-body').innerHTML = !list.length ? '<div class="empty-state"><p>아직 완료 리포트가 없어요 — 테스트 소재를 체크하고 [테스트 완료]를 누르면 만들어져요.</p></div>'
+    : `<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">테스트 완료를 누를 때마다 한 건씩 쌓여요 (최근 100건)</div>` + list.map(rec => { const S = admgrEndReportSum(rec);
+      return `<button onclick="admgrEndReportShow('${esc(rec.id)}')" style="display:flex;width:100%;text-align:left;gap:12px;align-items:center;padding:10px 12px;border:1px solid #e7e8ee;border-radius:10px;background:#fff;margin-bottom:6px;cursor:pointer;font:inherit;">
+        <b style="font-size:.84rem;color:#1e1b4b;white-space:nowrap;">${esc(new Date(rec.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}</b>
+        <span style="font-size:.78rem;color:#4b5563;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc([...new Set(rec.rows.map(r => r.prod))].join(', ') || '-')}</span>
+        <span style="font-size:.74rem;white-space:nowrap;"><b style="color:#16a34a;">우수 ${S.n.good}</b> · 애매 ${S.n.meh} · <b style="color:#dc2626;">OFF ${S.n.off}</b> · ROAS ${S.roas.toFixed(2)}</span>
+        <span style="font-size:.7rem;color:#9ca3af;white-space:nowrap;" class="m-hide">${esc(rec.by)}</span></button>`; }).join('');
+}
+function admgrTestEndFromTest() {   // 테스트 소재 탭 체크 → 그 소재의 세트 단위로 테스트 종료 (세트 안 다른 광고도 함께)
+  const t = admgr.test, ads = ((t.data || {}).ads || []).filter(a => !a.gone);
+  const setIds = new Set(ads.filter(a => t.sel.has(a.id)).map(a => String(a.adset_id)));
+  if (!setIds.size) { toast('테스트중인 소재를 체크하세요'); return; }
+  const sets = [...setIds].map(id => { const L = ads.filter(a => String(a.adset_id) === id); return { id, name: L[0].adset_name, ads: L.map(a => ({ id: a.id, name: a.name })) }; });
+  admgrTestEndModal(sets);
 }
 /* ═══ 베스트 소재 주간 리포트 — MD팀·컨텐츠팀 회의용 (2026-09-12) ═══
    숫자는 여기서 계산(브라우저), 해석은 scripts/weekly-insight.mjs(이 맥의 Claude Code)가 붙인다.
@@ -1260,10 +1395,12 @@ function renderAdmgrTest() {
     <button class="filter-tab ${t.group ? 'active' : ''}" onclick="admgrTestGroupToggle()" title="세트명 앞 상품명으로 묶어 상품별 소계 표시"><i class="fa-solid fa-layer-group"></i> 상품별 묶기</button>
     <button class="filter-tab ${t.judgeOpen ? 'active' : ''}" onclick="admgrTJudgeToggle()" title="판정 추천 기준 바꾸기"><i class="fa-solid fa-sliders"></i> 기준</button>
     ${admgrMakerBtn()}
+    ${t.sel.size && !t.showHidden ? `<button class="filter-tab" style="color:#fff;background:#4f46e5;border-color:#4f46e5;" onclick="admgrTestEndFromTest()" title="체크한 소재의 세트 이름에서 _test를 지워 테스트를 끝내고, 결과 리포트를 만들어요"><i class="fa-solid fa-flag-checkered"></i> 테스트 완료 (${t.sel.size})</button>` : ''}
     <button class="filter-tab" style="color:${t.showHidden ? '#4f46e5' : '#dc2626'};border-color:${t.showHidden ? '#a5b4fc' : '#fecaca'};" onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})">${t.showHidden ? '선택 복원' : '목록에서 제거'}</button>
     <button class="filter-tab" onclick="admgrTestToggleHidden()">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>
     <button class="filter-tab" style="color:#15803d;" onclick="admgrTestXlsx()" title="지금 보이는 표 그대로 (필터·검색·정렬 반영)"><i class="fa-solid fa-file-arrow-down"></i> 엑셀</button>
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrTestReport()" title="상품팀 전달용 — 기간 내 판정·추가소재 현황을 상품별로 정리 (텍스트 복사·PDF)"><i class="fa-solid fa-clipboard-list"></i> 리포트</button>
+    <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrEndReportList()" title="[테스트 완료]를 누를 때마다 쌓이는 결과 리포트"><i class="fa-solid fa-clipboard-check"></i> 완료 리포트</button>
   </div>${admgrMakerBanner(vis, true)}${judgeBox}
   <div class="info-bar"><i class="fa-regular fa-clock"></i> 성과는 <b>등록 이후 누적</b> · ${admgrAgo(d.fetched_at)} 기준 (5분 캐시)${d.truncated ? ' · 일부 생략(세트가 너무 많아요)' : ''} · 테스트 세트 ${d.adset_count || 0}개 · 정렬 안 고르면 <b>판정 필요 순</b></div>`;
 

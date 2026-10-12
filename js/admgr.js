@@ -720,8 +720,9 @@ function admgrTestEndName(name) {
   const stripped = base.replace(AG_TEST_TAIL, '').trim();
   return { next: admgrMarkName(stripped, camps), changed: stripped !== base, stillTest: /test/i.test(stripped) };
 }
-function admgrTestEndModal() {
-  const sets = admgrRows().sets.filter(r => admgr.selSets.has(r.id) && admgrIsTest(r));
+function admgrTestEndModal(fromTest) {   // fromTest = 테스트 소재 탭에서 고른 세트 [{id, name, ads:[{id,name}]}] (2026-10-12)
+  const sets = (fromTest || admgrRows().sets.filter(r => admgr.selSets.has(r.id))).filter(admgrIsTest);
+  admgr.testEndFrom = fromTest ? 'test' : 'set';
   if (!sets.length) { toast('테스트중 세트를 체크하세요'); return; }
   const plan = [];   // {id, from, to, level}
   const stuck = [];  // 맨 뒤가 아니라 못 지우는 것
@@ -767,13 +768,17 @@ async function admgrTestEndRun() {
     const failedIds = new Set((r.failed || []).map(f => String(f.id)));
     const ok = plan.filter(p => !failedIds.has(String(p.id)));
     admgr.selSets.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
+    if (admgr.testEndFrom === 'test') admgr.test.sel.clear();
+    const endSets = ok.filter(p => p.level === 'adset').map(p => ({ id: p.id, name: p.to }));   // 완료 리포트 대상 (2026-10-12)
     $('abm-title').textContent = '테스트 종료 결과';
     $('abm-body').innerHTML = `
       <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">세트 <b style="color:#15803d;">${ok.filter(p => p.level === 'adset').length}</b>개 · 광고 <b style="color:#15803d;">${ok.filter(p => p.level === 'ad').length}</b>개 이름을 바꿨어요${failedIds.size ? ` · 실패 <b style="color:#dc2626;">${failedIds.size}</b>개` : ''}</div>
       ${(r.failed || []).map(f => `<div style="font-size:.74rem;color:#dc2626;">✗ ${esc(String(f.id))} — ${esc(String(f.error || ''))}</div>`).join('')}
       <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">화면을 새로 받아오고 있어요 — 잠시 후 일반 판정에 나타나요</div>
+      <div id="ag-testend-rep" style="font-size:.76rem;color:#4f46e5;margin-top:10px;">${endSets.length ? '<i class="fa-solid fa-spinner fa-spin"></i> 완료 리포트 만드는 중…' : ''}</div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
-    admgrFetch();
+    if (endSets.length) admgrEndReportMake(endSets).then(rec => { const el = $('ag-testend-rep'); if (el) el.innerHTML = rec ? `<button class="btn-analyze" onclick="closeModal('admgr-budget-modal');admgrEndReportShow('${rec.id}')"><i class="fa-solid fa-clipboard-check"></i> 완료 리포트 보기 (소재 ${rec.rows.length}개)</button>` : '<span style="color:#dc2626;">완료 리포트를 만들지 못했어요 — 테스트 소재 탭의 [완료 리포트]에서 다시 확인하세요</span>'; });
+    if (admgr.testEndFrom === 'test') admgrTestFetch(); else admgrFetch();
   } catch (e) { btn.disabled = false; btn.textContent = '테스트 종료'; toast('실패: ' + e.message); }
 }
 function admgrCopyModal() {
