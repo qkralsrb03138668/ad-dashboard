@@ -1274,7 +1274,8 @@ function admgrFunnelTip(a, r) {   // 툴팁·엑셀용 숫자 한 줄
 function admgrFunnelCell(a, base) {
   const r = admgrFunnelRates(a), d = admgrFunnelDiag(a, base);
   const pct = v => v == null ? '—' : (v * 100).toFixed(v < 0.1 ? 2 : 0) + '%';
-  const nums = r ? `CTR ${pct(r.ctr)}${r.ts != null ? ` · 3초 ${pct(r.ts)}` : r.lpvR != null ? ` · 도착 ${pct(r.lpvR)}` : ''}` : '—';
+  const cpc = a.clicks > 0 ? `CPC ${won(Math.round((a.spend || 0) / a.clicks))}` : 'CPC –';   // 2026-10-13 사용자 요청: CTR 대신 클릭당 비용
+  const nums = r ? `${cpc}${r.ts != null ? ` · 3초 ${pct(r.ts)}` : r.lpvR != null ? ` · 도착 ${pct(r.lpvR)}` : ''}` : '—';
   return `<div title="${esc(admgrFunnelTip(a, r))}\n${esc(d.fix)}" style="cursor:help;">
     <div style="font-size:.64rem;color:#6b7280;white-space:nowrap;">${nums}${r && r.freq >= 3 ? ` <span style="color:#b45309;" title="같은 사람에게 평균 ${r.freq.toFixed(1)}회 노출 — 피로 주의">빈도 ${r.freq.toFixed(1)}</span>` : ''}</div>
     <span class="status-badge ${d.cls}" style="font-size:.6rem;margin-top:2px;">${d.label}</span></div>`;

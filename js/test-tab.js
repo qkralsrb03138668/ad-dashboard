@@ -74,6 +74,7 @@ function renderAdmgrTest() {
     <span class="tt-info">테스트 세트 ${(t.data || {}).adset_count || 0}개 · ${admgrAgo((t.data || {}).fetched_at)} 기준 · 성과는 등록 이후 누적</span>
     ${admgrMakerBtn()}
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrEndReportList()"><i class="fa-solid fa-clipboard-check"></i> 완료 리포트</button>
+    <details class="tt-more m-hide"><summary class="filter-tab" title="보일 열 고르기"><i class="fa-solid fa-table-columns"></i> 열</summary><div class="tt-dd">${TT_OPT_COLS.map(([k, l]) => `<label style="display:flex;gap:8px;align-items:center;padding:7px 10px;font-size:.8rem;cursor:pointer;"><input type="checkbox" ${admgrTtCols()[k] ? 'checked' : ''} onchange="admgrTtColToggle('${k}')"> ${l}</label>`).join('')}</div></details>
     <details class="tt-more"><summary class="filter-tab" title="기타 기능"><i class="fa-solid fa-ellipsis"></i></summary><div class="tt-dd">
       ${dd('판정 기준 바꾸기', 'admgrTJudgeToggle()', 'fa-sliders')}
       ${dd('이번 주 리포트 모아보기', 'admgrTestReport()', 'fa-clipboard-list')}
@@ -90,12 +91,12 @@ function renderAdmgrTest() {
       <button class="btn-ghost" onclick="admgrTJudgeReset()">기본값</button><button class="btn-ghost" onclick="admgrTJudgeToggle()">닫기</button></div>` : '';
   const tile = ([k, label, sub]) => { const n = by(k).length;
     const s = k === 'judge' ? `D+${J.days} · 지출 ${won(J.spend)}↑ — 추천 보고 확정` : sub;
-    return `<button class="tt-stage ${stage === k ? 'on' : ''}" onclick="admgrTtStage('${k}')"><span class="t">${label}</span>${k === 'judge' && n ? '<span class="n">오늘 할 일</span>' : ''}<b>${n}개</b><small>${s}</small></button>`; };
+    return `<button class="tt-stage ${stage === k ? 'on' : ''}" onclick="admgrTtStage('${k}')"><span class="t">${label}</span>${k === 'judge' && n ? '<span class="n">오늘 할 일</span>' : ''}<b>${n}개</b>${n && !admgrMobile() ? admgrTtStageNums(by(k), k) : ''}<small>${s}</small></button>`; };
   const extra = stage === 'gone' || stage === 'hidden' ? `<div class="tt-crit">${stage === 'gone' ? '테스트 완료로 이름에서 test가 빠진 소재예요 (60일 보관) — 늦은 판정도 여기서 할 수 있어요' : '숨긴 소재예요 — 체크하고 아래 [다시 보이기]'} <a href="#" onclick="admgrTtStage('${by('judge').length ? 'judge' : 'run'}');return false;">← 돌아가기</a></div>` : '';
   const crit = stage === 'judge' ? `<div class="tt-crit"><b>판정 기준</b> · 우수 = 구매 ${J.goodPurch}건↑ & 구매당비용이 마진의 ${pct}% 이하 · OFF = 구매당비용 > 마진 (또는 마진만큼 쓰고 구매 0) · 그 사이 애매 &nbsp;|&nbsp; <b style="color:#4f46e5;">파란 테두리</b> = 추천, 누르면 확정 · OFF로 확정해도 광고는 자동으로 안 꺼져요</div>`
     : stage === 'done' ? `<div class="tt-crit">판정을 확정한 소재예요 — 체크하고 <b>테스트 완료</b>를 누르면 세트 이름에서 _test를 지우고 리포트를 만들어요 · 판정을 바꾸려면 다른 버튼, 취소는 같은 버튼을 다시</div>`
     : stage === 'run' ? `<div class="tt-crit">아직 판정 전이에요 — D+${J.days}와 지출 ${won(J.spend)}을 둘 다 채우면 '판정할 차례'로 넘어가요</div>` : '';
-  return head + judgeBox + `<div class="tt-stages">${TT_STAGES.map(tile).join('')}</div>` + extra + crit + admgrTtList(rows, stage) + admgrTtBar(rows, stage);
+  return head + judgeBox + `<div class="tt-stages">${TT_STAGES.map(tile).join('')}${admgrMobile() ? '' : admgrTtWeekRate()}</div>` + extra + crit + (admgrMobile() ? admgrTtList(rows, stage) : admgrTtTable(rows, stage)) + admgrTtBar(rows, stage);
 }
 function admgrTtStage(k) { const t = admgr.test; t.stage = k; t.sel.clear(); renderAdmgr(true); }
 function admgrTtGroups(rows, stage) {   // [{ key, title, sub, rows }]
@@ -189,7 +190,7 @@ function admgrTtSide(id) {
     ${line('ROAS', a.spend ? ((a.value || 0) / a.spend).toFixed(2) : '–')}
     <div style="font-weight:800;font-size:.82rem;margin:14px 0 6px;">퍼널 — <span class="status-badge ${d.cls}">${esc(d.label)}</span></div>
     <div style="font-size:.76rem;color:#4b5563;margin-bottom:6px;">${esc(d.fix)}</div>
-    ${r ? line('노출 → 클릭 (CTR)', `${comma(a.imp)} → ${comma(a.clicks || 0)} (${pct(r.ctr)})`) + (r.ts != null ? line('3초 재생', pct(r.ts)) : '') + line('랜딩 도착', pct(r.lpvR)) + line('장바구니 → 구매', `${comma(a.atc || 0)} → ${comma(a.purchases || 0)}`) + line('빈도', (r.freq || 0).toFixed(1)) : ''}
+    ${r ? line('노출 → 클릭', `${comma(a.imp)} → ${comma(a.clicks || 0)}`) + line('CPC (클릭당 비용)', a.clicks > 0 ? won(Math.round((a.spend || 0) / a.clicks)) : '–') + (r.ts != null ? line('3초 재생', pct(r.ts)) : '') + line('랜딩 도착', pct(r.lpvR)) + line('장바구니 → 구매', `${comma(a.atc || 0)} → ${comma(a.purchases || 0)}`) + line('빈도', (r.freq || 0).toFixed(1)) : ''}
     ${admgrSparkHtml(admgrTrend(a), be && be.be) ? `<div style="margin-top:8px;">${admgrSparkHtml(admgrTrend(a), be && be.be)}</div>` : ''}
     <div style="font-weight:800;font-size:.82rem;margin:14px 0 6px;">추가소재</div>${admgrAssetCell({ ...a, st: meta.verdict === 'good' ? 'good' : a.st })}
     <div style="margin-top:6px;"><a href="#" onclick="admgrTestGoRegister('${esc(admgrProductOf(a))}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 이 상품 소재 등록하러</a></div>
@@ -197,4 +198,93 @@ function admgrTtSide(id) {
     <textarea class="inp" rows="2" style="width:100%;" placeholder="메모 (저장은 칸 밖을 누르면)" onchange="admgrTestSave('${id}',{memo:this.value||null}).then(()=>renderAdmgr(true)).catch(e=>toast('저장 실패: '+e.message))">${esc(meta.memo || '')}</textarea>
     ${c ? `<div style="margin-top:12px;"><a href="#" onclick="admgrTestCopy('${id}');return false;"><i class="fa-regular fa-pen-to-square"></i> 광고 문구 보기·수정</a></div>` : ''}</div>`;
   s.dataset.id = id; s.classList.add('show');
+}
+
+/* ═══ 데스크톱 표 (2026-10-13 2차 — "예전 표가 보기 편했다") ═══
+   예전처럼 열을 펼친 표 + 새 흐름(단계·추천·🏆·업로드 날짜). 폰은 위 카드 목록(admgrTtList) 그대로.
+   열 켜고 끄기: 퍼널·ROAS 추세·추가소재·메모 (ls adc_tt_cols) · 열 제목 누르면 정렬 (상품 묶음 안에서) */
+const TT_OPT_COLS = [['funnel', '퍼널 진단'], ['roas', 'ROAS · 7일 추세'], ['asset', '추가소재'], ['memo', '메모']];
+function admgrTtCols() { const c = lsGet('adc_tt_cols', null); return Object.assign({ funnel: true, roas: true, asset: false, memo: false }, c || {}); }   // 추가소재·메모는 기본 끔 — 이름 아래 한 줄로 보이고, 넓은 화면이면 '열'에서 켜기
+function admgrTtColToggle(k) { const c = admgrTtCols(); c[k] = !c[k]; lsSet('adc_tt_cols', c); renderAdmgr(true); }
+function admgrTtSort(k) { const t = admgr.test, s = t.sort2 || {}; t.sort2 = s.k === k ? (s.dir === 1 ? { k, dir: -1 } : {}) : { k, dir: 1 }; renderAdmgr(true); }
+const TT_SORT = { name: a => admgrTtShort(a), reg: a => a.reg_date || '', spend: a => a.spend || 0, purch: a => a.purchases || 0,
+  cpa: a => (a.purchases ? a.spend / a.purchases : 1e12), roas: a => (a.spend ? (a.value || 0) / a.spend : 0) };
+/* 일별 구매당비용 — 누적 스냅샷 차이로 하루씩 (D+ 기준). 마지막 칸은 오늘 지금까지 */
+function admgrCpaDaily(a) {
+  const L = ((admgr.test.trend && admgr.test.trend.get(a.id)) || []).slice().sort((x, y) => String(x.day).localeCompare(String(y.day)));
+  const pts = L.map(r => ({ day: r.day, spend: +r.spend || 0, purchases: +r.purchases || 0 }));
+  if (!pts.length || pts[pts.length - 1].day !== todayStr(0)) pts.push({ day: todayStr(0), spend: a.spend || 0, purchases: a.purchases || 0 });
+  else pts[pts.length - 1] = { day: todayStr(0), spend: a.spend || 0, purchases: a.purchases || 0 };
+  const out = []; let prev = a.reg_date && pts[0].day > a.reg_date ? null : { spend: 0, purchases: 0 };
+  for (const p of pts) { if (prev) { const sp = p.spend - prev.spend, pu = p.purchases - prev.purchases; out.push({ day: p.day, dp: a.reg_date ? daysBetween(a.reg_date, p.day) : null, spend: sp, purchases: pu, cpa: pu > 0 ? sp / pu : null }); } prev = p; }
+  return out.slice(-7);
+}
+function admgrCpaChart(a, m) {   // 마우스 올리면 뜨는 작은 막대 — 높이 = 그날 구매당비용, 초록 = 마진 60% 이하, 빨강 = 마진 초과
+  const D = admgrCpaDaily(a); if (D.length < 2) return '';
+  const max = Math.max(...D.map(d => d.cpa || 0), m || 0) || 1, J = admgrTJudge;
+  return `<div class="tt-pop"><div style="font-weight:800;margin-bottom:6px;">하루별 구매당비용</div><div class="tt-pop-bars">${D.map(d => { const h = d.cpa ? Math.max(4, d.cpa / max * 60) : 2;
+    const col = d.cpa == null ? '#e5e7eb' : !m ? '#818cf8' : d.cpa <= m * J.goodCpa ? '#22c55e' : d.cpa <= m ? '#f59e0b' : '#ef4444';
+    return `<div><span>${d.cpa ? (d.cpa / 10000).toFixed(1) + '만' : d.spend > 0 ? '구매0' : '–'}</span><i style="height:${h}px;background:${col};"></i><small>${d.dp != null ? 'D+' + d.dp : fmtMD(d.day)}</small></div>`; }).join('')}</div>
+    ${m ? `<div style="color:#6b7280;margin-top:4px;">마진 ${won(Math.round(m))} · 우수선 ${won(Math.round(m * J.goodCpa))}</div>` : ''}</div>`;
+}
+/* 단계 카드 숫자 + 이번 주 우수율 */
+function admgrTtStageNums(L, k) {
+  const sp = L.reduce((s, a) => s + (a.spend || 0), 0), pu = L.reduce((s, a) => s + (a.purchases || 0), 0);
+  let extra = '';
+  if (k === 'judge') { const r = L.map(a => (admgrRecommend(a) || {}).k); extra = ` · <span style="color:#16a34a;">우수 추천 ${r.filter(x => x === 'good').length}</span> · <span style="color:#dc2626;">OFF ${r.filter(x => x === 'off').length}</span>`; }
+  if (k === 'done') { const v = L.map(a => a.meta.verdict); extra = ` · <span style="color:#16a34a;">우수 ${v.filter(x => x === 'good').length}</span> · 애매 ${v.filter(x => x === 'meh').length} · <span style="color:#dc2626;">OFF ${v.filter(x => x === 'off').length}</span>`; }
+  return `<span class="tt-sn">지출 ${won(sp)} · 구매 ${comma(pu)}${pu ? ' · 구매당 ' + won(Math.round(sp / pu)) : ''}${extra}</span>`;
+}
+function admgrTtWeekRate() {   // 판정 시각 기준 최근 7일 vs 그 전 7일 — 우수 ÷ (우수+애매+OFF)
+  const t = admgr.test, today = todayStr(0), w1 = admgrShiftDay(today, -6), w0 = admgrShiftDay(today, -13);
+  const c = { cur: [0, 0], prev: [0, 0] };
+  t.state.forEach(m => { if (!m.verdict || !m.verdict_at) return; const d = String(m.verdict_at).slice(0, 10); const k = d >= w1 ? 'cur' : d >= w0 ? 'prev' : null; if (!k) return; c[k][1]++; if (m.verdict === 'good') c[k][0]++; });
+  const pct = x => (x[1] ? Math.round(x[0] / x[1] * 100) : null);
+  const p = pct(c.cur), q = pct(c.prev);
+  return `<div class="tt-stage tt-rate"><span class="t">이번 주 우수율</span><b>${p == null ? '–' : p + '%'}</b><small>판정 ${c.cur[1]}개 중 우수 ${c.cur[0]}${q != null ? ` · 지난주 ${q}%${p != null ? (p > q ? ' <span style="color:#16a34a;">▲</span>' : p < q ? ' <span style="color:#dc2626;">▼</span>' : '') : ''}` : ''}</small></div>`;
+}
+function admgrTtTable(rows, stage) {
+  const t = admgr.test, C = admgrTtCols(), s2 = t.sort2 || {};
+  if (!rows.length) return admgrTtList(rows, stage);
+  const all = ((t.data || {}).ads || []).map(x => ({ ...x, meta: t.state.get(x.id) || {} })).filter(x => !x.meta.hidden);
+  const base = admgrFunnelBase(all);
+  const th = (k, label, cls) => `<th class="${cls || ''} sortable" onclick="admgrTtSort('${k}')" style="cursor:pointer;">${label}${s2.k === k ? (s2.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+  const cols = [`<col style="width:30px;">`, `<col>`, `<col style="width:${stage === 'run' ? 130 : 176}px;">`, C.funnel ? '<col style="width:110px;">' : '', '<col style="width:86px;">', '<col style="width:48px;">', '<col style="width:120px;">', C.roas ? '<col style="width:84px;">' : '', C.asset ? '<col style="width:74px;">' : '', C.memo ? '<col style="width:96px;">' : ''].join('');
+  const head = `<tr><th class="ctr"><input type="checkbox" ${rows.every(a => t.sel.has(a.id)) ? 'checked' : ''} onclick="admgrTtSelAll(${rows.every(a => t.sel.has(a.id)) ? 'false' : 'true'})"></th>
+    ${th('name', '소재 · 업로드', 'tl')}<th class="ctr">${stage === 'run' ? '판정까지' : '판정 (추천 → 확정)'}</th>${C.funnel ? '<th class="tl">퍼널 진단</th>' : ''}
+    ${th('spend', '지출', 'num')}${th('purch', '구매', 'num')}${th('cpa', '구매당비용', 'num')}${C.roas ? th('roas', 'ROAS', 'num') : ''}${C.asset ? '<th class="ctr">추가소재</th>' : ''}${C.memo ? '<th class="tl">메모</th>' : ''}</tr>`;
+  const row = a => {
+    const dp = admgrDPlus(a), thb = (t.thumbs || {})[a.id], src = thb && thb !== '-' ? thb : '', rec = admgrRecommend(a), be = admgrBreakEven(a);
+    const maker = MAKER_NAMES[admgrMakerOf(a.id, a.adset_id, a.adset_name)] || '';
+    const badge = a.st === 'review' ? ' <span class="status-badge badge-orange">검토중</span>' : a.st === 'rejected' ? ' <span class="status-badge badge-red">거부</span>' : a.effective_status !== 'ACTIVE' && !a.gone ? ' <span class="status-badge badge-gray" title="Meta에서 꺼져 있어요">꺼짐</span>' : '';
+    let judge;
+    if (stage === 'run') { const lD = Math.max(0, admgrTJudge.days - (dp ?? 0)), lW = Math.max(0, admgrTJudge.spend - (a.spend || 0));
+      judge = `<div class="tt-prog"><span>${lD ? lD + '일' : ''}${lD && lW ? ' · ' : ''}${lW ? won(Math.round(lW / 1000) * 1000) : ''} 남음</span><div><i style="width:${Math.min(100, (a.spend || 0) / admgrTJudge.spend * 100)}%;"></i></div></div>`; }
+    else if (stage === 'hidden') judge = '';
+    else judge = `${rec && rec.k !== 'watch' ? `<span class="status-badge ${rec.k === 'good' ? 'badge-green' : rec.k === 'off' ? 'badge-red' : 'badge-yellow'}" style="margin-bottom:3px;" title="${esc(rec.why)}">▶ ${rec.label}</span>` : ''}${admgrTtVerdictBtns(a, rec)}<div class="tt-why">${rec ? esc(rec.why) : a.meta.verdict_at ? fmtMD(String(a.meta.verdict_at).slice(0, 10)) + ' 확정' : ''}</div>`;
+    return `<tr class="${t.sel.has(a.id) ? 'sel' : ''}">
+      <td class="ctr" onclick="event.stopPropagation()"><input type="checkbox" ${t.sel.has(a.id) ? 'checked' : ''} onchange="admgrTestSel('${a.id}')"></td>
+      <td><div class="tt-ad"><span class="tt-th" onclick="showMetaPreview('${a.id}')" title="미리보기">${src ? `<img src="${esc(src)}" loading="lazy">` : ''}</span>
+        <div style="min-width:0;cursor:pointer;" onclick="admgrTtSide('${a.id}')" title="상세 보기"><div class="tt-nm">${a.win ? '<span title="같은 상품 중 구매당비용 1등">🏆</span> ' : ''}${esc(admgrTtShort(a))}${badge}</div>
+        <div class="tt-sub">${[a.reg_date ? fmtMD(a.reg_date) + ' 업로드' : '', dp == null ? '' : 'D+' + dp, maker].filter(Boolean).map(esc).join(' · ')}${!C.memo && a.meta.memo ? ` · <i class="fa-regular fa-note-sticky"></i> ${esc(a.meta.memo)}` : ''}${!C.asset && a.meta.asset_req_at ? ` · <span style="color:#7c3aed;">${a.meta.asset_done_at ? '추가소재 제작완료' : '추가소재 요청됨'}</span>` : ''}</div></div></div></td>
+      <td class="ctr">${judge}</td>
+      ${C.funnel ? `<td>${admgrFunnelCell(a, base)}</td>` : ''}
+      <td class="num"><b>${won(a.spend || 0)}</b></td><td class="num">${comma(a.purchases || 0)}</td>
+      <td class="num tt-cpa-td">${admgrTtCpa(a)}${admgrCpaChart(a, be && be.margin)}</td>
+      ${C.roas ? `<td class="num">${admgrRoasTd(a)}${admgrSparkHtml(admgrTrend(a), be && be.be)}</td>` : ''}
+      ${C.asset ? `<td class="ctr">${admgrAssetCell({ ...a, st: a.meta.verdict === 'good' ? 'good' : a.st })}</td>` : ''}
+      ${C.memo ? `<td class="ell" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="${a.meta.memo ? esc(a.meta.memo) + ' — 클릭해서 수정' : '클릭해서 메모'}" style="cursor:text;font-size:.72rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '메모…'}</td>` : ''}</tr>`;
+  };
+  const nCol = 7 + ['funnel', 'roas', 'asset', 'memo'].filter(k => C[k]).length;
+  const collapsed = t.collapsed || (t.collapsed = new Set());
+  const body = admgrTtGroups(rows, stage).map(g => {
+    const L = s2.k ? g.rows.slice().sort((x, y) => { const f = TT_SORT[s2.k], p = f(x), q = f(y); return (p < q ? -1 : p > q ? 1 : 0) * s2.dir; }) : g.rows;
+    const open = !collapsed.has(g.key), sp = L.reduce((s0, a) => s0 + (a.spend || 0), 0), pu = L.reduce((s0, a) => s0 + (a.purchases || 0), 0), va = L.reduce((s0, a) => s0 + (a.value || 0), 0);
+    return `<tr class="tt-gr" onclick="admgrTestGroupCollapse('${esc(g.key)}')"><td class="ctr"><i class="fa-solid fa-chevron-${open ? 'down' : 'right'}"></i></td>
+      <td colspan="${C.funnel ? 3 : 2}"><b>${esc(g.title)}</b> <span>${g.sub.replace(/ · 지출 .*?건/, '')}</span>${stage === 'done' && g.rows.some(a => a.meta.verdict === 'good') ? ` <a href="#" onclick="event.stopPropagation();admgrTestGoRegister('${esc(g.title)}');return false;"><i class="fa-solid fa-cloud-arrow-up"></i> 추가소재 등록</a>` : ''}</td>
+      <td class="num"><b>${won(sp)}</b></td><td class="num"><b>${comma(pu)}</b></td><td class="num"><b>${pu ? won(Math.round(sp / pu)) : '–'}</b></td>${C.roas ? `<td class="num"><b>${sp ? (va / sp).toFixed(2) : '–'}</b></td>` : ''}${C.asset ? '<td></td>' : ''}${C.memo ? '<td></td>' : ''}</tr>`
+      + (open ? L.map(row).join('') : '');
+  }).join('');
+  return `<div class="tt-table"><table><colgroup>${cols}</colgroup><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    <p style="font-size:.72rem;color:#9ca3af;margin-top:6px;">썸네일 = 미리보기 · 이름 = 상세 패널 · 구매당비용에 마우스 = 하루별 그래프 · 열 제목 = 정렬 · 상품 줄 = 접기 · 퍼널 진단에 마우스 = 숫자</p>`;
 }

@@ -888,3 +888,29 @@ summary::-webkit-details-marker { display: none; }
   .tt-num { text-align: left; } .tt-num i { display: block; font-size: .62rem; color: #9ca3af; }
   .tt-info { width: 100%; }
 }
+/* 2차: 데스크톱 표·단계 숫자·우수율·하루별 그래프 */
+.tt-stages { grid-template-columns: repeat(3, 1fr) 200px; }
+.tt-sn { display: block; font-size: .72rem; color: #374151; margin: 2px 0 3px; font-weight: 600; }
+.tt-rate { cursor: default; background: #fafbff; }
+.tt-table { border: 1px solid #e7e8ee; border-radius: 12px; overflow: visible; }
+.tt-table table { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: .78rem; }
+.tt-table th { font-size: .7rem; color: #6b7280; font-weight: 600; padding: 8px 6px; background: #fafbfc; border-bottom: 1px solid #eef0f4; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+#sec-admgr .tt-table tbody td, #sec-admgr .tt-table th { text-align: left !important; white-space: normal; padding: 7px 6px; }   /* 광고관리자 표 기본(오른쪽 정렬 :not 체인)보다 우선 */
+.tt-table td { padding: 7px 6px; border-top: 1px solid #f3f4f6; vertical-align: middle; }
+.tt-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#sec-admgr .tt-table tbody td.ctr, #sec-admgr .tt-table th.ctr { text-align: center !important; } #sec-admgr .tt-table tbody td.num, #sec-admgr .tt-table th.num { text-align: right !important; white-space: nowrap; }
+#sec-admgr .tt-table .tt-nm { white-space: normal; }
+.tt-table .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-table tr.sel td { background: #f5f7ff; }
+.tt-table tr.tt-gr td { background: #f8fafc; cursor: pointer; border-top: 1px solid #e7e8ee; color: #1e1b4b; }
+.tt-table tr.tt-gr span { font-size: .72rem; color: #6b7280; margin-left: 4px; } .tt-table tr.tt-gr a { font-size: .72rem; margin-left: 8px; }
+.tt-table .tt-vb button { padding: 3px 8px; font-size: .7rem; }
+.tt-table .status-badge { font-size: .62rem; padding: 1px 6px; }
+.tt-cpa-td { position: relative; cursor: help; }
+.tt-pop { display: none; position: absolute; right: 0; top: 100%; z-index: 20; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.12); padding: 10px 12px; font-size: .7rem; text-align: left; white-space: nowrap; }
+.tt-cpa-td:hover .tt-pop { display: block; }
+.tt-pop-bars { display: flex; align-items: flex-end; gap: 8px; height: 92px; }
+.tt-pop-bars div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; height: 100%; min-width: 34px; }
+.tt-pop-bars i { display: block; width: 20px; border-radius: 3px 3px 0 0; }
+.tt-pop-bars small { color: #9ca3af; font-size: .62rem; }
+@media (max-width: 1100px) { .tt-stages { grid-template-columns: repeat(3, 1fr); } .tt-rate { display: none; } }
