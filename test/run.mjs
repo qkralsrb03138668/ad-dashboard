@@ -281,15 +281,40 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
-test('admgrRecommend: 상품 마진 손익분기 ROAS 기준 + 표본 부족', () => {
-  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);   // 마진 28,000 → 손익분기 1.79, 우수 2.68↑
-  const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: '2026-01-01', st: 'eval', spend: 50000, purchases: m.pur, value: m.val });
-  const f = g('admgrRecommend');
-  assert.equal(f(ad({ pur: 2, val: 80000 })).k, 'off');                                  // ROAS 1.6 < 1.79 (고정 기준 1이면 애매였을 것)
-  const s = f(ad({ pur: 2, val: 150000 })); assert.equal(s.k + ':' + s.label, 'wait:표본 부족');   // ROAS 3.0 ≥ 2.68 이지만 구매 2 < 5
-  assert.equal(f(ad({ pur: 6, val: 150000 })).k, 'good');
-  assert.ok(Math.abs(f(ad({ pur: 6, val: 150000 })).be - 1.786) < 0.01);
-  assert.equal(f(ad({ set: '없는상품_R1_test', pur: 2, val: 80000 })).k, 'wait');           // 미매칭 → 고정 기준(OFF<1, 우수≥3)
+test('admgrRecommend: D+2·지출 3만부터, 우수 = 구매 3↑ & 구매당 ≤ 마진 60%, OFF = 구매당 > 마진 (2026-10-13 기준)', () => {
+  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT };", ctx);   // 마진 28,000 → 우수선 16,800
+  const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: m.reg || '2026-01-01', st: 'eval', meta: m.meta || {}, spend: m.sp ?? 50000, purchases: m.pur, value: m.pur * 50000 });
+  const k = m => g('admgrRecommend')(ad(m)).k;
+  assert.equal(k({ pur: 1 }), 'off');                       // 구매당 5만 > 마진 2.8만
+  assert.equal(k({ pur: 0 }), 'off');                       // 마진만큼 쓰고 구매 0
+  assert.equal(k({ pur: 3 }), 'good');                      // 구매당 16,667 ≤ 16,800
+  assert.equal(k({ pur: 2 }), 'wait');                      // 구매당 2.5만 — 60~100%
+  const s = g('admgrRecommend')(ad({ sp: 30000, pur: 2 })); assert.equal(s.k + ':' + !!s.sample, 'wait:true');   // 구매당 1.5만으로 좋지만 2건
+  assert.equal(k({ pur: 3, sp: 20000 }), 'watch');          // 지출 3만 전
+  assert.equal(k({ pur: 3, reg: g('todayStr')(-1) }), 'watch');   // D+1
+  assert.equal(g('admgrRecommend')(ad({ pur: 3, meta: { verdict: 'off' } })), null);   // 확정한 건 추천 안 함
+  assert.equal(k({ set: '없는상품_R1_test', pur: 3 }), 'good');   // 미매칭 → ROAS 3 ≥ 3 & 구매 3 (고정 기준)
+});
+
+test('admgrTestStage: 테스트 중 → 판정할 차례 → 판정 끝, OFF 판정은 상태만 (광고 상태 무관)', () => {
+  const f = g('admgrTestStage'), st = g('admgrTestStatusOf');
+  const mk = (o) => { const a = { id: '1', reg_date: '2026-01-01', spend: 40000, purchases: 1, effective_status: 'ACTIVE', ...o }; a.meta = o.meta || {}; a.st = st(a, a.meta); return a; };
+  assert.equal(f(mk({ reg_date: g('todayStr')(0) })), 'run');
+  assert.equal(f(mk({ spend: 10000 })), 'run');
+  assert.equal(f(mk({})), 'judge');
+  assert.equal(f(mk({ spend: 10000, effective_status: 'PAUSED' })), 'judge');   // 기준 전에 직접 끈 것도 판정 대상
+  const off = mk({ meta: { verdict: 'off' } });
+  assert.equal(f(off) + ':' + off.st + ':' + off.effective_status, 'done:off:ACTIVE');
+  assert.equal(f(mk({ gone: true, meta: { verdict: 'good' } })), 'gone');
+  assert.equal(f(mk({ meta: { hidden: true } })), 'hidden');
+});
+
+test('admgrFmtOf: 세트명에서 형식·릴스/이미지', () => {
+  const f = n => { const r = g('admgrFmtOf')(n); return r.fmt + ':' + r.kind; };
+  assert.equal(f('피넛 프릴 블라우스_P2_다나대표_26_261012_test'), '다나대표:이미지');
+  assert.equal(f('헤이 나그랑 맨투맨 원피스_R3_착용컷_22_260929_test'), '착용컷:릴스');
+  assert.equal(f('로렌 루즈핏 케이블 가디건_인스타게시물_26_261012_test'), '인스타게시물:');
+  assert.equal(f('상품명_260901_test'), '기타:');
 });
 
 test('admgrFunnelDiag: 중앙값 기준 후크·클릭·랜딩·장바구니·상세 진단', () => {

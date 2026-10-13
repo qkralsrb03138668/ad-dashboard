@@ -128,7 +128,7 @@ function sanitizeState(r: Record<string, unknown>): Record<string, unknown> | nu
   const adId = String(r.ad_id ?? "");
   if (!/^\d{5,25}$/.test(adId)) return null;
   const iso = (v: unknown) => { const s = v == null ? "" : String(v); return s && !isNaN(new Date(s).getTime()) ? new Date(s).toISOString() : null; };
-  const verdict = r.verdict === "good" || r.verdict === "meh" ? r.verdict : null;
+  const verdict = r.verdict === "good" || r.verdict === "meh" || r.verdict === "off" ? r.verdict : null;   // off = 판정만 (광고 상태는 안 바꿈)
   return {
     ad_id: adId,
     ad_name: String(r.ad_name ?? "").slice(0, 300),
