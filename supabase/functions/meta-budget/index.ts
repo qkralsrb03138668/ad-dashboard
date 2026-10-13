@@ -272,9 +272,12 @@ Deno.serve(async (req) => {
     // 오늘 23:45 원복 승인 등록 (PIN) — 같은 날 기존 승인은 교체. 취소는 기존 cancel 액션(id)
     if (action === "approve_reset") {
       const day = seoulToday();
+      // base=now (2026-10-14 사용자 요청): 지금 세팅된 예산을 오늘 시작 예산으로 다시 기록하고 승인 — 23:45에 00:10 값이 아니라 지금 값으로 돌아간다
+      const baseNow = body.base === "now";
+      if (baseNow) await snapshotDayStart(false);
       await pg(`budget_writes?mode=eq.reset_approve&status=eq.pending&apply_date=eq.${day}`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
       const rows = (await pg("budget_writes", "POST", {
-        object_id: "*", object_name: "23:45 시작 예산 원복 승인", level: "adset",
+        object_id: "*", object_name: baseNow ? "23:45 원복 승인 (지금 예산 기준)" : "23:45 시작 예산 원복 승인", level: "adset",
         old_budget: null, new_budget: 0, mode: "reset_approve", apply_date: day, status: "pending", requested_by: who,
       })) as Record<string, unknown>[];
       return json({ ok: true, id: rows?.[0]?.id, apply_date: day });

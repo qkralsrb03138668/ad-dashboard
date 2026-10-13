@@ -201,13 +201,14 @@ function admgrMidItems() {   // 23:45 세팅 메뉴 항목 — PC 23:45 세팅 �
     : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:45 반영 세팅 시작 — 예산을 클릭해 23:45에 반영될 금액을 입력하세요')")
     : agItem('fa-clock', '23:45 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:45 반영으로 저장돼요');
   return `${mid}
+    ${w.resetRow ? '' : agItem('fa-camera-rotate', '지금 예산 기준으로 23:45 원복 승인', "admgrResetApprove('now')", '지금 세팅된 예산을 오늘 시작 예산으로 기록하고, 23:45에 그 값으로 돌아가요')}
     ${w.resetRow ? agItem('fa-xmark', '원복 승인 취소', 'admgrResetApprove()', '오늘 23:45에 시작 예산으로 돌아가지 않아요') : agItem('fa-arrow-rotate-left', '23:45 원복 승인', 'admgrResetApprove()', '오늘 23:45에 모든 세트를 하루 시작 예산(00:10 기록)으로')}
     ${agItem('fa-list', `예약 목록${npend ? ` (${npend})` : ''}`, 'admgrMidList()')}`;
 }
 function admgrMidMenu(ev) { admgrPopAt(ev, `<div class="ag-menu">${admgrMidItems()}</div>`, 300); }
-async function admgrResetApprove() {
+async function admgrResetApprove(base) {   // base='now': 지금 예산을 시작 예산으로 기록한 뒤 승인 (2026-10-14)
   const w = admgr.write;
-  if (!w.pin) { admgrPinPrompt(admgrResetApprove); return; }
+  if (!w.pin) { admgrPinPrompt(() => admgrResetApprove(base)); return; }
   try {
     if (w.resetRow) {
       await metaBudgetCall({ action: 'cancel' }, { id: w.resetRow.id, pin: w.pin });
@@ -215,8 +216,8 @@ async function admgrResetApprove() {
     } else {
       const now = new Date(); const hm = now.getHours() * 60 + now.getMinutes();
       if (hm >= 23 * 60 + 45) { toast('오늘 23:45는 이미 지났어요 — 내일 다시 승인해 주세요'); return; }
-      await metaBudgetCall({ action: 'approve_reset' }, { pin: w.pin });
-      toast('승인 완료 — 오늘 23:45에 모든 광고세트가 하루 시작 예산으로 돌아가요');
+      await metaBudgetCall({ action: 'approve_reset' }, { pin: w.pin, base: base || undefined });
+      toast(base === 'now' ? '승인 완료 — 지금 예산을 시작 예산으로 기록했고, 오늘 23:45에 그 값으로 돌아가요' : '승인 완료 — 오늘 23:45에 모든 광고세트가 하루 시작 예산으로 돌아가요');
     }
     await admgrWritePending();
   } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('실패: ' + e.message); }
