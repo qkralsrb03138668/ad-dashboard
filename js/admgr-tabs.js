@@ -822,7 +822,7 @@ async function admgrEndReportMake(sets) {
       try { const r = await metaGet({ action: 'creatives', set_ids: need.slice(i, i + 100).join(',') }); (r.ads || []).forEach(x => { thumbs[x.id] = x.image || x.thumb || ''; }); } catch (e) { /* 썸네일 없이도 리포트는 만든다 */ }
     }
     const rows = ads.map(a => { const r = admgrEndResult(a, base), set = ids.get(String(a.adset_id)) || a.adset_name;
-      return { id: a.id, set, prod: admgrProductOf({ adset_name: set }), dp: admgrDPlus(a), reg: a.reg_date || '', ...admgrFmtOf(set), maker: MAKER_NAMES[admgrMakerOf(a.id, a.adset_id, a.adset_name)] || '',
+      return { id: a.id, set, prod: admgrProductOf({ adset_name: set }), dp: admgrDPlus(a), reg: a.reg_date || '', ...admgrFmtOf(set), maker: MAKER_NAMES[admgrMakerOf(a.id, a.adset_id, a.adset_name)] || '', margin: (admgrBreakEven(a) || {}).margin || null,
         spend: Math.round(a.spend || 0), purch: a.purchases || 0, value: Math.round(a.value || 0), thumb: thumbs[a.id] || '', ...r }; })
       .sort((x, y) => x.prod.localeCompare(y.prod, 'ko') || (x.purch ? x.spend / x.purch : 1e12) - (y.purch ? y.spend / y.purch : 1e12));
     const cnt = new Map(); rows.forEach(r => cnt.set(r.prod, (cnt.get(r.prod) || 0) + 1));
@@ -856,7 +856,7 @@ function admgrEndReportSum(rec) {
   const R = rec.rows, n = k => R.filter(r => r.res === k).length;
   const sp = R.reduce((s, r) => s + r.spend, 0), pu = R.reduce((s, r) => s + r.purch, 0), va = R.reduce((s, r) => s + r.value, 0);
   const groupBy = (L, f) => { const m = new Map(); L.forEach(r => { const k = f(r); (m.get(k) || m.set(k, []).get(k)).push(r); }); return [...m.entries()]; };
-  const goodProds = groupBy(R.filter(r => r.res === 'good'), r => r.prod);
+  const goodProds = groupBy(R.filter(r => r.res === 'good'), r => r.prod).sort((x, y) => y[1].length - x[1].length);   // 우수 많은 상품부터
   const fmts = groupBy(R.filter(r => r.fmt), r => r.fmt).map(([f, L]) => { const s0 = L.reduce((s, r) => s + r.spend, 0), p0 = L.reduce((s, r) => s + r.purch, 0);
     return { fmt: f, n: L.length, good: L.filter(r => r.res === 'good').length, cpa: p0 ? s0 / p0 : null }; }).sort((x, y) => (y.good / y.n) - (x.good / x.n) || (x.cpa ?? 1e12) - (y.cpa ?? 1e12));
   const todo = [
@@ -869,31 +869,48 @@ function admgrEndReportSum(rec) {
   const lead = R.length ? `이번 테스트 ${R.length}개 중 ${n('good') ? `${n('good')}개가 우수예요` : '우수는 없어요'}.${goodProds.length ? ` ${jo(goodProds.slice(0, 2).map(x => x[0]).join(', '), '은', '는')} 소재를 더 만들면 좋아요.` : ''}${fmts.length > 1 && fmts[0].good ? ` 형식은 ${jo(fmts[0].fmt, '이', '가')} 제일 잘됐어요.` : ''}` : '';
   return { n: { good: n('good'), meh: n('meh'), off: n('off'), thin: n('thin') }, sp, pu, va, roas: sp ? va / sp : 0, todo, fmts, lead };
 }
-function admgrEndReportHtml(rec) {
-  const S = admgrEndReportSum(rec), R = rec.rows;
-  const pill = k => { const [l, c, bg] = ADMGR_END_RES[k]; return `<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:.7rem;font-weight:800;color:${c};background:${bg};">${l}</span>`; };
+function admgrEndReportHtml(rec) {   // 표 형식 (2026-10-13 3차) — 인쇄·PDF iframe에도 그대로 들어가므로 스타일은 전부 인라인
+  const S = admgrEndReportSum(rec), R = rec.rows, J = admgrTJudge;
+  const pill = k => { const [l, c, bg] = ADMGR_END_RES[k]; return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:800;color:${c};background:${bg};white-space:nowrap;">${l}</span>`; };
   const man = v => v >= 10000 ? (v / 10000).toFixed(v >= 100000 ? 0 : 1).replace(/\.0$/, '') + '만원' : won(Math.round(v));
   const kpi = (label, val) => `<div style="background:#f8fafc;border:1px solid #e7e8ee;border-radius:12px;padding:10px 12px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><b style="font-size:1.15rem;color:#1e1b4b;">${val}</b></div>`;
-  const card = r => `<div style="border:1px solid #e7e8ee;border-radius:12px;overflow:hidden;background:#fff;">
-      <div style="aspect-ratio:1;background:#f3f4f6;">${r.thumb ? `<img src="${esc(r.thumb)}" style="width:100%;height:100%;object-fit:cover;display:block;" />` : ''}</div>
-      <div style="padding:8px 10px;font-size:.74rem;line-height:1.5;">${pill(r.res)}${r.win ? ' 🏆' : ''}<b style="display:block;font-size:.76rem;color:#1f2937;margin:4px 0 2px;word-break:break-all;">${esc(r.set)}</b>
-        ${[r.reg ? fmtMD(r.reg) + ' 업로드' : '', r.fmt && r.fmt !== '기타' ? r.fmt : '', r.kind, r.maker].filter(Boolean).map(esc).join(' · ')}<br>
-        <b>${comma(r.purch)}장</b> 팔림 · 한 장 팔 때 광고비 <b>${r.purch ? man(r.spend / r.purch) : '–'}</b>
-        <div style="color:${r.res === 'good' ? '#166534' : '#6b7280'};margin-top:2px;">${esc(ADMGR_EASY[r.diagK] || r.diag || '')}</div></div></div>`;
-  const grid = L => L.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;">${L.map(card).join('')}</div>` : '<div style="font-size:.8rem;color:#9ca3af;">없음</div>';
-  const h3 = t => `<div style="font-size:.95rem;font-weight:800;color:#111827;margin:20px 0 8px;">${t}</div>`;
-  const fmtRows = S.fmts.length > 1 ? h3('🎬 어떤 형식이 잘됐나') + `<div style="border:1px solid #e7e8ee;border-radius:12px;padding:6px 12px;">${S.fmts.map(f => `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed #f1f2f6;font-size:.84rem;">
-      <b style="width:110px;">${esc(f.fmt)}</b><span style="flex:1;height:8px;background:#f3f4f6;border-radius:9px;overflow:hidden;"><i style="display:block;height:100%;width:${Math.round(f.good / f.n * 100)}%;background:#22c55e;"></i></span>
-      <span style="width:150px;text-align:right;">우수 <b>${f.good}</b>/${f.n}${f.cpa ? ` · 한 장 ${man(f.cpa)}` : ''}</span></div>`).join('')}</div>` : '';
+  const h3 = (t, sub) => `<div style="font-size:.95rem;font-weight:800;color:#111827;margin:20px 0 8px;">${t}${sub ? `<span style="font-size:.72rem;color:#6b7280;font-weight:600;margin-left:8px;">${sub}</span>` : ''}</div>`;
+  const TH = 'padding:7px 8px;font-size:.7rem;color:#6b7280;font-weight:600;background:#fafbfc;border-bottom:1px solid #e7e8ee;white-space:nowrap;';
+  const TD = 'padding:7px 8px;border-top:1px solid #f1f2f6;vertical-align:middle;font-size:.78rem;text-align:left;';
+  const N = TD + 'text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
+  const cpaCell = r => { if (!r.purch) return '<span style="color:#9ca3af;">–</span>'; const c = r.spend / r.purch;
+    const col = !r.margin ? '#374151' : c <= r.margin * J.goodCpa ? '#15803d' : c <= r.margin ? '#b45309' : '#dc2626';
+    return `<b style="color:${col};">${won(Math.round(c))}</b>${r.margin ? `<div style="font-size:.64rem;color:#9ca3af;">마진의 ${Math.round(c / r.margin * 100)}%</div>` : ''}`; };
+  // 상품별 묶음 — 우수가 있는 상품 먼저, 같은 상품 안에서는 구매당비용 순 (rows가 이미 그 순서)
+  const prods = []; R.forEach(r => { let g = prods.find(x => x.name === r.prod); if (!g) prods.push(g = { name: r.prod, rows: [] }); g.rows.push(r); });
+  prods.sort((x, y) => y.rows.filter(r => r.res === 'good').length - x.rows.filter(r => r.res === 'good').length || x.name.localeCompare(y.name, 'ko'));
+  const row = r => `<tr>
+      <td style="${TD}"><div style="display:flex;gap:8px;align-items:center;"><div style="width:40px;height:40px;flex:none;border-radius:6px;background:#f3f4f6;overflow:hidden;">${r.thumb ? `<img src="${esc(r.thumb)}" style="width:100%;height:100%;object-fit:cover;display:block;" />` : ''}</div>
+        <div style="min-width:0;"><div style="font-weight:700;color:#1f2937;word-break:break-all;line-height:1.35;">${r.win ? '🏆 ' : ''}${esc(r.set.replace(r.prod, '').replace(/^_/, '') || r.set)}</div>
+        <div style="font-size:.66rem;color:#9ca3af;">${[r.reg ? fmtMD(r.reg) + ' 업로드' : '', r.fmt && r.fmt !== '기타' ? r.fmt : '', r.kind, r.maker].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
+      <td style="${TD}text-align:center;">${pill(r.res)}</td>
+      <td style="${N}">${won(r.spend)}</td><td style="${N}"><b>${comma(r.purch)}</b>장</td><td style="${N}">${cpaCell(r)}</td>
+      <td style="${N}">${r.spend ? (r.value / r.spend).toFixed(2) : '–'}</td>
+      <td style="${TD}color:${r.res === 'good' ? '#166534' : r.res === 'off' ? '#b91c1c' : '#4b5563'};">${esc(ADMGR_EASY[r.diagK] || r.diag || '–')}</td></tr>`;
+  const grpRow = g => { const sp = g.rows.reduce((s, r) => s + r.spend, 0), pu = g.rows.reduce((s, r) => s + r.purch, 0), va = g.rows.reduce((s, r) => s + r.value, 0), ng = g.rows.filter(r => r.res === 'good').length;
+    return `<tr style="background:#f8fafc;"><td style="${TD}font-weight:800;color:#1e1b4b;" colspan="2">${esc(g.name)} <span style="font-weight:600;color:#6b7280;font-size:.7rem;">${g.rows.length}개${ng ? ` · 우수 ${ng}` : ''}</span></td>
+      <td style="${N}font-weight:700;">${won(sp)}</td><td style="${N}font-weight:700;">${comma(pu)}장</td><td style="${N}font-weight:700;">${pu ? won(Math.round(sp / pu)) : '–'}</td><td style="${N}font-weight:700;">${sp ? (va / sp).toFixed(2) : '–'}</td><td style="${TD}"></td></tr>`; };
+  const table = `<div style="border:1px solid #e7e8ee;border-radius:12px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;">
+    <thead><tr><th style="${TH}text-align:left;">소재</th><th style="${TH}">결과</th><th style="${TH}text-align:right;">광고비</th><th style="${TH}text-align:right;">팔린 수</th><th style="${TH}text-align:right;">한 장 팔 때 광고비</th><th style="${TH}text-align:right;">ROAS</th><th style="${TH}text-align:left;">어디서 갈렸나</th></tr></thead>
+    <tbody>${prods.map(g => grpRow(g) + g.rows.map(row).join('')).join('')}</tbody></table></div>`;
+  const fmtTable = S.fmts.length > 1 ? h3('🎬 어떤 형식이 잘됐나', '세트 이름의 형식 기준') + `<div style="border:1px solid #e7e8ee;border-radius:12px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;">
+    <thead><tr><th style="${TH}text-align:left;">형식</th><th style="${TH}text-align:right;">소재</th><th style="${TH}text-align:right;">우수</th><th style="${TH}text-align:left;width:40%;">우수 비율</th><th style="${TH}text-align:right;">한 장 팔 때 광고비</th></tr></thead>
+    <tbody>${S.fmts.map((f, i) => `<tr${i === 0 && f.good ? ' style="background:#f0fdf4;"' : ''}><td style="${TD}font-weight:700;">${i === 0 && f.good ? '👑 ' : ''}${esc(f.fmt)}</td><td style="${N}">${f.n}개</td><td style="${N}"><b>${f.good}</b>개</td>
+      <td style="${TD}"><div style="display:flex;align-items:center;gap:8px;"><span style="flex:1;height:8px;background:#f3f4f6;border-radius:9px;overflow:hidden;"><i style="display:block;height:100%;width:${Math.round(f.good / f.n * 100)}%;background:#22c55e;"></i></span><b style="width:36px;text-align:right;font-size:.74rem;">${Math.round(f.good / f.n * 100)}%</b></div></td>
+      <td style="${N}">${f.cpa ? won(Math.round(f.cpa)) : '–'}</td></tr>`).join('')}</tbody></table></div>` : '';
   return `<div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">테스트 완료 리포트 <span style="font-weight:600;color:#6b7280;font-size:.8rem;margin-left:4px;">${esc(new Date(rec.at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }))} · ${esc(rec.by)} · 소재 ${R.length}개</span></div>
     <div style="margin:12px 0;padding:12px 14px;background:#eef2ff;border-radius:12px;font-size:.95rem;line-height:1.6;color:#1e1b4b;">${esc(S.lead)}</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;" class="rp-why">${kpi('우수 / 애매 / OFF', `${S.n.good} / ${S.n.meh} / ${S.n.off}`)}${kpi('광고비', man(S.sp))}${kpi('팔린 수', comma(S.pu) + '장')}${kpi('한 장 팔 때 광고비', S.pu ? man(S.sp / S.pu) : '–')}</div>
-    ${h3('✅ 잘된 소재 — 이렇게 더 만들어요')}${grid(R.filter(r => r.res === 'good'))}
-    ${fmtRows}
-    ${h3('🤔 아쉬운 소재 — 어디서 막혔나')}${grid(R.filter(r => r.res !== 'good'))}
+    ${h3('📊 소재별 결과', '상품별로 묶음 · 🏆 같은 상품 중 1등 · 한 장 팔 때 광고비 색: 초록 = 마진의 ' + Math.round(J.goodCpa * 100) + '% 이하, 주황 = 마진 안, 빨강 = 마진 초과')}${table}
+    ${fmtTable}
     ${h3('📋 다음 제작 요청')}<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:8px 14px;">${S.todo.length ? S.todo.map(x => `<div style="font-size:.86rem;padding:4px 0;${x.kind === 'off' ? 'color:#b91c1c;' : 'color:#1e1b4b;'}">☐ ${esc(x.text)}</div>`).join('') : '<div style="font-size:.82rem;color:#6b7280;">우수·OFF로 갈린 소재가 없어요</div>'}</div>
     ${rec.missing && rec.missing.length ? `<div style="font-size:.72rem;color:#b45309;margin-top:8px;">테스트 데이터에 없어 빠진 세트 ${rec.missing.length}개: ${esc(rec.missing.join(', '))}</div>` : ''}
-    <div style="font-size:.7rem;color:#9ca3af;margin-top:12px;">성과는 등록 이후 누적 · 한 장 팔 때 광고비 = 지출 ÷ 구매 · 🏆 = 같은 상품 중 1등</div>`;
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:12px;">성과는 등록 이후 누적 · 한 장 팔 때 광고비 = 광고비 ÷ 팔린 수</div>`;
 }
 function admgrEndReportText(rec) {
   const S = admgrEndReportSum(rec), R = ADMGR_END_RES;
