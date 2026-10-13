@@ -122,7 +122,7 @@ function dnrbPerms() { const s = dnrbSession(); return s && s.perms ? s.perms : 
 function dnrbCan(action) { const p = dnrbPerms(); return !p || (p.actions || []).includes(action); }
 function dnrbApplyPerms() {
   const p = dnrbPerms(); if (!p) return;
-  const menus = new Set(p.menus || []); menus.add('mycre');   // 내 소재 성과는 워크스페이스 권한표와 무관하게 로그인한 누구나
+  const menus = new Set(p.menus || []); menus.add('mycre'); menus.add('brief');   // 내 소재 성과·어제 광고 보고서는 워크스페이스 권한표와 무관하게 로그인한 누구나 (보고서는 2026-10-13 컨텐츠마케터용으로 개방)
   document.querySelectorAll('.menu-item[data-menu]').forEach(el => { el.style.display = menus.has(el.dataset.menu) ? '' : 'none'; });
   document.querySelectorAll('a.menu-item[href="shoot-board.html"]').forEach(el => { el.style.display = menus.has('shoot') ? '' : 'none'; });
   document.querySelectorAll('[data-act]').forEach(el => { el.style.display = dnrbCan(el.dataset.act) ? '' : 'none'; });

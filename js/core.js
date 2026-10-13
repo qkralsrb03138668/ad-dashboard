@@ -156,7 +156,7 @@ function menuDrawer(open) {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) menuDrawer(false); });
 function showMenu(key) {
-  if (key !== 'mycre' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
+  if (key !== 'mycre' && key !== 'brief' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
   menuDrawer(false);
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
