@@ -800,9 +800,10 @@ function admgrRepostPlan(sets, allSets, today) {   // sets: 사본 세트 [{id,n
     let pname = m ? m[1] : '', note = '';
     const n = admgrNorm(pname || old), p = idx.find(x => n.includes(x.n));
     if (!pname) pname = p ? (typeof regVerTag === 'function' && regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + coreName(p.name)
-      : (old.split('_').map(x => coreName(x)).filter(x => x && !/^\d+$/.test(x)).sort((a, b) => b.length - a.length)[0] || old);   // 옛 이름('전환_(160이상 추천)밍크 트임 pt (2 colors)_231219'): 상품 목록에서 찾기 → 지금 없는 상품이면 가장 긴 토막(괄호 뺀 것)
+      : (old.split('_').map(x => coreName(x).replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}(,\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').replace(/\s+/g, ' ').trim())   // 날짜·가격·' - 색상'·꼬리 숫자 제거
+          .filter(x => x && !/^\d+$/.test(x)).sort((a, b) => b.length - a.length)[0] || old);   // 옛 이름('전환_(160이상 추천)밍크 트임 pt (2 colors)_231219'): 상품 목록에서 찾기 → 지금 없는 상품이면 가장 긴 토막(괄호 뺀 것)
     if (!p) note = '상품 못 찾음 — 마진은 ' + (m ? '예전 값' : '0');
-    const rp = m ? m[2] : (s.is_video ? 'R' : 'P'), tag = m && m[4] ? m[4].slice(1) : '끌올';
+    const rp = m ? m[2] : (s.is_video || /릴스|영상/.test(old)) ? 'R' : 'P', tag = m && m[4] ? m[4].slice(1) : '끌올';   // 옛 이름: 소재 종류 → 없으면 이름의 릴스·영상 힌트
     const margin = p ? Math.floor(Math.max(0, (p.price || 0) - (p.supply || 0)) / 1000) : (m ? +m[5] : 0);
     const k = seqKey(pname, rp), seq = (seqMax.get(k) || 0) + 1; seqMax.set(k, seq);
     const name = `${pname}_${rp}${seq}_${tag}_${margin}_${d}_test`;
@@ -816,13 +817,14 @@ async function admgrRepostModal() {
   const sets = admgrCopySets();
   if (!sets.length) { toast('이름 뒤에 "사본"이 붙은 세트가 없어요 — Meta에서 복사한 뒤 새로고침하세요'); return; }
   if (!admgr.products && !admgr.productsLoading) await admgrLoadProducts();
+  while (admgr.productsLoading) await new Promise(r => setTimeout(r, 200));   // 화면 그리기가 먼저 시작한 상품 조회가 끝날 때까지 — 안 기다리면 전부 '상품 못 찾음' (2026-10-15 실사례)
   $('abm-title').textContent = `끌올 사본 정리 — 세트 ${sets.length}개`; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = '<div style="padding:16px;color:#6b7280;font-size:.8rem;">소재 종류(영상·이미지)를 확인하는 중…</div>';
   $('admgr-budget-modal').classList.add('show');
   try {   // 규칙 이름이 아닌 옛 세트의 R/P는 소재 종류로 — creatives 조회(썸네일 응답의 is_video)
-    const ids = sets.map(s => s.id), kind = new Map();
-    for (let i = 0; i < ids.length; i += 100) { const r = await metaGet({ action: 'creatives', set_ids: ids.slice(i, i + 100).join(',') }); (r.ads || []).forEach(a => { if (a.is_video) kind.set(String(a.adset_id), true); else if (!kind.has(String(a.adset_id))) kind.set(String(a.adset_id), false); }); }
-    sets.forEach(s => { s.is_video = !!kind.get(String(s.id)); });
+    const ids = sets.map(s => s.id), kind = new Map(), adsOf = new Map();
+    for (let i = 0; i < ids.length; i += 100) { const r = await metaGet({ action: 'creatives', set_ids: ids.slice(i, i + 100).join(',') }); (r.ads || []).forEach(a => { const k = String(a.adset_id); if (a.is_video) kind.set(k, true); else if (!kind.has(k)) kind.set(k, false); (adsOf.get(k) || adsOf.set(k, []).get(k)).push({ id: a.id, name: a.name }); }); }
+    sets.forEach(s => { s.is_video = !!kind.get(String(s.id)); if (!(s.ads || []).length) s.ads = adsOf.get(String(s.id)) || []; });   // 방금 복사한 세트는 성과가 없어 계층 데이터에 광고가 안 실려 온다 → 썸네일 조회의 광고 목록으로
   } catch (e) { toast('소재 종류 확인 실패 — 영상/이미지는 이름 규칙으로만: ' + e.message); }
   const plan = admgrRepostPlan(sets, admgrRows().sets, todayStr(0));
   admgr.repostPlan = plan;

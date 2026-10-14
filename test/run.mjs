@@ -264,6 +264,8 @@ test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름
     { id: '13', name: '전환_(160이상 추천)밍크 트임 pt (2 colors)_231219 - 사본', is_video: true, ads: [{ id: '13a', name: '밍크 광고' }] },   // 옛 이름 → 상품 목록에서 찾고 R은 영상이라서
     { id: '14', name: '없는 상품_P2_9_250101_test [→CBO4] - 사본', ads: [] },
     { id: '15', name: '전환_(양기모)블린 mtm (2 colors)_231214 - 사본', ads: [] },                                // 옛 이름 + 지금 없는 상품 → 가장 긴 토막
+    { id: '16', name: '1113_릴스_모카 니트 22_40,000 - 사본', ads: [] },                                           // 날짜·가격·꼬리 숫자 제거 · '릴스' → R
+    { id: '17', name: '0226 모카 가디건 - 그레이 24000 - 사본', ads: [] },                                          // 앞 날짜 · ' - 색상' · 가격 제거
   ];
   const plan = f(sets, all, '2026-10-15');
   const by = Object.fromEntries(plan.map(p => [p.id, p]));
@@ -276,7 +278,9 @@ test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름
   assert.equal(by['14'].name, '없는 상품_P3_끌올_9_261015_test [→CBO4]');  // 캠페인 표시는 세트명에만 유지
   assert.ok(by['14'].note.includes('상품 못 찾음'));
   assert.equal(by['15'].to, '블린 mtm_P1_끌올_0_261015_test'); assert.ok(by['15'].note.includes('상품 못 찾음'));
-  assert.equal(plan.length, 8);
+  assert.equal(by['16'].to, '모카 니트_R1_끌올_0_261015_test');
+  assert.equal(by['17'].to, '모카 가디건_P1_끌올_0_261015_test');
+  assert.equal(plan.length, 10);
 });
 
 console.log('주간 리포트');
