@@ -952,7 +952,7 @@ Deno.serve(async (req) => {
     if (action === "creatives") {
       const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
       if (!ids.length) return json({ ads: [] });
-      const cacheKey = `meta:creatives:${[...ids].sort().join(",")}`;
+      const cacheKey = `meta:creatives:v2:${[...ids].sort().join(",")}`;   // v2: creative_id·video_id·image_hash 추가 (2026-10-14 같은 소재 추적용)
       const pre = await metaPre(cacheKey, 10 * 60 * 1000);
       if (pre) return pre;
       const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]);
@@ -961,12 +961,12 @@ Deno.serve(async (req) => {
       try {
         rows = await graphGetAll(`${c.account}/ads`, {
           ...baseParams,
-          fields: "id,name,adset_id,adset{name},status,effective_status,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id}",
+          fields: "id,name,adset_id,adset{name},status,effective_status,creative.thumbnail_width(600).thumbnail_height(600){id,thumbnail_url,image_url,object_type,video_id,image_hash}",
         }, c.token);
       } catch {
         rows = await graphGetAll(`${c.account}/ads`, {
           ...baseParams,
-          fields: "id,name,adset_id,adset{name},status,effective_status,creative{thumbnail_url,image_url,object_type,video_id}",
+          fields: "id,name,adset_id,adset{name},status,effective_status,creative{id,thumbnail_url,image_url,object_type,video_id,image_hash}",
         }, c.token);
       }
       const body = {
@@ -983,6 +983,7 @@ Deno.serve(async (req) => {
             thumb: String(cr.thumbnail_url ?? ""),
             image: String(cr.image_url ?? ""),
             is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO",
+            creative_id: String(cr.id ?? ""), video_id: String(cr.video_id ?? ""), image_hash: String(cr.image_hash ?? ""),   // 같은 소재가 다른 캠페인에도 살아 있는지 비교용
           };
         }),
       };
