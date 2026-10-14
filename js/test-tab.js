@@ -1,5 +1,5 @@
 /* ═══ 테스트 소재 탭 — 단계별 화면 (2026-10-13 사용자 시안 승인) ═══
-   흐름: 세트명 test 자동 수집 → [테스트 중] D+2·지출 3만 전 → [판정할 차례] 추천 보고 우수/애매/OFF 확정 → [판정 끝] 체크 → 테스트 완료 + 리포트.
+   흐름: 세트명 test 자동 수집 → [테스트 중] D+2 전 (금액 조건 없음) → [판정할 차례] 추천 보고 우수/애매/OFF 확정 → [판정 끝] 체크 → 테스트 완료 + 리포트.
    - 판정은 기록만: OFF로 확정해도 광고는 자동으로 안 꺼진다 (사용자 지시). 끄기는 광고관리자에서 따로.
    - 같은 상품끼리 묶고 구매당비용 1등에 🏆 · 테스트 중은 업로드 날짜별 묶음 · 구매당비용 옆에 어제 대비 흐름 화살표.
    - 자주 안 쓰는 기능(기준·엑셀·주간 리포트·숨기기·끝난 소재)은 ⋯ 메뉴. 퍼널·메모·추가소재는 이름을 누르면 여는 상세 패널.
@@ -16,7 +16,7 @@ function admgrTestStage(a) {   // run | judge | done | gone | hidden
   if (a.gone) return 'gone';
   if (a.meta.verdict) return 'done';
   const J = admgrTJudge, dp = admgrDPlus(a) ?? 0, sp = a.spend || 0;
-  if (dp >= J.days && sp >= J.spend) return 'judge';
+  if (dp >= J.days) return 'judge';   // 2026-10-14 사용자: 판정은 날짜만 (소액이어도 잘 나오는 소재가 있고, 많이 써도 안 나오는 건 안 나옴)
   if (a.effective_status !== 'ACTIVE' && !['review', 'rejected'].includes(a.st) && sp > 0) return 'judge';   // 기준 전에 직접 끈 소재도 판정은 해야 완료할 수 있다
   return 'run';
 }
@@ -85,18 +85,21 @@ function renderAdmgrTest() {
   const pct = Math.round(J.goodCpa * 100);
   const judgeBox = t.judgeOpen ? `<div class="tt-crit tt-edit">
       <label>판정 시작: D+<input class="inp" type="number" min="0" value="${J.days}" onchange="admgrTJudgeSet('days',this.value)"></label>
-      <label>지출 <input class="inp" type="number" min="0" step="10000" value="${J.spend}" onchange="admgrTJudgeSet('spend',this.value)">원 이상</label>
       <label>우수: 구매 <input class="inp" type="number" min="0" value="${J.goodPurch}" onchange="admgrTJudgeSet('goodPurch',this.value)">건↑ & 구매당비용 ≤ 마진의 <input class="inp" type="number" min="1" max="100" value="${pct}" onchange="admgrTJudgeSet('goodCpa',this.value)">%</label>
       <span style="color:#6b7280;">OFF: 구매당비용 > 마진 · 그 사이 애매</span>
       <button class="btn-ghost" onclick="admgrTJudgeReset()">기본값</button><button class="btn-ghost" onclick="admgrTJudgeToggle()">닫기</button></div>` : '';
   const tile = ([k, label, sub]) => { const n = by(k).length;
-    const s = k === 'judge' ? `D+${J.days} · 지출 ${won(J.spend)}↑ — 추천 보고 확정` : sub;
+    const s = k === 'judge' ? `D+${J.days}부터 — 추천 보고 확정` : sub;
     return `<button class="tt-stage ${stage === k ? 'on' : ''}" onclick="admgrTtStage('${k}')"><span class="t">${label}</span>${k === 'judge' && n ? '<span class="n">오늘 할 일</span>' : ''}<b>${n}개</b>${n && !admgrMobile() ? admgrTtStageNums(by(k), k) : ''}<small>${s}</small></button>`; };
   const extra = stage === 'gone' || stage === 'hidden' ? `<div class="tt-crit">${stage === 'gone' ? '테스트 완료로 이름에서 test가 빠진 소재예요 (60일 보관) — 늦은 판정도 여기서 할 수 있어요' : '숨긴 소재예요 — 체크하고 아래 [다시 보이기]'} <a href="#" onclick="admgrTtStage('${by('judge').length ? 'judge' : 'run'}');return false;">← 돌아가기</a></div>` : '';
   const crit = stage === 'judge' ? `<div class="tt-crit"><b>판정 기준</b> · 우수 = 구매 ${J.goodPurch}건↑ & 구매당비용이 마진의 ${pct}% 이하 · OFF = 구매당비용 > 마진 (또는 마진만큼 쓰고 구매 0) · 그 사이 애매 &nbsp;|&nbsp; <b style="color:#4f46e5;">파란 테두리</b> = 추천, 누르면 확정 · OFF로 확정해도 광고는 자동으로 안 꺼져요</div>`
     : stage === 'done' ? `<div class="tt-crit">판정을 확정한 소재예요 — 체크하고 <b>테스트 완료</b>를 누르면 세트 이름에서 _test를 지우고 리포트를 만들어요 · 판정을 바꾸려면 다른 버튼, 취소는 같은 버튼을 다시</div>`
-    : stage === 'run' ? `<div class="tt-crit">아직 판정 전이에요 — D+${J.days}와 지출 ${won(J.spend)}을 둘 다 채우면 '판정할 차례'로 넘어가요</div>` : '';
+    : stage === 'run' ? `<div class="tt-crit">아직 판정 전이에요 — D+${J.days}가 되면 금액과 상관없이 '판정할 차례'로 넘어가요</div>` : '';
   return head + judgeBox + `<div class="tt-stages">${TT_STAGES.map(tile).join('')}${admgrMobile() ? '' : admgrTtWeekRate()}</div>` + extra + crit + (admgrMobile() ? admgrTtList(rows, stage) : admgrTtTable(rows, stage)) + admgrTtBar(rows, stage);
+}
+function admgrTtProg(dp) {   // 판정까지 남은 날 — 금액 조건 없음 (2026-10-14)
+  const D = admgrTJudge.days, left = Math.max(0, D - (dp ?? 0));
+  return `<div class="tt-prog"><span>${left ? `판정까지 ${left}일` : '내일 판정할 차례'}</span><div><i style="width:${Math.min(100, ((dp ?? 0) / D) * 100)}%;"></i></div></div>`;
 }
 function admgrTtStage(k) { const t = admgr.test; t.stage = k; t.sel.clear(); renderAdmgr(true); }
 function admgrTtGroups(rows, stage) {   // [{ key, title, sub, rows }]
@@ -105,7 +108,7 @@ function admgrTtGroups(rows, stage) {   // [{ key, title, sub, rows }]
     rows.slice().sort((x, y) => String(y.reg_date || '').localeCompare(String(x.reg_date || '')) || admgrProductOf(x).localeCompare(admgrProductOf(y), 'ko') || (y.spend || 0) - (x.spend || 0))
       .forEach(a => { const k = a.reg_date || '날짜 없음'; (m.get(k) || m.set(k, []).get(k)).push(a); });
     return [...m.entries()].map(([d, L]) => { const start = d.length === 10 ? admgrShiftDay(d, admgrTJudge.days) : '';
-      return { key: d, title: d.length === 10 ? `${fmtMD(d)} 업로드` : d, sub: `${L.length}개${stage === 'run' && start ? ` · ${start <= todayStr(0) ? '지출 기준 채우면 판정' : fmtMD(start) + '부터 판정'}` : ''}`, rows: L }; });
+      return { key: d, title: d.length === 10 ? `${fmtMD(d)} 업로드` : d, sub: `${L.length}개${stage === 'run' && start ? ` · ${start <= todayStr(0) ? '판정할 차례' : fmtMD(start) + '부터 판정'}` : ''}`, rows: L }; });
   }
   const m = new Map();   // 같은 상품끼리 — 구매당비용 1등 🏆
   rows.forEach(a => { const k = admgrProductOf(a).replace(/\s+/g, ''); (m.get(k) || m.set(k, []).get(k)).push(a); });
@@ -129,8 +132,7 @@ function admgrTtList(rows, stage) {
     const badge = a.st === 'review' ? '<span class="status-badge badge-orange">검토중</span>' : a.st === 'rejected' ? '<span class="status-badge badge-red">거부·문제</span>' : a.effective_status !== 'ACTIVE' && !a.gone ? '<span class="status-badge badge-gray" title="Meta에서 꺼져 있어요">꺼짐</span>' : '';
     let act;
     if (stage === 'run') {
-      const leftD = Math.max(0, admgrTJudge.days - (dp ?? 0)), leftW = Math.max(0, admgrTJudge.spend - (a.spend || 0));
-      act = `<div class="tt-prog"><span>${leftD ? leftD + '일' : ''}${leftD && leftW ? ' · ' : ''}${leftW ? won(Math.round(leftW / 1000) * 1000) : ''} 남음</span><div><i style="width:${Math.min(100, (a.spend || 0) / admgrTJudge.spend * 100)}%;"></i></div></div>`;
+      act = admgrTtProg(dp);
     } else if (stage === 'hidden') act = '';
     else act = admgrTtVerdictBtns(a, rec) + (rec && rec.k !== 'watch' ? `<div class="tt-why">${esc(rec.why)}</div>` : rec ? `<div class="tt-why">${esc(rec.why)}</div>` : a.meta.verdict && a.meta.verdict_at ? `<div class="tt-why">${fmtMD(String(a.meta.verdict_at).slice(0, 10))} 확정</div>` : '');
     return `<div class="tt-row ${t.sel.has(a.id) ? 'sel' : ''}">
@@ -258,8 +260,7 @@ function admgrTtTable(rows, stage) {
     const maker = MAKER_NAMES[admgrMakerOf(a.id, a.adset_id, a.adset_name)] || '';
     const badge = a.st === 'review' ? ' <span class="status-badge badge-orange">검토중</span>' : a.st === 'rejected' ? ' <span class="status-badge badge-red">거부</span>' : a.effective_status !== 'ACTIVE' && !a.gone ? ' <span class="status-badge badge-gray" title="Meta에서 꺼져 있어요">꺼짐</span>' : '';
     let judge;
-    if (stage === 'run') { const lD = Math.max(0, admgrTJudge.days - (dp ?? 0)), lW = Math.max(0, admgrTJudge.spend - (a.spend || 0));
-      judge = `<div class="tt-prog"><span>${lD ? lD + '일' : ''}${lD && lW ? ' · ' : ''}${lW ? won(Math.round(lW / 1000) * 1000) : ''} 남음</span><div><i style="width:${Math.min(100, (a.spend || 0) / admgrTJudge.spend * 100)}%;"></i></div></div>`; }
+    if (stage === 'run') judge = admgrTtProg(dp);
     else if (stage === 'hidden') judge = '';
     else judge = `${rec && rec.k !== 'watch' ? `<span class="status-badge ${rec.k === 'good' ? 'badge-green' : rec.k === 'off' ? 'badge-red' : 'badge-yellow'}" style="margin-bottom:3px;" title="${esc(rec.why)}">▶ ${rec.label}</span>` : ''}${admgrTtVerdictBtns(a, rec)}<div class="tt-why">${rec ? esc(rec.why) : a.meta.verdict_at ? fmtMD(String(a.meta.verdict_at).slice(0, 10)) + ' 확정' : ''}</div>`;
     return `<tr class="${t.sel.has(a.id) ? 'sel' : ''}">

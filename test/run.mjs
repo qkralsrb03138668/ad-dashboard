@@ -290,7 +290,7 @@ test('admgrRecommend: D+2·지출 3만부터, 우수 = 구매 3↑ & 구매당 �
   assert.equal(k({ pur: 3 }), 'good');                      // 구매당 16,667 ≤ 16,800
   assert.equal(k({ pur: 2 }), 'wait');                      // 구매당 2.5만 — 60~100%
   const s = g('admgrRecommend')(ad({ sp: 30000, pur: 2 })); assert.equal(s.k + ':' + !!s.sample, 'wait:true');   // 구매당 1.5만으로 좋지만 2건
-  assert.equal(k({ pur: 3, sp: 20000 }), 'watch');          // 지출 3만 전
+  assert.equal(k({ pur: 3, sp: 20000 }), 'good');           // 금액 조건 없음(2026-10-14) — 2만원에 3장, 구매당 6,667 ≤ 16,800
   assert.equal(k({ pur: 3, reg: g('todayStr')(-1) }), 'watch');   // D+1
   assert.equal(g('admgrRecommend')(ad({ pur: 3, meta: { verdict: 'off' } })), null);   // 확정한 건 추천 안 함
   assert.equal(k({ set: '없는상품_R1_test', pur: 3 }), 'good');   // 미매칭 → ROAS 3 ≥ 3 & 구매 3 (고정 기준)
@@ -300,7 +300,7 @@ test('admgrTestStage: 테스트 중 → 판정할 차례 → 판정 끝, OFF 판
   const f = g('admgrTestStage'), st = g('admgrTestStatusOf');
   const mk = (o) => { const a = { id: '1', reg_date: '2026-01-01', spend: 40000, purchases: 1, effective_status: 'ACTIVE', ...o }; a.meta = o.meta || {}; a.st = st(a, a.meta); return a; };
   assert.equal(f(mk({ reg_date: g('todayStr')(0) })), 'run');
-  assert.equal(f(mk({ spend: 10000 })), 'run');
+  assert.equal(f(mk({ spend: 10000 })), 'judge');          // 소액이어도 D+2면 판정할 차례
   assert.equal(f(mk({})), 'judge');
   assert.equal(f(mk({ spend: 10000, effective_status: 'PAUSED' })), 'judge');   // 기준 전에 직접 끈 것도 판정 대상
   const off = mk({ meta: { verdict: 'off' } });

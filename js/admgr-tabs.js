@@ -1298,7 +1298,8 @@ function admgrFunnelCell(a, base) {
     <span class="status-badge ${d.cls}" style="font-size:.6rem;margin-top:2px;">${d.label}</span></div>`;
 }
 
-/* ── 판정 추천 (2026-10-13 사용자 기준) — D+2·지출 3만원부터 판정.
+/* ── 판정 추천 (2026-10-13 사용자 기준) — D+2부터 판정.
+   2026-10-14 금액 조건 뺌(사용자: 소액이어도 잘 나오는 소재가 있다) — 날짜만.
    우수 = 구매 3건↑ & 구매당비용 ≤ 상품 마진×60% · OFF = 구매당비용 > 마진 (또는 마진만큼 쓰고 구매 0) · 그 사이 애매.
    마진 = 판매가 − 공급가×1.1 (admgrBreakEven, 광고세트 탭 오늘의 판정과 같은 식). 상품을 못 찾으면 ROAS 고정값(offRoas/goodRoas).
    추천만 — 확정은 사람이 버튼으로. 기준은 화면 ⋯ > 판정 기준에서 바꾸고 브라우저에 기억 ── */
@@ -1317,7 +1318,7 @@ function admgrRecommend(a) {   // null = 추천 대상 아님(판정 끝·테스
   const J = admgrTJudge, dp = admgrDPlus(a) ?? 0, sp = a.spend || 0, pu = a.purchases || 0, cpa = pu ? sp / pu : null;
   const be = admgrBreakEven(a);
   const out = r => ({ ...r, cpa, be: be ? be.be : null, margin: be ? be.margin : null, offR: be ? be.be : J.offRoas, goodR: be ? be.price / (be.margin * J.goodCpa) : J.goodRoas });
-  if (dp < J.days || sp < J.spend) return out({ k: 'watch', label: '지켜보기', why: `D+${dp} · ${won(sp)} — 판정은 D+${J.days}·${won(J.spend)}부터` });
+  if (dp < J.days) return out({ k: 'watch', label: '지켜보기', why: `D+${dp} — 판정은 D+${J.days}부터 (금액 조건 없음)` });
   const pctTxt = Math.round(J.goodCpa * 100) + '%';
   if (be) {
     const m = be.margin, pct = cpa ? Math.round(cpa / m * 100) : null;

@@ -49,14 +49,14 @@ try {
   out.test_ads = { count: ads.filter(a => /test/i.test(a.adset + a.name)).length, ...kpi(sum(ads.filter(a => /test/i.test(a.adset + a.name)))) };
 } catch (e) { out.meta_error = String(e.message || e); }
 
-// 오늘 판정할 테스트 소재 수 — 대시보드 테스트 소재 탭 '판정할 차례'와 같은 규칙(D+2·지출 3만원↑, 판정 안 함, 숨김·종료 제외, 기준 전에 직접 끈 것 포함)
+// 오늘 판정할 테스트 소재 수 — 대시보드 테스트 소재 탭 '판정할 차례'와 같은 규칙(D+2, 금액 조건 없음, 판정 안 함, 숨김·종료 제외, 기준 전에 직접 끈 것 포함)
 try {
   const [ta, st] = await Promise.all([api('meta-ads', { action: 'testads' }), api('meta-ads', { action: 'state_list' })]);
   const S = new Map((Array.isArray(st) ? st : []).map(r => [r.ad_id, r]));
   const days = d => Math.round((new Date(seoulToday + 'T00:00:00Z') - new Date(d + 'T00:00:00Z')) / 86400000);
   const pend = (ta.ads || []).filter(a => { const m = S.get(a.id) || {}; if (m.hidden || m.verdict || a.gone) return false;
     const es = String(a.effective_status || ''), sp = +a.spend || 0;
-    return (a.reg_date && days(a.reg_date) >= 2 && sp >= 30000) || (es !== 'ACTIVE' && !/REVIEW|PROCESS|DISAPPROVED|ISSUES|BILLING/.test(es) && sp > 0); });
+    return (a.reg_date && days(a.reg_date) >= 2) || (es !== 'ACTIVE' && !/REVIEW|PROCESS|DISAPPROVED|ISSUES|BILLING/.test(es) && sp > 0); });
   out.test_judge_pending = { count: pend.length, products: [...new Set(pend.map(a => String(a.adset_name || '').split('_')[0].trim()))].slice(0, 8) };
 } catch (e) { out.test_judge_error = String(e.message || e).slice(0, 200); }
 
