@@ -757,14 +757,7 @@ async function admgrTestEndRun() {
   try {
     /* 서버는 한 번에 100개까지 — 세트+광고가 100개를 넘으면 "items 1~100개"로 통째로 거절되던 문제 (2026-09-20 실사례) → 40개씩 나눠 차례로 (서버가 하나씩 Meta에 저장해 개당 1초쯤 — 9/12 예산 116개가 150초 제한에 잘린 전례가 있어 한도 100보다 작게).
        중간 묶음이 실패해도 앞 묶음은 이미 Meta에 반영됐으므로 멈추지 않고, 실패한 묶음만 실패 목록에 넣는다 */
-    const r = { failed: [] };
-    const N = 40;
-    for (let i = 0; i < plan.length; i += N) {
-      const part = plan.slice(i, i + N);
-      btn.textContent = plan.length > N ? `저장 중… ${Math.min(i + N, plan.length)}/${plan.length}` : '저장 중…';
-      try { const x = await sbCall('meta-upload', { action: 'adset_rename' }, { items: part.map(p => ({ id: p.id, name: p.name })) }); r.failed.push(...(x.failed || [])); }   // 광고도 같은 방식(POST /{id} name)
-      catch (e) { r.failed.push(...part.map(p => ({ id: p.id, error: e.message }))); }
-    }
+    const r = { failed: await admgrRenameBatch(plan, btn) };
     const failedIds = new Set((r.failed || []).map(f => String(f.id)));
     const ok = plan.filter(p => !failedIds.has(String(p.id)));
     admgr.selSets.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
@@ -780,6 +773,79 @@ async function admgrTestEndRun() {
     if (endSets.length) admgrEndReportMake(endSets).then(rec => { const el = $('ag-testend-rep'); if (el) el.innerHTML = rec ? `<button class="btn-analyze" onclick="closeModal('admgr-budget-modal');admgrEndReportShow('${rec.id}')"><i class="fa-solid fa-clipboard-check"></i> 완료 리포트 보기 (소재 ${rec.rows.length}개)</button>` : '<span style="color:#dc2626;">완료 리포트를 만들지 못했어요 — 테스트 소재 탭의 [완료 리포트]에서 다시 확인하세요</span>'; });
     if (admgr.testEndFrom === 'test') admgrTestFetch(); else admgrFetch();
   } catch (e) { btn.disabled = false; btn.textContent = '테스트 종료'; toast('실패: ' + e.message); }
+}
+async function admgrRenameBatch(plan, btn) {   // [{id, name}] → 실패 목록. 40개씩 (서버 한도 100 · 개당 1초쯤) — 중간 묶음이 실패해도 멈추지 않는다
+  const failed = [], N = 40;
+  for (let i = 0; i < plan.length; i += N) {
+    const part = plan.slice(i, i + N);
+    if (btn) btn.textContent = plan.length > N ? `저장 중… ${Math.min(i + N, plan.length)}/${plan.length}` : '저장 중…';
+    try { const x = await sbCall('meta-upload', { action: 'adset_rename' }, { items: part.map(p => ({ id: p.id, name: p.name })) }); failed.push(...(x.failed || [])); }   // 광고도 같은 방식(POST /{id} name)
+    catch (e) { failed.push(...part.map(p => ({ id: p.id, error: e.message }))); }
+  }
+  return failed;
+}
+/* ═══ 끌올 사본 정리 (2026-10-15) — 작년 시즌 소재를 Meta 광고관리자에서 복사하면 세트명 뒤에 ' - 사본'이 붙는다. 그 세트들만 골라 상품명을 읽어
+   소재 업로드와 같은 규칙(상품명_R1_소구점_마진_YYMMDD_test)으로 세트·광고 이름을 다시 짓는다. 순번은 계정 안 그 상품의 기존 세트 다음 번호, 마진은 지금 상품 가격으로, 날짜는 오늘.
+   규칙 이름이 아닌 옛 세트(전환_… 식)는 세트명 전체에서 상품을 찾고 R/P는 소재 종류(영상/이미지)로 정한다. 세트 안 광고 전부 세트와 같은 이름 (업로드 때와 같음) */
+const AG_COPY_TAIL = /\s*[-–—]?\s*(사본|copy)\s*\d*\s*$/i;
+const AG_RULE = /^(.+?)_(R|P)(\d+)((?:_[^_]+)?)_(\d+)_(\d{6})_test\b/;
+function admgrRepostPlan(sets, allSets, today) {   // sets: 사본 세트 [{id,name,ads,is_video}] · allSets: 계정 세트 전체(순번용) → [{id, from, to, name, level, note}]
+  const d = today.replace(/-/g, '').slice(2), seqMax = new Map();
+  const seqKey = (pname, rp) => admgrNorm(pname) + '|' + rp;
+  [...allSets, ...sets].forEach(x => { const m = admgrBase(x.name).match(AG_RULE); if (m) { const k = seqKey(m[1], m[2]); seqMax.set(k, Math.max(seqMax.get(k) || 0, +m[3])); } });   // 사본 자신(원본 이름 그대로)의 순번도 포함
+  const idx = admgrProdIdx(), plan = [];
+  for (const s of sets) {
+    const { base, camps } = admgrMarkParse(s.name);
+    const old = base.replace(AG_COPY_TAIL, '').trim(), m = old.match(AG_RULE);
+    let pname = m ? m[1] : '', note = '';
+    const n = admgrNorm(pname || old), p = idx.find(x => n.includes(x.n));
+    if (!pname) pname = p ? (typeof regVerTag === 'function' && regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + coreName(p.name)
+      : (old.split('_').map(x => coreName(x)).filter(x => x && !/^\d+$/.test(x)).sort((a, b) => b.length - a.length)[0] || old);   // 옛 이름('전환_(160이상 추천)밍크 트임 pt (2 colors)_231219'): 상품 목록에서 찾기 → 지금 없는 상품이면 가장 긴 토막(괄호 뺀 것)
+    if (!p) note = '상품 못 찾음 — 마진은 ' + (m ? '예전 값' : '0');
+    const rp = m ? m[2] : (s.is_video ? 'R' : 'P'), tag = m && m[4] ? m[4].slice(1) : '끌올';
+    const margin = p ? Math.floor(Math.max(0, (p.price || 0) - (p.supply || 0)) / 1000) : (m ? +m[5] : 0);
+    const k = seqKey(pname, rp), seq = (seqMax.get(k) || 0) + 1; seqMax.set(k, seq);
+    const name = `${pname}_${rp}${seq}_${tag}_${margin}_${d}_test`;
+    plan.push({ id: s.id, from: base, to: name, name: admgrMarkName(name, camps), level: 'adset', note, product: p ? p.name : '' });
+    for (const a of (s.ads || [])) plan.push({ id: a.id, from: a.name, to: name, name, level: 'ad', note: '' });
+  }
+  return plan;
+}
+const admgrCopySets = () => admgrRows().sets.filter(s => AG_COPY_TAIL.test(admgrBase(s.name)));
+async function admgrRepostModal() {
+  const sets = admgrCopySets();
+  if (!sets.length) { toast('이름 뒤에 "사본"이 붙은 세트가 없어요 — Meta에서 복사한 뒤 새로고침하세요'); return; }
+  if (!admgr.products && !admgr.productsLoading) await admgrLoadProducts();
+  $('abm-title').textContent = `끌올 사본 정리 — 세트 ${sets.length}개`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = '<div style="padding:16px;color:#6b7280;font-size:.8rem;">소재 종류(영상·이미지)를 확인하는 중…</div>';
+  $('admgr-budget-modal').classList.add('show');
+  try {   // 규칙 이름이 아닌 옛 세트의 R/P는 소재 종류로 — creatives 조회(썸네일 응답의 is_video)
+    const ids = sets.map(s => s.id), kind = new Map();
+    for (let i = 0; i < ids.length; i += 100) { const r = await metaGet({ action: 'creatives', set_ids: ids.slice(i, i + 100).join(',') }); (r.ads || []).forEach(a => { if (a.is_video) kind.set(String(a.adset_id), true); else if (!kind.has(String(a.adset_id))) kind.set(String(a.adset_id), false); }); }
+    sets.forEach(s => { s.is_video = !!kind.get(String(s.id)); });
+  } catch (e) { toast('소재 종류 확인 실패 — 영상/이미지는 이름 규칙으로만: ' + e.message); }
+  const plan = admgrRepostPlan(sets, admgrRows().sets, todayStr(0));
+  admgr.repostPlan = plan;
+  const row = p => `<div style="padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:.76rem;"><span class="ag-muted" style="margin-right:6px;">${p.level === 'adset' ? '세트' : '광고'}</span>${esc(p.from)} <span style="color:#9ca3af;">→</span> <b>${esc(p.to)}</b>${p.note ? ` <span style="color:#b45309;">· ${esc(p.note)}</span>` : ''}</div>`;
+  $('abm-body').innerHTML = `
+    <div style="font-size:.78rem;color:#4b5563;margin-bottom:8px;">소재 업로드와 같은 규칙으로 이름을 다시 지어요 — <b>상품명_R순번_소구점_마진_오늘날짜_test</b>. 순번은 그 상품의 기존 세트 다음 번호, 마진은 지금 상품 가격 기준이에요.</div>
+    <div style="max-height:45vh;overflow:auto;">${plan.map(row).join('')}</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">이름만 바뀌고 성과·학습에는 영향 없어요 · 이름에 test가 들어가 테스트 소재 탭에서 판정돼요 · 소구점이 없던 옛 이름은 '끌올'로 넣었으니 필요하면 Meta에서 고치세요</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
+      <button class="btn-analyze" id="ag-repost-go" onclick="admgrRepostRun()">이름 바꾸기</button></div>`;
+}
+async function admgrRepostRun() {
+  const plan = admgr.repostPlan || []; if (!plan.length) return;
+  const btn = $('ag-repost-go'); btn.disabled = true;
+  const failed = await admgrRenameBatch(plan, btn), bad = new Set(failed.map(f => String(f.id)));
+  const ok = plan.filter(p => !bad.has(String(p.id)));
+  $('abm-title').textContent = '끌올 사본 정리 결과';
+  $('abm-body').innerHTML = `<div style="font-size:.8rem;color:#374151;">세트 <b style="color:#15803d;">${ok.filter(p => p.level === 'adset').length}</b>개 · 광고 <b style="color:#15803d;">${ok.filter(p => p.level === 'ad').length}</b>개 이름을 바꿨어요</div>
+    ${failed.map(f => `<div style="font-size:.74rem;color:#dc2626;">✗ ${esc(String(f.id))} — ${esc(String(f.error || ''))}</div>`).join('')}
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">화면을 새로 받아오고 있어요 — 테스트 소재 탭에도 새 이름으로 올라와요</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
+  admgrFetch();
 }
 function admgrCopyModal() {
   const { camps, ads } = admgrRows();

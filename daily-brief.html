@@ -1,0 +1,173 @@
+<title>광고 데일리 브리핑</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* 한 단 리포트: 날짜 머리 → 한 줄 요약 → 지표 6칸 → 14일 ROAS 막대 → 섹션별 목록 */
+:root{
+  --bg:#f5f6fa; --surface:#ffffff; --fg:#1d2033; --muted:#646a85; --line:#e2e4ee;
+  --accent:#4f46e5; --accent-soft:#eceafd;
+  --good:#0f8a5f; --good-soft:#e3f5ee; --bad:#c23a3a; --bad-soft:#fbe9e9;
+  --sans:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12131c; --surface:#1b1d2a; --fg:#e8e9f2; --muted:#9a9fbb; --line:#2c2f42;
+  --accent:#8b85ff; --accent-soft:#25234a;
+  --good:#46c896; --good-soft:#163328; --bad:#f07a7a; --bad-soft:#3a1d22; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12131c; --surface:#1b1d2a; --fg:#e8e9f2; --muted:#9a9fbb; --line:#2c2f42;
+  --accent:#8b85ff; --accent-soft:#25234a;
+  --good:#46c896; --good-soft:#163328; --bad:#f07a7a; --bad-soft:#3a1d22; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.6;padding:28px 16px 48px}
+.wrap{max-width:760px;margin:0 auto;display:grid;gap:22px}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.eyebrow{font-size:12px;letter-spacing:.08em;color:var(--accent);font-weight:700}
+h1{font-size:30px;line-height:1.2;margin:4px 0 0;text-wrap:balance}
+.nav{display:flex;gap:6px;align-items:center}
+.nav button,.nav select{font:inherit;font-size:14px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;height:36px;padding:0 10px;cursor:pointer}
+.nav button:disabled{opacity:.35;cursor:default}
+.nav :focus-visible,.bars :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.headline{font-size:19px;font-weight:500;line-height:1.5;margin:0;padding:16px 18px;background:var(--accent-soft);border-radius:12px;text-wrap:pretty}
+.headline.err{background:var(--bad-soft)}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kpi{background:var(--surface);padding:14px 16px;display:grid;gap:4px;min-width:0}
+.kpi .k{font-size:12px;color:var(--muted)}
+.kpi .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chips{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.d{font-weight:700}.d.up{color:var(--good)}.d.down{color:var(--bad)}.d.flat{color:var(--muted)}
+.store{font-size:14px;color:var(--muted);margin:-10px 2px 0}
+.store b{color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.panel h2{font-size:15px;margin:0 0 10px}
+.bars{display:flex;align-items:flex-end;gap:4px;height:96px}
+.bar{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%;background:none;border:0;padding:0;cursor:pointer;color:var(--muted);font:inherit}
+.bar i{display:block;width:100%;max-width:28px;background:var(--line);border-radius:3px 3px 0 0}
+.bar.on i{background:var(--accent)}
+.bar span{font-size:10px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.bar.on span{color:var(--fg)}
+.sec{display:grid;gap:8px}
+.sec h2{font-size:16px;margin:0}
+.sec ul{margin:0;padding-left:20px;display:grid;gap:6px}
+.sec li{max-width:65ch}
+.foot{font-size:12px;color:var(--muted)}
+.empty{padding:32px 18px;text-align:center;color:var(--muted)}
+@media (max-width:560px){h1{font-size:24px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi .v{font-size:19px}}
+@media (prefers-reduced-motion:no-preference){.wrap{animation:in .25s ease-out}@keyframes in{from{transform:translateY(4px)}}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="eyebrow">광고 데일리 브리핑</div>
+      <h1 id="title">브리핑을 불러오는 중</h1>
+    </div>
+    <div class="nav">
+      <button id="prev" aria-label="이전 날짜" disabled>‹</button>
+      <select id="pick" aria-label="날짜 선택" disabled></select>
+      <button id="next" aria-label="다음 날짜" disabled>›</button>
+    </div>
+  </div>
+  <div id="body">
+    <div class="panel empty">매일 오전 9시에 전날 Meta 광고 성과와 카페24 판매를 정리한 브리핑이 여기에 쌓입니다.</div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const won = (n) => n == null ? '–' : '₩' + Math.round(n).toLocaleString('ko-KR');
+const DOW = ['일','월','화','수','목','금','토'];
+const dateLabel = (d) => { const x = new Date(d + 'T00:00:00'); return `${x.getMonth() + 1}월 ${x.getDate()}일 (${DOW[x.getDay()]})`; };
+// 지표별 '좋아짐' 방향: +1 높을수록 좋음, -1 낮을수록 좋음, 0 중립(지출)
+const KPIS = [
+  ['spend', '지출', won, 0], ['value', '매출(전환값)', won, 1], ['roas', 'ROAS', (n) => n == null ? '–' : n.toFixed(2), 1],
+  ['purchases', '구매', (n) => n == null ? '–' : Math.round(n).toLocaleString('ko-KR') + '건', 1], ['cpa', 'CPA', won, -1], ['cpc', 'CPC', won, -1],
+];
+function delta(cur, base, dir, label) {
+  const s = el('span', null, label + ' ');
+  if (!base || cur == null) { s.append(el('span', 'd flat', '–')); return s; }
+  const p = (cur - base) / base * 100;
+  const cls = Math.abs(p) < 1 || dir === 0 ? 'flat' : (p > 0) === (dir > 0) ? 'up' : 'down';
+  s.append(el('span', 'd ' + cls, (p > 0 ? '+' : '') + p.toFixed(0) + '%'));
+  return s;
+}
+
+let briefs = [], cur = null;
+function render() {
+  const i = briefs.findIndex((b) => b.date === cur);
+  const b = briefs[i];
+  const pick = $('pick');
+  pick.replaceChildren(...briefs.map((x) => { const o = el('option', null, dateLabel(x.date)); o.value = x.date; return o; }));
+  pick.value = cur || ''; pick.disabled = !briefs.length;
+  $('prev').disabled = i < 0 || i >= briefs.length - 1;
+  $('next').disabled = i <= 0;
+  const body = $('body');
+  if (!b) { $('title').textContent = '아직 브리핑이 없어요'; return; }
+  $('title').textContent = dateLabel(b.date);
+  const out = [];
+  out.push(el('p', 'headline' + (b.status === 'error' ? ' err' : ''), b.headline || ''));
+
+  const k = b.kpi || {};
+  if (k.yesterday) {
+    const grid = el('div', 'kpis');
+    for (const [key, name, fmt, dir] of KPIS) {
+      const c = el('div', 'kpi');
+      c.append(el('div', 'k', name), el('div', 'v', fmt(k.yesterday[key])));
+      const ch = el('div', 'chips');
+      ch.append(delta(k.yesterday[key], k.day_before?.[key], dir, '그제'), delta(k.yesterday[key], k.avg_7d?.[key], dir, '7일 평균'));
+      c.append(ch); grid.append(c);
+    }
+    out.push(grid);
+  }
+  if (b.cafe24) {
+    const s = el('p', 'store');
+    s.append('카페24 ' + (b.cafe24.date === b.date ? '' : dateLabel(b.cafe24.date) + ' ') + '주문 ',
+      el('b', null, won(b.cafe24.order_amount)), ' · ', el('b', null, (b.cafe24.paid_qty ?? 0).toLocaleString('ko-KR') + '개'),
+      ' · 취소·반품 ', el('b', null, (b.cafe24.cancel_qty ?? 0) + '개'));
+    if (b.cafe24.note) s.append(' (' + b.cafe24.note + ')');
+    out.push(s);
+  }
+
+  // 최근 14개 브리핑의 ROAS 막대 — 막대를 누르면 그날로 이동
+  const recent = briefs.slice(0, 14).reverse().filter((x) => x.kpi?.yesterday);
+  if (recent.length > 1) {
+    const max = Math.max(...recent.map((x) => x.kpi.yesterday.roas || 0)) || 1;
+    const p = el('div', 'panel'); p.append(el('h2', null, '최근 ROAS'));
+    const bars = el('div', 'bars');
+    for (const x of recent) {
+      const r = x.kpi.yesterday.roas || 0;
+      const bt = el('button', 'bar' + (x.date === b.date ? ' on' : ''));
+      bt.setAttribute('aria-label', `${dateLabel(x.date)} ROAS ${r.toFixed(2)}`);
+      const bar = el('i'); bar.style.height = Math.max(4, r / max * 64) + 'px';
+      bt.append(el('span', null, r.toFixed(1)), bar, el('span', null, x.date.slice(5).replace('-', '/')));
+      bt.onclick = () => { cur = x.date; render(); };
+      bars.append(bt);
+    }
+    p.append(bars); out.push(p);
+  }
+
+  for (const s of b.sections || []) {
+    if (!s.items?.length) continue;
+    const sec = el('section', 'panel sec'); sec.append(el('h2', null, s.title));
+    const ul = el('ul'); for (const t of s.items) ul.append(el('li', null, t));
+    sec.append(ul); out.push(sec);
+  }
+  if (b.written_at) out.push(el('div', 'foot', '작성 ' + new Date(b.written_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) + ' · Meta 광고관리자 기준(어트리뷰션 반영으로 이후 숫자가 조금 바뀔 수 있음)'));
+  body.replaceChildren(...out);
+  body.className = 'wrap';
+}
+$('prev').onclick = () => { const i = briefs.findIndex((b) => b.date === cur); if (briefs[i + 1]) { cur = briefs[i + 1].date; render(); } };
+$('next').onclick = () => { const i = briefs.findIndex((b) => b.date === cur); if (i > 0) { cur = briefs[i - 1].date; render(); } };
+$('pick').onchange = (e) => { cur = e.target.value; render(); };
+
+(async () => {
+  const db = await window.claude?.use('db');
+  if (!db) { $('title').textContent = '브리핑을 볼 수 없어요'; $('body').replaceChildren(el('div', 'panel empty', 'claude.ai에 로그인한 상태에서 이 페이지를 열어 주세요.')); return; }
+  db.collection('briefs').orderBy('date', 'desc').limit(60).onSnapshot((snap) => {
+    const latest = briefs[0]?.date;
+    briefs = snap.docs.map((d) => d.data());
+    if (!cur || cur === latest) cur = briefs[0]?.date ?? null;   // 최신을 보고 있었으면 새 브리핑이 오면 따라간다
+    render();
+  }, (e) => { $('title').textContent = '브리핑을 불러오지 못했어요'; $('body').replaceChildren(el('div', 'panel empty', e.message)); });
+})();
+</script>

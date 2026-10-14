@@ -254,6 +254,31 @@ console.log('④ 체크보드 계정 공유');
   ctx.fetch = async () => { throw new Error('테스트에선 네트워크 없음'); };
 }
 
+test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름으로 (순번 이어서·마진 지금 가격·옛 이름은 상품 검색)', () => {
+  vm.runInContext("admgr.products = [{ no: 1, name: '(자체제작) 루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }, { no: 2, name: '밍크 트임 pt (2 colors)', price: 39000, supply: 15500 }]; admgrPI = null;", ctx);
+  const f = g('admgrRepostPlan');
+  const all = [{ id: '1', name: '루즈핏 니트_R3_착용컷_28_250915_test' }, { id: '2', name: '루즈핏 니트_P1_인스타_28_250915_test' }, { id: '9', name: '다른 상품_R7_10_260101_test' }];
+  const sets = [
+    { id: '11', name: '루즈핏 니트_R2_인스타_25_251003_test - 사본', ads: [{ id: '11a', name: '루즈핏 니트_R2_인스타_25_251003_test' }, { id: '11b', name: '루즈핏 니트_R2_인스타_25_251003_test – 사본' }] },
+    { id: '12', name: '루즈핏 니트_R1_25_251001_test – 사본 2', ads: [] },                                  // 소구점 없던 옛 규칙 → '끌올'
+    { id: '13', name: '전환_(160이상 추천)밍크 트임 pt (2 colors)_231219 - 사본', is_video: true, ads: [{ id: '13a', name: '밍크 광고' }] },   // 옛 이름 → 상품 목록에서 찾고 R은 영상이라서
+    { id: '14', name: '없는 상품_P2_9_250101_test [→CBO4] - 사본', ads: [] },
+    { id: '15', name: '전환_(양기모)블린 mtm (2 colors)_231214 - 사본', ads: [] },                                // 옛 이름 + 지금 없는 상품 → 가장 긴 토막
+  ];
+  const plan = f(sets, all, '2026-10-15');
+  const by = Object.fromEntries(plan.map(p => [p.id, p]));
+  assert.equal(by['11'].to, '루즈핏 니트_R4_인스타_30_261015_test');     // 순번: 계정 최대 R3 다음 · 마진 (50000−20000)/1000
+  assert.equal(by['11a'].to + '|' + by['11b'].to, by['11'].to + '|' + by['11'].to);   // 세트 안 광고 전부 세트와 같은 이름
+  assert.equal(by['12'].to, '루즈핏 니트_R5_끌올_30_261015_test');       // 같은 상품 두 번째 사본은 R5
+  assert.equal(by['13'].to, '밍크 트임 pt_R1_끌올_23_261015_test');       // 전환_… 옛 이름: 상품 검색 · 영상 → R1 · 마진 (39000−15500)/1000=23
+  assert.equal(by['13a'].to, by['13'].to);
+  assert.equal(by['14'].to, '없는 상품_P3_끌올_9_261015_test');           // 상품 못 찾음 → 예전 마진 유지, 순번은 자기 P2 다음
+  assert.equal(by['14'].name, '없는 상품_P3_끌올_9_261015_test [→CBO4]');  // 캠페인 표시는 세트명에만 유지
+  assert.ok(by['14'].note.includes('상품 못 찾음'));
+  assert.equal(by['15'].to, '블린 mtm_P1_끌올_0_261015_test'); assert.ok(by['15'].note.includes('상품 못 찾음'));
+  assert.equal(plan.length, 8);
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
