@@ -789,7 +789,7 @@ async function admgrRenameBatch(plan, btn) {   // [{id, name}] → 실패 목록
    규칙 이름이 아닌 옛 세트(전환_… 식)는 세트명 전체에서 상품을 찾고 R/P는 소재 종류(영상/이미지)로 정한다. 세트 안 광고 전부 세트와 같은 이름 (업로드 때와 같음) */
 const AG_COPY_TAIL = /\s*[-–—]?\s*(사본|copy)\s*\d*\s*$/i;
 const AG_RULE = /^(.+?)_(R|P)(\d+)((?:_[^_]+)?)_(\d+)_(\d{6})_test\b/;
-function admgrRepostPlan(sets, allSets, today) {   // sets: 사본 세트 [{id,name,ads,is_video}] · allSets: 계정 세트 전체(순번용) → [{id, from, to, name, level, note}]
+function admgrRepostPlan(sets, allSets, today, picks) {   // picks: {세트 id → 상품 no} 사용자가 고른 상품 (비슷한 이름이 여럿일 때)   // sets: 사본 세트 [{id,name,ads,is_video}] · allSets: 계정 세트 전체(순번용) → [{id, from, to, name, level, note}]
   const d = today.replace(/-/g, '').slice(2), seqMax = new Map();
   const seqKey = (pname, rp) => admgrNorm(pname) + '|' + rp;
   [...allSets, ...sets].forEach(x => { const m = admgrBase(x.name).match(AG_RULE); if (m) { const k = seqKey(m[1], m[2]); seqMax.set(k, Math.max(seqMax.get(k) || 0, +m[3])); } });   // 사본 자신(원본 이름 그대로)의 순번도 포함
@@ -798,7 +798,8 @@ function admgrRepostPlan(sets, allSets, today) {   // sets: 사본 세트 [{id,n
     const { base, camps } = admgrMarkParse(s.name);
     const old = base.replace(AG_COPY_TAIL, '').trim(), m = old.match(AG_RULE);
     let pname = m ? m[1] : '', note = '';
-    const n = admgrNorm(pname || old), p = idx.find(x => n.includes(x.n));
+    const n = admgrNorm(pname || old), cands = idx.filter(x => n.includes(x.n));   // 이름에 들어 있는 상품 전부 (긴 이름 먼저) — '모튼 가디건 니트'에 '라이트 모튼 가디건 니트'도 걸리면 고르게
+    const pick = picks && picks[s.id], p = (pick != null && cands.find(x => x.no === pick)) || cands[0] || null;
     if (!pname) pname = p ? (typeof regVerTag === 'function' && regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + coreName(p.name)
       : (old.split('_').map(x => coreName(x).replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}(,\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').replace(/\s+/g, ' ').trim())   // 날짜·가격·' - 색상'·꼬리 숫자 제거
           .filter(x => x && !/^\d+$/.test(x)).sort((a, b) => b.length - a.length)[0] || old);   // 옛 이름('전환_(160이상 추천)밍크 트임 pt (2 colors)_231219'): 상품 목록에서 찾기 → 지금 없는 상품이면 가장 긴 토막(괄호 뺀 것)
@@ -807,7 +808,7 @@ function admgrRepostPlan(sets, allSets, today) {   // sets: 사본 세트 [{id,n
     const margin = p ? Math.floor(Math.max(0, (p.price || 0) - (p.supply || 0)) / 1000) : (m ? +m[5] : 0);
     const k = seqKey(pname, rp), seq = (seqMax.get(k) || 0) + 1; seqMax.set(k, seq);
     const name = `${pname}_${rp}${seq}_${tag}_${margin}_${d}_test`;
-    plan.push({ id: s.id, from: base, to: name, name: admgrMarkName(name, camps), level: 'adset', note, product: p ? p.name : '' });
+    plan.push({ id: s.id, from: base, to: name, name: admgrMarkName(name, camps), level: 'adset', note, product: p ? p.name : '', cands: cands.map(x => ({ no: x.no, name: x.name })), pick: p ? p.no : null });
     for (const a of (s.ads || [])) plan.push({ id: a.id, from: a.name, to: name, name, level: 'ad', note: '' });
   }
   return plan;
@@ -826,11 +827,19 @@ async function admgrRepostModal() {
     for (let i = 0; i < ids.length; i += 100) { const r = await metaGet({ action: 'creatives', set_ids: ids.slice(i, i + 100).join(',') }); (r.ads || []).forEach(a => { const k = String(a.adset_id); if (a.is_video) kind.set(k, true); else if (!kind.has(k)) kind.set(k, false); (adsOf.get(k) || adsOf.set(k, []).get(k)).push({ id: a.id, name: a.name }); }); }
     sets.forEach(s => { s.is_video = !!kind.get(String(s.id)); if (!(s.ads || []).length) s.ads = adsOf.get(String(s.id)) || []; });   // 방금 복사한 세트는 성과가 없어 계층 데이터에 광고가 안 실려 온다 → 썸네일 조회의 광고 목록으로
   } catch (e) { toast('소재 종류 확인 실패 — 영상/이미지는 이름 규칙으로만: ' + e.message); }
-  const plan = admgrRepostPlan(sets, admgrRows().sets, todayStr(0));
+  admgr.repostSets = sets; admgr.repostPick = {};
+  admgrRepostRender();
+}
+function admgrRepostPick(setId, no) { admgr.repostPick[setId] = Number(no); admgrRepostRender(); }   // 비슷한 상품이 여럿일 때 고르면 이름·마진·순번을 다시 계산
+function admgrRepostRender() {
+  const plan = admgrRepostPlan(admgr.repostSets, admgrRows().sets, todayStr(0), admgr.repostPick);
   admgr.repostPlan = plan;
-  const row = p => `<div style="padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:.76rem;"><span class="ag-muted" style="margin-right:6px;">${p.level === 'adset' ? '세트' : '광고'}</span>${esc(p.from)} <span style="color:#9ca3af;">→</span> <b>${esc(p.to)}</b>${p.note ? ` <span style="color:#b45309;">· ${esc(p.note)}</span>` : ''}</div>`;
+  const sel = p => p.cands && p.cands.length > 1 ? `<div style="margin:3px 0 2px 44px;font-size:.74rem;color:#b45309;">비슷한 상품이 ${p.cands.length}개 — <select onchange="admgrRepostPick('${p.id}', this.value)" style="font-size:.74rem;padding:2px 6px;border:1px solid #fbbf24;border-radius:6px;max-width:100%;">${p.cands.map(c => `<option value="${c.no}" ${c.no === p.pick ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>`
+    : p.level === 'adset' && p.product ? `<div style="margin:0 0 2px 44px;font-size:.7rem;color:#9ca3af;">상품: ${esc(p.product)}</div>` : '';
+  const row = p => `<div style="padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:.76rem;"><span class="ag-muted" style="margin-right:6px;">${p.level === 'adset' ? '세트' : '광고'}</span>${esc(p.from)} <span style="color:#9ca3af;">→</span> <b>${esc(p.to)}</b>${p.note ? ` <span style="color:#b45309;">· ${esc(p.note)}</span>` : ''}${sel(p)}</div>`;
+  const amb = plan.filter(p => p.cands && p.cands.length > 1).length;
   $('abm-body').innerHTML = `
-    <div style="font-size:.78rem;color:#4b5563;margin-bottom:8px;">소재 업로드와 같은 규칙으로 이름을 다시 지어요 — <b>상품명_R순번_소구점_마진_오늘날짜_test</b>. 순번은 그 상품의 기존 세트 다음 번호, 마진은 지금 상품 가격 기준이에요.</div>
+    <div style="font-size:.78rem;color:#4b5563;margin-bottom:8px;">소재 업로드와 같은 규칙으로 이름을 다시 지어요 — <b>상품명_R순번_소구점_마진_오늘날짜_test</b>. 순번은 그 상품의 기존 세트 다음 번호, 마진은 지금 상품 가격 기준이에요.${amb ? `<div style="color:#b45309;margin-top:4px;">비슷한 이름의 상품이 여럿인 세트 ${amb}개 — 아래에서 맞는 상품을 골라주세요 (고르면 이름·마진이 바로 바뀌어요)</div>` : ''}</div>
     <div style="max-height:45vh;overflow:auto;">${plan.map(row).join('')}</div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">이름만 바뀌고 성과·학습에는 영향 없어요 · 이름에 test가 들어가 테스트 소재 탭에서 판정돼요 · 소구점이 없던 옛 이름은 '끌올'로 넣었으니 필요하면 Meta에서 고치세요</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">

@@ -255,7 +255,7 @@ console.log('④ 체크보드 계정 공유');
 }
 
 test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름으로 (순번 이어서·마진 지금 가격·옛 이름은 상품 검색)', () => {
-  vm.runInContext("admgr.products = [{ no: 1, name: '(자체제작) 루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }, { no: 2, name: '밍크 트임 pt (2 colors)', price: 39000, supply: 15500 }]; admgrPI = null;", ctx);
+  vm.runInContext("admgr.products = [{ no: 1, name: '(자체제작) 루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }, { no: 2, name: '밍크 트임 pt (2 colors)', price: 39000, supply: 15500 }, { no: 3, name: '모튼 가디건 니트 (4 colors)', price: 42000, supply: 18000 }, { no: 4, name: '라이트 모튼 가디건 니트 (3 colors)', price: 39000, supply: 15000 }]; admgrPI = null;", ctx);
   const f = g('admgrRepostPlan');
   const all = [{ id: '1', name: '루즈핏 니트_R3_착용컷_28_250915_test' }, { id: '2', name: '루즈핏 니트_P1_인스타_28_250915_test' }, { id: '9', name: '다른 상품_R7_10_260101_test' }];
   const sets = [
@@ -266,6 +266,7 @@ test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름
     { id: '15', name: '전환_(양기모)블린 mtm (2 colors)_231214 - 사본', ads: [] },                                // 옛 이름 + 지금 없는 상품 → 가장 긴 토막
     { id: '16', name: '1113_릴스_모카 니트 22_40,000 - 사본', ads: [] },                                           // 날짜·가격·꼬리 숫자 제거 · '릴스' → R
     { id: '17', name: '0226 모카 가디건 - 그레이 24000 - 사본', ads: [] },                                          // 앞 날짜 · ' - 색상' · 가격 제거
+    { id: '18', name: '영상_라이트 모튼 가디건 니트 - 사본', ads: [{ id: '18a', name: '모튼 광고' }] },                   // 상품 2개가 걸림 → 후보 목록, 기본은 긴 이름
   ];
   const plan = f(sets, all, '2026-10-15');
   const by = Object.fromEntries(plan.map(p => [p.id, p]));
@@ -280,7 +281,11 @@ test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름
   assert.equal(by['15'].to, '블린 mtm_P1_끌올_0_261015_test'); assert.ok(by['15'].note.includes('상품 못 찾음'));
   assert.equal(by['16'].to, '모카 니트_R1_끌올_0_261015_test');
   assert.equal(by['17'].to, '모카 가디건_P1_끌올_0_261015_test');
-  assert.equal(plan.length, 10);
+  assert.equal(by['18'].to, '라이트 모튼 가디건 니트_R1_끌올_24_261015_test');       // 기본: 긴 이름(라이트 모튼) · 마진 (39000−15000)/1000
+  assert.equal(by['18'].cands.map(c => c.no).join(), '4,3');
+  const picked = Object.fromEntries(f(sets, all, '2026-10-15', { '18': 3 }).map(p => [p.id, p]));   // 사용자가 '모튼 가디건 니트'를 고르면
+  assert.equal(picked['18'].to + '|' + picked['18a'].to, '모튼 가디건 니트_R1_끌올_24_261015_test|모튼 가디건 니트_R1_끌올_24_261015_test');
+  assert.equal(plan.length, 12);
 });
 
 console.log('주간 리포트');
