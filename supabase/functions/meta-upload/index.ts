@@ -183,10 +183,10 @@ Deno.serve(async (req) => {
     const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (me.perms) {   // SSO 사용자: 워크스페이스 세부 권한. 미디어 업로드(image/video_*)는 소재 등록에도 필요하므로 creative 권한으로도 허용
       const media = ["image", "video_start", "video_chunk", "video_finish"].includes(action);
-      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
+      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", campaign_copy: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
       if (media && !canAct(me, "upload") && !canAct(me, "creative")) return denyAct("upload");
       if (need && !canAct(me, need)) return denyAct(need);
-    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
+    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "campaign_copy", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
 
     if (action === "status") return json({ token_set: !!env("META_WRITE_TOKEN"), pin_set: !!env("WRITE_PIN"), account: ACCOUNT });
     if (action === "model") return json(await readModel(url.searchParams.get("ad_id") ?? ""));
@@ -317,6 +317,49 @@ Deno.serve(async (req) => {
       }
       if (created.length) await clearMetaCaches();
       return json({ created, skipped, failed });
+    }
+    /* 상품 CBO 캠페인 만들기 (2026-10-16 사용자 요청) — 고른 캠페인의 설정(목표·입찰·타겟·노출 위치·전환 이벤트)을 본떠 새 CBO 캠페인 + 세트 1개를 만들고,
+       고른 광고들을 같은 소재로 복사해 넣는다. 캠페인·세트는 꺼진 상태, 광고는 켜진 상태(세트를 켜면 바로 게재). 이름 = 상품CBO_상품명_생성날짜. 예산이 걸리는 생성이라 PIN */
+    if (action === "campaign_copy") {
+      const modelId = String(body.model_campaign_id ?? "");
+      if (!/^\d{5,25}$/.test(modelId)) return json({ error: "본뜰 캠페인을 골라주세요" }, 400);
+      const product = String(body.product ?? "").normalize("NFC").replace(/[_/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+      if (!product) return json({ error: "상품명이 필요합니다" }, 400);
+      const budget = Math.round(Number(body.daily_budget ?? 0));
+      if (budget < MIN_BUDGET || budget > 3_000_000) return json({ error: `캠페인 일예산은 ${MIN_BUDGET.toLocaleString()}~3,000,000원 사이여야 합니다` }, 400);
+      const ids = (body.ads ?? []) as unknown[];
+      if (!Array.isArray(ids) || !ids.length || ids.length > 50) return json({ error: "광고를 1~50개 선택하세요" }, 400);
+      const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "2-digit", month: "2-digit", day: "2-digit" }).format(new Date()).replace(/-/g, "");
+      const name = `상품CBO_${product}_${ymd}`;
+      const mc = await graph(modelId, { params: { fields: "name,objective,buying_type,bid_strategy,special_ad_categories,daily_budget,lifetime_budget" } });
+      const setsR = await graph(`${modelId}/adsets`, { params: { fields: ADSET_FIELDS + ",effective_status", limit: "50" } });
+      const sets = (setsR.data ?? []) as Rec[];
+      const src = sets.find((x) => String(x.effective_status ?? "") === "ACTIVE") ?? sets[0];
+      if (!src) return json({ error: "본뜰 캠페인에 광고세트가 없어요" }, 400);
+      const bidStrategy = String(mc.bid_strategy ?? src.bid_strategy ?? "LOWEST_COST_WITHOUT_CAP");
+      const cp: Record<string, string> = {
+        name, objective: String(mc.objective ?? "OUTCOME_SALES"), buying_type: String(mc.buying_type ?? "AUCTION"),
+        bid_strategy: bidStrategy, daily_budget: String(budget), status: "PAUSED",
+        special_ad_categories: JSON.stringify(Array.isArray(mc.special_ad_categories) ? mc.special_ad_categories : []),
+      };
+      const camp = await graph(`${ACCOUNT}/campaigns`, { method: "POST", params: cp });
+      const campaign_id = String(camp.id);
+      const adsetSrc: Rec = { ...src, campaign_id, bid_strategy: bidStrategy };   // CBO는 입찰 방식이 캠페인에 있다 — 세트는 캠페인과 같은 값만
+      const adset_id = await createAdset({ adset: adsetSrc, cbo: true }, name, 0, "PAUSED");
+      const created: Rec[] = [], failed: Rec[] = []; const have = new Set<string>();
+      for (const raw of ids) {
+        const id = String(raw);
+        try {
+          const a = await graph(id, { params: { fields: "name,creative{id}" } });
+          const cid = String((a.creative as Rec)?.id ?? ""); if (!cid) throw new Error("이 광고의 소재를 찾지 못했어요");
+          const adName = String(a.name ?? "").normalize("NFC").slice(0, 200);
+          if (have.has(cid)) { failed.push({ id, name: adName, error: "같은 소재가 이미 들어갔어요" }); continue; }
+          const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name: adName, adset_id, creative: JSON.stringify({ creative_id: cid }), status: "ACTIVE" } });
+          have.add(cid); created.push({ id, name: adName, new_id: String(ad.id) });
+        } catch (e) { failed.push({ id, error: String((e as Error).message).slice(0, 200) }); }
+      }
+      await clearMetaCaches();
+      return json({ campaign_id, adset_id, name, created, failed });
     }
     /* 표시 정리 (2026-09-16) — 세트 이름의 " [→캠페인명]" 표시를 점검해서, 그 캠페인의 복사본이 꺼져 있거나 사라졌으면 표시를 뗀다.
        복사 직후(48시간 안)에 아직 켜지 않은 것은 남겨 둔다 — 복사본은 항상 꺼진 상태로 만들기 때문 */
