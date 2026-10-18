@@ -144,7 +144,7 @@ function uplIgAdd() {
     if (!uplIg.sel.has(p.id)) continue;
     const cap = (p.caption.split('\n')[0] || '').replace(/[#@]\S+/g, '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 16);
     upl.files.push({ id: newId(), file: null, kind: p.type === 'VIDEO' ? 'video' : 'image', name: `${cap || '인스타게시물'}_인스타게시물_${p.at.slice(2, 10).replace(/-/g, '')}`.normalize('NFC'),
-      text: { message: '', title: '', description: '', link, cta: 'SHOP_NOW' }, status: '게시물 (전송 불필요)', media: { type: 'ig_post', media_id: p.id, thumbnail_url: p.thumb, url: p.thumb, permalink: p.permalink, _fresh: true }, result: null, sel: false });
+      text: { message: '', title: '', description: '', link, cta: 'LEARN_MORE' }, status: '게시물 (전송 불필요)', media: { type: 'ig_post', media_id: p.id, thumbnail_url: p.thumb, url: p.thumb, permalink: p.permalink, _fresh: true }, result: null, sel: false });
     n++;
   }
   uplIg.sel.clear(); closeModal('admgr-budget-modal'); uplRenderFiles();
@@ -161,13 +161,24 @@ function uplRenderFiles() {
     <tbody>${upl.files.map((f, i) => `<tr>
       <td><input type="checkbox" ${f.sel ? 'checked' : ''} onchange="upl.files[${i}].sel=this.checked;uplSelBtn()" /></td>
       <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${mediaThumbPv(f.file ? (f.thumbUrl || (f.thumbUrl = (() => { try { return URL.createObjectURL(f.file); } catch (e) { return ''; } })())) : mediaThumbSrc(f.media), f.kind, 40, { title: f.file ? f.file.name : f.name, kind: f.kind, local: f.file ? f.thumbUrl : null, media: f.media })}<div>${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></div></div></td>
-      <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
+      <td>${f.media && f.media.type === 'ig_post' && !f.result ? `<input class="inp" list="upl-ig-prods" value="${esc(f.product ? f.product.name : '')}" placeholder="상품 검색해서 고르기 (이름이 규칙대로 들어가요)" style="min-width:260px;background:#fff;font-size:.76rem;margin-bottom:4px;" onchange="uplIgPick(${i}, this.value)" ${upl.running?'disabled':''} />` : ''}<input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
       <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null" ${upl.running||f.result?'disabled':''} title="비우면 기본 일예산" />`}</td>
       <td style="text-align:center;">${f.media && f.media.type === 'ig_post' ? `<input class="inp" value="${esc((f.text || {}).link || '')}" placeholder="랜딩 링크 https://…" style="min-width:220px;background:#fff;font-size:.76rem;" oninput="upl.files[${i}].text.link=this.value.trim()" ${upl.running ? 'disabled' : ''} title="문구·소재는 게시물 그대로 — 버튼 링크만 입력" />` : `<button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? '<i class="fa-solid fa-rotate" style="color:#b45309;"></i> 재생성 대기' : copyHasNote(f.text || upl.commonText) ? '<b style="color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> AI 안내문 섞임</b>' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button>`}</td>
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
-    </tr>`).join('')}</tbody></table></div>`;
+    </tr>`).join('')}</tbody></table></div>${upl.files.some(f => f.media && f.media.type === 'ig_post') ? `<datalist id="upl-ig-prods">${(admgr.products || []).map(p => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>` : ''}`;
+  if (upl.files.some(f => f.media && f.media.type === 'ig_post') && !admgr.products && !admgr.productsLoading && typeof admgrLoadProducts === 'function') admgrLoadProducts().then(uplRenderFiles);   // 상품 검색용 (카페24 상품 목록)
   uplSelBtn();
+}
+function uplIgPick(i, name) {   // 게시물 행에 상품 지정 → 이름은 소재 업로드 규칙(상품명_인스타게시물_마진_YYMMDD_test), 링크 비어 있으면 상품 URL
+  const f = upl.files[i], p = (admgr.products || []).find(x => x.name === name);
+  if (!p) { if (name) toast('목록에 있는 상품명을 골라 주세요'); return; }
+  const ver = typeof regVerTag === 'function' ? regVerTag(p.name) : '', core = (ver ? ver + ' ' : '') + coreName(p.name);
+  const margin = Math.floor(Math.max(0, (p.price || 0) - (p.supply || 0)) / 1000), ymd = todayStr(0).replace(/-/g, '').slice(2);
+  f.product = p; f.product_no = p.no; f.product_name = p.name; f.url = productUrl(p.no);
+  f.name = `${core}_인스타게시물_${margin}_${ymd}_test`;
+  if (!f.text.link) f.text.link = f.url;
+  uplRenderFiles();
 }
 function uplSelAll(on) { for (const f of upl.files) f.sel = on; uplRenderFiles(); }
 function uplSelBtn() {
