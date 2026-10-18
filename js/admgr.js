@@ -1110,6 +1110,7 @@ async function admgrLoadProducts() {
     const rows = (await perfApi({ action: 'products' })).rows || [];
     admgr.products = rows.filter(p => p.name && p.price > 0).map(p => ({ no: p.product_no, name: p.name, price: p.price, supply: p.supply_price || 0 }));
     lsSet('adc_admgr_products2', admgr.products);
+    lsSet('adc_admgr_products2_at', Date.now());   // 받은 시각 — 인스타 게시물 상품 검색이 오래된 목록을 쓰지 않게 (2026-10-18)
   } catch (e) { toast('카페24 상품 가격 조회 실패: ' + e.message); }
   admgr.productsLoading = false; renderAdmgr(true);
 }

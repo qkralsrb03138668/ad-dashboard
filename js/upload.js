@@ -167,7 +167,7 @@ function uplRenderFiles() {
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
-  if (upl.files.some(f => f.media && f.media.type === 'ig_post') && !admgr.products && !admgr.productsLoading && typeof admgrLoadProducts === 'function') admgrLoadProducts().then(uplRenderFiles);   // 상품 검색용 (카페24 상품 목록)
+  if (upl.files.some(f => f.media && f.media.type === 'ig_post') && !admgr.productsLoading && typeof admgrLoadProducts === 'function' && (!admgr.products || Date.now() - (lsGet('adc_admgr_products2_at', 0) || 0) > 6 * 3600 * 1000)) { admgr.productsLoading = true; admgrLoadProducts().then(uplRenderFiles); }   // 상품 검색용 — 저장된 목록이 6시간 넘었으면 새로 (신상품이 안 뜨던 실사례 2026-10-18)
   uplSelBtn();
 }
 function uplIgSearch(i, q, inp) {   // 상품 검색 — 띄어쓰기로 나눈 단어가 모두 들어간 상품 (괄호 안 포함), 최대 12개
@@ -177,9 +177,16 @@ function uplIgSearch(i, q, inp) {   // 상품 검색 — 띄어쓰기로 나눈 
   if (!admgr.products) { box.innerHTML = '<div style="padding:8px 10px;font-size:.74rem;color:#9ca3af;">상품 목록 불러오는 중…</div>'; box.style.display = 'block'; return; }
   const hits = admgr.products.filter(p => { const n = p.name.normalize('NFC').toLowerCase(); return words.every(w => n.includes(w)); }).slice(0, 12);
   box.innerHTML = hits.length ? hits.map(p => `<div onmousedown="event.preventDefault();uplIgPick(${i}, ${p.no})" style="padding:6px 10px;font-size:.76rem;cursor:pointer;border-bottom:1px solid #f3f4f6;" onmouseover="this.style.background='#eef2ff'" onmouseout="this.style.background=''">${esc(p.name)} <span style="color:#9ca3af;">· ${Number(p.price).toLocaleString()}원</span></div>`).join('')
-    : '<div style="padding:8px 10px;font-size:.74rem;color:#9ca3af;">맞는 상품이 없어요 — 다른 단어로 찾아보세요</div>';
+    : `<div style="padding:8px 10px;font-size:.74rem;color:#9ca3af;">맞는 상품이 없어요 — 다른 단어로 찾아보거나 <a href="#" onmousedown="event.preventDefault();uplIgProdsReload(${i}, '${esc(q)}')" style="color:#4f46e5;">상품 목록 새로 받기</a> (신상품은 목록이 오래됐을 수 있어요)</div>`;
   box.style.display = 'block';
   if (inp && !inp._blur) { inp._blur = true; inp.addEventListener('blur', () => setTimeout(() => { box.style.display = 'none'; }, 150)); }
+}
+async function uplIgProdsReload(i, q) {   // 카페24에서 상품 목록을 다시 받고 같은 검색어로 다시 찾기
+  const box = $('upl-ig-hits-' + i); if (box) { box.innerHTML = '<div style="padding:8px 10px;font-size:.74rem;color:#9ca3af;">카페24 상품 목록 새로 받는 중…</div>'; box.style.display = 'block'; }
+  try { await admgrLoadProducts(); } catch (e) { toast('상품 목록 실패: ' + e.message); }
+  uplRenderFiles();
+  const inp = document.querySelector('#upl-files tbody tr:nth-child(' + (i + 1) + ') input[placeholder^="상품 검색"]');
+  if (inp) { inp.value = q; inp.focus(); uplIgSearch(i, q, inp); }
 }
 function uplIgPick(i, no) {   // 게시물 행에 상품 지정 → 이름은 소재 업로드 규칙(상품명_인스타게시물_마진_YYMMDD_test), 링크 비어 있으면 상품 URL
   const f = upl.files[i], p = (admgr.products || []).find(x => String(x.no) === String(no));
