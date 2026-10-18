@@ -196,6 +196,9 @@
           <i class="fa-solid fa-upload" style="font-size:1.4rem;color:#4f46e5;"></i><div style="margin-top:6px;">파일을 끌어다 놓거나 클릭해서 선택 — JPG · PNG · MP4 · MOV</div>
           <input type="file" id="upl-file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" style="display:none;" onchange="uplAddFiles(this.files);this.value=''" />
         </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="uplIgOpen()" title="인스타 계정의 최근 게시물을 그대로 광고로 — 문구·소재는 게시물 그대로, 랜딩 링크만 입력"><i class="fa-brands fa-instagram"></i> 인스타 게시물로 만들기</button>
+          <span style="font-size:.72rem;color:#9ca3af;">게시물 캡션·이미지가 그대로 광고가 돼요 · 모델은 '인스타게시물' 세트의 광고를 고르세요</span></div>
         <div id="upl-files" style="margin-top:12px;"></div>
 
         <!-- ③ 설정 · 실행 -->
@@ -606,7 +609,7 @@
 <script src="./js/creatives.js?v=202610061613"></script>
 <script src="./js/checkboard.js?v=202610061613"></script>
 <script src="./js/register.js?v=202610061613"></script>
-<script src="./js/upload.js?v=202610122030"></script>
+<script src="./js/upload.js?v=202610181200"></script>
 <script src="./js/admgr.js?v=202610161000"></script>
 <script src="./js/admgr-budget.js?v=202610150055"></script>
 <script src="./js/admgr-tabs.js?v=202610141000"></script>

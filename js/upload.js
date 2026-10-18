@@ -109,6 +109,47 @@ function uplAddFiles(list) {
   }
   uplRenderFiles();
 }
+/* ── 인스타 게시물로 만들기 (2026-10-18 사용자 요청) — 계정의 최근 게시물을 골라 표에 넣는다. 문구·소재는 게시물 그대로, 랜딩 링크만 입력 ── */
+const uplIg = { rows: null, sel: new Set() };
+async function uplIgOpen() {
+  if (!admgrCfg()) return;
+  $('abm-title').textContent = '인스타 게시물로 만들기'; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = '<div style="padding:16px;color:#6b7280;font-size:.8rem;">인스타 게시물을 불러오는 중…</div>';
+  $('admgr-budget-modal').classList.add('show');
+  if (!uplIg.rows) {
+    try { const r = await uplCall({ action: 'ig_media', limit: 60 }, {}); if (r.error) throw new Error(r.error); uplIg.rows = r.rows || []; }
+    catch (e) { $('abm-body').innerHTML = `<div style="padding:16px;color:#dc2626;font-size:.8rem;">게시물 목록 실패: ${esc(e.message)}</div>`; return; }
+  }
+  uplIgRender();
+}
+function uplIgRender() {
+  const rows = uplIg.rows, used = new Set(upl.files.filter(f => f.media && f.media.type === 'ig_post').map(f => f.media.media_id));
+  const kind = p => p.product === 'REELS' ? '릴스' : p.type === 'VIDEO' ? '영상' : p.type === 'CAROUSEL_ALBUM' ? '슬라이드' : '이미지';
+  $('abm-body').innerHTML = `
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">최근 ${rows.length}개 · 캡션과 이미지가 그대로 광고가 돼요 · 이미 표에 있는 게시물은 흐리게</div>
+    <div style="max-height:52vh;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;">
+      ${rows.map(p => `<label style="border:1px solid ${uplIg.sel.has(p.id) ? '#4f46e5' : '#e5e7eb'};border-radius:8px;padding:6px;cursor:pointer;font-size:.7rem;${used.has(p.id) ? 'opacity:.4;' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><input type="checkbox" ${uplIg.sel.has(p.id) ? 'checked' : ''} ${used.has(p.id) ? 'disabled' : ''} onchange="this.checked?uplIg.sel.add('${p.id}'):uplIg.sel.delete('${p.id}');uplIgRender()" /><span style="color:#6b7280;">${kind(p)} · ${esc(p.at.slice(5, 10).replace('-', '/'))}</span></div>
+        ${p.thumb ? `<img src="${esc(p.thumb)}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;background:#f3f4f6;" onerror="this.style.visibility='hidden'" />` : ''}
+        <div style="margin-top:4px;line-height:1.4;max-height:2.8em;overflow:hidden;color:#374151;">${esc(p.caption.split('\n')[0] || '(캡션 없음)')}</div></label>`).join('')}</div>
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:12px;">
+      <button class="btn-ghost" style="font-size:.72rem;" onclick="uplIg.rows=null;uplIg.sel.clear();uplIgOpen()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+      <div style="display:flex;gap:8px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button>
+      <button class="btn-analyze" onclick="uplIgAdd()" ${uplIg.sel.size ? '' : 'disabled'}>선택한 ${uplIg.sel.size}개 추가</button></div></div>`;
+}
+function uplIgAdd() {
+  const link = (upl.model && upl.model.text && upl.model.text.link) || '';   // 모델 광고의 링크를 기본으로
+  let n = 0;
+  for (const p of uplIg.rows) {
+    if (!uplIg.sel.has(p.id)) continue;
+    const cap = (p.caption.split('\n')[0] || '').replace(/[#@]\S+/g, '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 16);
+    upl.files.push({ id: newId(), file: null, kind: p.type === 'VIDEO' ? 'video' : 'image', name: `${cap || '인스타게시물'}_인스타게시물_${p.at.slice(2, 10).replace(/-/g, '')}`.normalize('NFC'),
+      text: { message: '', title: '', description: '', link, cta: 'SHOP_NOW' }, status: '게시물 (전송 불필요)', media: { type: 'ig_post', media_id: p.id, thumbnail_url: p.thumb, url: p.thumb, permalink: p.permalink, _fresh: true }, result: null, sel: false });
+    n++;
+  }
+  uplIg.sel.clear(); closeModal('admgr-budget-modal'); uplRenderFiles();
+  toast(`인스타 게시물 ${n}개를 표에 넣었어요 — 세트명과 랜딩 링크를 확인하세요`);
+}
 function uplDelFile(id) { upl.files = upl.files.filter(f => f.id !== id); uplRenderFiles(); }
 const fmtMB = n => (n / 1048576).toFixed(1) + ' MB';
 function uplRenderFiles() {
@@ -122,7 +163,7 @@ function uplRenderFiles() {
       <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${mediaThumbPv(f.file ? (f.thumbUrl || (f.thumbUrl = (() => { try { return URL.createObjectURL(f.file); } catch (e) { return ''; } })())) : mediaThumbSrc(f.media), f.kind, 40, { title: f.file ? f.file.name : f.name, kind: f.kind, local: f.file ? f.thumbUrl : null, media: f.media })}<div>${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></div></div></td>
       <td><input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
       <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null" ${upl.running||f.result?'disabled':''} title="비우면 기본 일예산" />`}</td>
-      <td style="text-align:center;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? '<i class="fa-solid fa-rotate" style="color:#b45309;"></i> 재생성 대기' : copyHasNote(f.text || upl.commonText) ? '<b style="color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> AI 안내문 섞임</b>' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button></td>
+      <td style="text-align:center;">${f.media && f.media.type === 'ig_post' ? `<input class="inp" value="${esc((f.text || {}).link || '')}" placeholder="랜딩 링크 https://…" style="min-width:220px;background:#fff;font-size:.76rem;" oninput="upl.files[${i}].text.link=this.value.trim()" ${upl.running ? 'disabled' : ''} title="문구·소재는 게시물 그대로 — 버튼 링크만 입력" />` : `<button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? '<i class="fa-solid fa-rotate" style="color:#b45309;"></i> 재생성 대기' : copyHasNote(f.text || upl.commonText) ? '<b style="color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> AI 안내문 섞임</b>' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button>`}</td>
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
@@ -180,7 +221,7 @@ function uplTextOpen(idx) {
     let n = 0;
     if (uplTextIdx >= 0) { upl.files[uplTextIdx].text = t; uplTextPersist([upl.files[uplTextIdx]], t); }
     else if (uplTextIdx === -2) { const sel = upl.files.filter(f => f.sel); for (const f of sel) { f.text = { ...t, link: f.url || t.link }; n++; } uplTextPersist(sel, t); }   /* 체크 유지 (2026-09-28) */
-    else { upl.commonText = t; for (const f of upl.files) f.text = null; }
+    else { upl.commonText = t; for (const f of upl.files) if (!(f.media && f.media.type === 'ig_post')) f.text = null; }   // 인스타 게시물 행은 링크만 쓰므로 유지
     uplRenderFiles();
     toast(uplTextIdx >= 0 ? '이 파일의 문구를 저장했어요' : uplTextIdx === -2 ? `선택한 ${n}개 파일에 문구를 적용했어요` : '모든 파일에 문구를 적용했어요');
   }, { linkOptional: idx < 0 });
@@ -293,6 +334,8 @@ async function uplRun() {
   const missing = target.filter(f => !effText(f));
   if (missing.length) { toast(`문구가 없는 파일 ${missing.length}개 — 기입하거나 일괄 기입하세요`); return; }
   const dup = target.filter(f => !f.name.trim()); if (dup.length) { toast('이름이 빈 파일이 있어요'); return; }
+  const noLink = target.filter(f => !f.result && f.media && f.media.type === 'ig_post' && !/^https?:\/\//.test(((f.text || {}).link) || ''));
+  if (noLink.length) { toast(`인스타 게시물 ${noLink.length}개에 랜딩 링크가 없어요 — 문구 칸에 https://로 시작하는 주소를 넣어 주세요`); return; }
   /* AI 안내문이 섞인 문구(2026-09-30 사고): 앞 문단이면 지우고 진행, 본문 중간에 남아 있으면 멈추고 알림 */
   const noted = target.filter(f => !f.result && copyHasNote(effText(f)));
   if (noted.length) {

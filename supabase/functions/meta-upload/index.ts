@@ -149,6 +149,14 @@ async function createAdset(model: Rec, name: string, budget: number, status: str
 async function createCreative(model: Rec, name: string, media: Rec, text: Rec, validate = false): Promise<string> {
   const cre = model.creative as Rec;
   const cta = { type: String(text.cta || "LEARN_MORE"), value: { link: String(text.link) } };
+  if (media.type === "ig_post") {   // 기존 인스타 게시물 그대로 (2026-10-18 사용자 요청) — 문구·소재는 게시물, 버튼 링크만 우리가 지정
+    if (!cre.instagram_user_id) throw new Error("모델 광고에 인스타 계정 정보가 없어요 — '인스타게시물' 세트의 광고를 모델로 고르세요");
+    const p: Record<string, string> = { name, object_id: String(cre.page_id), instagram_user_id: String(cre.instagram_user_id), source_instagram_media_id: String(media.media_id),
+      call_to_action: JSON.stringify(cta), contextual_multi_ads: JSON.stringify(cre.contextual_multi_ads ?? { enroll_status: "OPT_OUT" }), ...(validate ? VALIDATE : {}) };
+    if (cre.url_tags) p.url_tags = String(cre.url_tags);
+    const r = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });
+    return String(r.id);
+  }
   const oss: Rec = { page_id: cre.page_id };
   if (cre.instagram_user_id) oss.instagram_user_id = cre.instagram_user_id;
   if (media.type === "video") {
@@ -528,7 +536,7 @@ Deno.serve(async (req) => {
       const media = (body.media ?? {}) as Rec, text = (body.text ?? {}) as Rec;
       if (!name) return json({ error: "이름 필요" }, 400);
       if (!model.cbo && (budget < MIN_BUDGET || budget > MAX_BUDGET)) return json({ error: `일예산은 ${MIN_BUDGET.toLocaleString()}~${MAX_BUDGET.toLocaleString()}원 사이여야 합니다` }, 400);
-      if (media.type === "video" ? !(media.video_id && media.thumbnail_url) : !media.image_hash) return json({ error: "미디어 정보 부족" }, 400);
+      if (media.type === "ig_post" ? !/^\d{5,30}$/.test(String(media.media_id ?? "")) : media.type === "video" ? !(media.video_id && media.thumbnail_url) : !media.image_hash) return json({ error: "미디어 정보 부족" }, 400);
       if (!String(text.link ?? "").startsWith("http")) return json({ error: "웹사이트 URL이 필요합니다" }, 400);
       /* 마지막 관문(2026-09-30): "상품 페이지는 접근 권한이 없어 … 근거로 썼습니다" 같은 AI 안내문이 광고 9개에 그대로 나갔다 — 앞 문단이면 지우고, 그래도 남아 있으면 만들지 않는다 */
       const rawMsg = String(text.message ?? ""); text.message = stripLeadNotes(rawMsg);
