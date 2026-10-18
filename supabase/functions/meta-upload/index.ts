@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
     }
     const MEDIA_ACTIONS = ["image", "video_start", "video_chunk", "video_finish"];
     const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
-    const COPY_ACTIONS = ["ad_copy", "adset_rename", "marker_sync"];   // 광고 복사·세트 이름 표시 (2026-09-16) — 예산 변경이 아니라 PIN 없이 로그인 역할로
+    const COPY_ACTIONS = ["ad_copy", "adset_rename", "marker_sync", "ig_media"];   // ig_media = 인스타 게시물 목록 읽기(쓰기 아님)   // 광고 복사·세트 이름 표시 (2026-09-16) — 예산 변경이 아니라 PIN 없이 로그인 역할로
     // 미디어 업로드·소재 기록은 로그인 역할(마케터/관리자)만으로 허용 — 등록 PIN 폐지(2026-09-11 사용자 요청). PIN은 광고 생성(create/verify)에만.
     if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action) && action !== "media_urls") {   // media_urls = 미리보기 주소 읽기(쓰기 아님) — PIN 없이
       const pinErr = await checkPin(body.pin);
@@ -290,6 +290,24 @@ Deno.serve(async (req) => {
 
     /* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고의 소재를 다른 캠페인/광고세트에 같은 이름으로 새 광고로. 항상 꺼진 상태로 만들고,
        같은 세트에 같은 소재가 이미 있으면 건너뛰고 알려준다 ═══ */
+    /* 인스타 게시물 목록 (2026-10-18) — 기존 게시물로 광고 만들기용. 페이지에 연결된 인스타 비즈니스 계정의 최근 게시물 */
+    if (action === "ig_media") {
+      let ig = url.searchParams.get("ig_user_id") ?? "";
+      const out: Rec = {};
+      if (!ig) {
+        const pages = await graph("me/accounts", { params: { fields: "id,name,instagram_business_account", limit: "50" } });
+        const pg = ((pages.data ?? []) as Rec[]).find((x) => x.instagram_business_account);
+        ig = String(((pg?.instagram_business_account ?? {}) as Rec).id ?? "");
+        out.page = pg ? { id: pg.id, name: pg.name } : null;
+      }
+      if (!ig) return json({ error: "페이지에 연결된 인스타 계정을 찾지 못했어요", ...out }, 400);
+      out.ig_user_id = ig;
+      try {
+        const r = await graph(`${ig}/media`, { params: { fields: "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp", limit: String(Math.min(100, Number(url.searchParams.get("limit") ?? 50))) } });
+        out.rows = ((r.data ?? []) as Rec[]).map((m) => ({ id: String(m.id), caption: String(m.caption ?? "").slice(0, 200), type: String(m.media_type ?? ""), product: String(m.media_product_type ?? ""), thumb: String(m.thumbnail_url ?? m.media_url ?? ""), permalink: String(m.permalink ?? ""), at: String(m.timestamp ?? "") }));
+      } catch (e) { out.error = String((e as Error).message); }
+      return json(out);
+    }
     if (action === "ad_copy") {
       const adsetId = String(body.adset_id ?? "");
       if (!/^\d{5,25}$/.test(adsetId)) return json({ error: "복사할 광고세트를 골라주세요" }, 400);
