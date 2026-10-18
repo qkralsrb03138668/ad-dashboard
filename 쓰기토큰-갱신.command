@@ -2,7 +2,7 @@
 # Meta 쓰기 토큰(META_WRITE_TOKEN) 갱신 — 클립보드의 새 시스템 사용자 토큰을 Supabase secret에 등록하고 쓰기 함수 2개 재배포
 #   사용법: 비즈니스 설정 → 시스템 사용자 → 토큰 생성 → [복사] 한 직후 이 파일 더블클릭 (토큰이 화면·대화에 남지 않음)
 set -e
-cd "$(dirname "$0")"
+cd "/Users/henry/Desktop/클ㄹ드/ad-creative-dashboard"   # 바탕화면에서 실행해도 프로젝트 폴더에서 배포
 SB=~/.local/bin/supabase
 REF=pydxcqfztjogmztvayux
 TOKEN="$(pbpaste | tr -d '[:space:]')"
