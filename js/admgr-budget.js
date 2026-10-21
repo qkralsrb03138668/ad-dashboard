@@ -202,6 +202,7 @@ function admgrMidItems() {   // 23:45 세팅 메뉴 항목 — PC 23:45 세팅 �
     : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:45 반영 세팅 시작 — 예산을 클릭해 23:45에 반영될 금액을 입력하세요')")
     : agItem('fa-clock', '23:45 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:45 반영으로 저장돼요');
   return `${mid}
+    ${w.resetRow ? '' : agItem('fa-clock-rotate-left', '오늘 특정 시각 예산 기준으로 23:45 원복 승인', "admgrResetApprove('at')", '예: 03:00 — 그 시각에 세팅돼 있던 일예산으로 23:45에 돌아가요 (Meta 변경 이력으로 복원)')}
     ${w.resetRow ? '' : agItem('fa-camera-rotate', '지금 예산 기준으로 23:45 원복 승인', "admgrResetApprove('now')", '지금 세팅된 예산을 오늘 시작 예산으로 기록하고, 23:45에 그 값으로 돌아가요')}
     ${w.resetRow ? agItem('fa-xmark', '원복 승인 취소', 'admgrResetApprove()', '오늘 23:45에 시작 예산으로 돌아가지 않아요') : agItem('fa-arrow-rotate-left', '23:45 원복 승인', 'admgrResetApprove()', '오늘 23:45에 모든 세트를 하루 시작 예산(00:10 기록)으로')}
     ${agItem('fa-list', `예약 목록${npend ? ` (${npend})` : ''}`, 'admgrMidList()')}`;
@@ -217,8 +218,17 @@ async function admgrResetApprove(base) {   // base='now': 지금 예산을 시�
     } else {
       const now = new Date(); const hm = now.getHours() * 60 + now.getMinutes();
       if (hm >= 23 * 60 + 45) { toast('오늘 23:45는 이미 지났어요 — 내일 다시 승인해 주세요'); return; }
-      await metaBudgetCall({ action: 'approve_reset' }, { pin: w.pin, base: base || undefined });
-      toast(base === 'now' ? '승인 완료 — 지금 예산을 시작 예산으로 기록했고, 오늘 23:45에 그 값으로 돌아가요' : '승인 완료 — 오늘 23:45에 모든 광고세트가 하루 시작 예산으로 돌아가요');
+      let at;
+      if (base === 'at') {   // 시각 기준 (2026-10-21): 입력 → 미리보기(몇 개가 어떻게 바뀌나) → 확인 → 승인
+        at = String(prompt('기준 시각 (오늘, 24시간 HH:MM — 예 03:00)', '03:00') || '').trim(); if (!at) return;
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(at)) { toast('시각은 03:00 같은 형식으로 입력하세요'); return; }
+        toast('그 시각 예산을 계산하는 중…');
+        const pv = await metaBudgetCall({ action: 'snapshot_preview', at });
+        const ex = (pv.sample || []).slice(0, 4).map(x => `${x.name.slice(0, 28)}: ${comma(x.now)} → ${comma(x.at)}`).join('\n');
+        if (!confirm(`오늘 ${at} 기준으로 23:45에 되돌리면\n세트 ${pv.count}개 중 ${pv.changed}개가 바뀌어요\n일예산 합계 ${comma(pv.total_now)} → ${comma(pv.total_at)}\n\n${ex}${pv.changed > 4 ? '\n…' : ''}\n\n승인할까요?`)) return;
+      }
+      await metaBudgetCall({ action: 'approve_reset' }, { pin: w.pin, base: base || undefined, at });
+      toast(base === 'at' ? `승인 완료 — 오늘 ${at} 예산을 시작 예산으로 기록했고, 23:45에 그 값으로 돌아가요` : base === 'now' ? '승인 완료 — 지금 예산을 시작 예산으로 기록했고, 오늘 23:45에 그 값으로 돌아가요' : '승인 완료 — 오늘 23:45에 모든 광고세트가 하루 시작 예산으로 돌아가요');
     }
     await admgrWritePending();
   } catch (e) { if (String(e.message).includes('PIN')) admgrPinInvalidate(); toast('실패: ' + e.message); }

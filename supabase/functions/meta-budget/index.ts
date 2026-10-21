@@ -113,6 +113,33 @@ async function snapshotDayStart(backfill = false): Promise<Record<string, unknow
   return { day, count: sets.length };
 }
 
+/* 오늘 특정 시각의 예산으로 '시작 예산'을 다시 쓴다 (2026-10-21 사용자: "오전 03시에 세팅돼 있던 일예산으로 23:45 원복").
+   시각 T의 예산 = Meta 변경 이력에서 T 이후 첫 변경의 old_value, 변경이 없던 세트는 지금 값. 이력은 nocache로 방금 변경까지 반영.
+   write=false면 기록하지 않고 결과만(미리보기·검증용) */
+async function snapshotAt(hhmm: string, write: boolean): Promise<Record<string, unknown>> {
+  const day = seoulToday();
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hhmm)) throw new Error("시각은 HH:MM (예 03:00)");
+  const T = Date.parse(`${day}T${hhmm}:00+09:00`);
+  if (!(T < Date.now())) throw new Error("아직 오지 않은 시각이에요");
+  const sets = (await metaAllAdsets()).filter((s) => s.budget > 0);
+  const r = await fetch(`${env("SUPABASE_URL")}/functions/v1/meta-ads?action=budgethistory&nocache=1`, { headers: { "x-dash-key": env("DASH_KEY") } });
+  if (!r.ok) throw new Error("예산 변경 이력을 못 읽었어요 (" + r.status + ")");
+  const hist = (await r.json()) as { events?: { time: string; level: string; object_id: string; old_value: number }[] };
+  const firstAfter = new Map<string, number>();
+  for (const ev of (hist.events ?? []).filter((e) => e.level === "adset" && e.old_value > 0 && Date.parse(e.time) >= T).sort((a, b) => a.time.localeCompare(b.time))) {
+    if (!firstAfter.has(ev.object_id)) firstAfter.set(ev.object_id, ev.old_value);
+  }
+  const rows = sets.map((s) => ({ adset_id: s.id, name: s.name, now: s.budget, budget: firstAfter.has(s.id) ? firstAfter.get(s.id)! : s.budget }));
+  const changed = rows.filter((x) => x.budget !== x.now);
+  if (write && rows.length) {
+    await dbRest(`budget_daystart?day=eq.${day}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await dbRest("budget_daystart?on_conflict=day,adset_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(rows.map((x) => ({ day, adset_id: x.adset_id, name: x.name, budget: x.budget, taken_at: new Date().toISOString() }))) });
+  }
+  return { day, at: hhmm, count: rows.length, changed: changed.length, total_now: rows.reduce((a, x) => a + x.now, 0), total_at: rows.reduce((a, x) => a + x.budget, 0),
+    sample: changed.slice(0, 8).map((x) => ({ name: x.name, now: x.now, at: x.budget })), written: write };
+}
+
 // 23:45 KST — 오늘 '원복 승인'(budget_writes mode=reset_approve, pending, apply_date=오늘)이 있으면
 // 스냅샷 예산과 다른 세트를 시작 예산으로 되돌린다 (2026-09-07 사용자 운영 규칙)
 async function runReset(): Promise<Record<string, unknown>> {
@@ -246,6 +273,12 @@ Deno.serve(async (req) => {
     // ⚠ DASH_KEY가 비어 있으면 누구나 예산을 바꿀 수 있으므로 쓰기 기능 자체를 잠근다
     if (!env("DASH_KEY")) return json({ error: "DASH_KEY가 설정되지 않아 예산 변경을 사용할 수 없습니다" }, 403);
 
+    if (action === "snapshot_preview") {   // 시각 기준 원복 미리보기 — 기록 없이 몇 개가 어떻게 바뀌는지 (PIN 없이)
+
+      try { return json(await snapshotAt(url.searchParams.get("at") ?? "", false)); } catch (e) { return json({ error: String((e as Error).message) }, 400); }
+
+    }
+
     if (action === "status") {
       return json({ allowed: true, token_set: !!env("META_WRITE_TOKEN"), pin_set: !!env("WRITE_PIN"), max_budget: MAX_BUDGET });
     }
@@ -273,11 +306,12 @@ Deno.serve(async (req) => {
     if (action === "approve_reset") {
       const day = seoulToday();
       // base=now (2026-10-14 사용자 요청): 지금 세팅된 예산을 오늘 시작 예산으로 다시 기록하고 승인 — 23:45에 00:10 값이 아니라 지금 값으로 돌아간다
-      const baseNow = body.base === "now";
+      const baseNow = body.base === "now", baseAt = body.base === "at" ? String(body.at ?? "") : "";
       if (baseNow) await snapshotDayStart(false);
+      if (baseAt) { try { await snapshotAt(baseAt, true); } catch (e) { return json({ error: String((e as Error).message) }, 400); } }
       await pg(`budget_writes?mode=eq.reset_approve&status=eq.pending&apply_date=eq.${day}`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
       const rows = (await pg("budget_writes", "POST", {
-        object_id: "*", object_name: baseNow ? "23:45 원복 승인 (지금 예산 기준)" : "23:45 시작 예산 원복 승인", level: "adset",
+        object_id: "*", object_name: baseNow ? "23:45 원복 승인 (지금 예산 기준)" : baseAt ? `23:45 원복 승인 (오늘 ${baseAt} 예산 기준)` : "23:45 시작 예산 원복 승인", level: "adset",
         old_budget: null, new_budget: 0, mode: "reset_approve", apply_date: day, status: "pending", requested_by: who,
       })) as Record<string, unknown>[];
       return json({ ok: true, id: rows?.[0]?.id, apply_date: day });

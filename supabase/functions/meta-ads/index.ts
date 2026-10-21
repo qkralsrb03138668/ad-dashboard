@@ -742,7 +742,7 @@ Deno.serve(async (req) => {
        · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
     const menus = me.perms ? (me.perms.menus ?? []) : null;
     const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
-    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
+    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
     const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
     if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
     if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);
@@ -1020,6 +1020,18 @@ Deno.serve(async (req) => {
     }
 
     // 광고 문구 점검(2026-09-18) — 세트 IN 필터로 광고의 본문·제목 텍스트만 뽑는다. 계절 문구(봄/가을)가 철 지나 나가는지 확인용.
+    // 세트 타겟 요약 (2026-10-18) — 연령·성별·어드밴티지 오디언스 확인용. 세트 IN 필터, 5분 캐시
+    if (action === "targeting") {
+      const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
+      if (!ids.length) return json({ rows: [] });
+      const cacheKey = `meta:targeting:${[...ids].sort().join(",")}`;
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);
+      if (pre) return pre;
+      const rows = await graphGetAll(`${c.account}/adsets`, { filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "200", fields: "id,name,created_time,updated_time,targeting{age_min,age_max,genders,targeting_automation}" }, c.token);
+      const body = { rows: rows.map((a) => { const t = (a.targeting ?? {}) as Record<string, unknown>; return { id: String(a.id), name: String(a.name ?? ""), created: String(a.created_time ?? ""), updated: String(a.updated_time ?? ""), age_min: t.age_min ?? null, age_max: t.age_max ?? null, genders: t.genders ?? null, auto: t.targeting_automation ?? null }; }) };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
     if (action === "adcopy") {
       const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
       if (!ids.length) return json({ ads: [] });
@@ -1182,7 +1194,7 @@ Deno.serve(async (req) => {
       const e = url.searchParams.get("end_date") ?? seoulToday();
       const cacheKey = `meta:budgethist:${s}:${e}`;
       const sync = await syncInfo();
-      const pre = await metaPre(cacheKey, sync.sync_at && s === seoulToday() && e === s ? 12 * 60 * 1000 : 5 * 60 * 1000);
+      const pre = url.searchParams.get("nocache") === "1" ? null : await metaPre(cacheKey, sync.sync_at && s === seoulToday() && e === s ? 12 * 60 * 1000 : 5 * 60 * 1000);   // nocache: 시각 기준 원복이 방금 바꾼 예산까지 봐야 할 때
       if (pre) return pre;
       const body = await fetchBudgetHistory(c, s, e);
       await cacheSet(cacheKey, body);
