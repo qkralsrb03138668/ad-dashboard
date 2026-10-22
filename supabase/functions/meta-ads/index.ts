@@ -742,7 +742,7 @@ Deno.serve(async (req) => {
        · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
     const menus = me.perms ? (me.perms.menus ?? []) : null;
     const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
-    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
+    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting", "attrcheck"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
     const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
     if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
     if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);
@@ -1029,6 +1029,22 @@ Deno.serve(async (req) => {
       if (pre) return pre;
       const rows = await graphGetAll(`${c.account}/adsets`, { filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "200", fields: "id,name,created_time,updated_time,targeting{age_min,age_max,genders,targeting_automation}" }, c.token);
       const body = { rows: rows.map((a) => { const t = (a.targeting ?? {}) as Record<string, unknown>; return { id: String(a.id), name: String(a.name ?? ""), created: String(a.created_time ?? ""), updated: String(a.updated_time ?? ""), age_min: t.age_min ?? null, age_max: t.age_max ?? null, genders: t.genders ?? null, auto: t.targeting_automation ?? null }; }) };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+    // 기여 창 비교 (2026-10-22) — 계정 기본(지금 화면) vs 클릭 후 1일만. 캠페인 단위, preset=today|yesterday|last_7d. 5분 캐시
+    if (action === "attrcheck") {
+      const preset = url.searchParams.get("preset") ?? "yesterday";
+      const cacheKey = `meta:attrcheck:${preset}:${new Date().toISOString().slice(0, 13)}`;
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);
+      if (pre) return pre;
+      const r = await graphGet(`${c.account}/insights`, { date_preset: preset, level: "campaign", fields: "campaign_name,spend,actions,action_values", limit: "200",
+        action_attribution_windows: JSON.stringify(["1d_click", "7d_click", "1d_view", "default"]) }, c.token);
+      const pick = (arr: unknown, key: string) => { const list = (arr ?? []) as Record<string, unknown>[]; for (const t of ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"]) { const hit = list.find((a) => a.action_type === t); if (hit) return num(hit[key]); } return 0; };
+      const rows = ((r.data ?? []) as Record<string, unknown>[]).map((x) => ({ name: String(x.campaign_name ?? ""), spend: num(x.spend),
+        def: { pur: pick(x.actions, "value"), val: pick(x.action_values, "value") }, c1: { pur: pick(x.actions, "1d_click"), val: pick(x.action_values, "1d_click") },
+        c7: { pur: pick(x.actions, "7d_click"), val: pick(x.action_values, "7d_click") }, v1: { pur: pick(x.actions, "1d_view"), val: pick(x.action_values, "1d_view") } }));
+      const body = { preset, rows };
       await cacheSet(cacheKey, body);
       return json(body);
     }
