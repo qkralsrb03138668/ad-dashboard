@@ -288,6 +288,15 @@ test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름
   assert.equal(plan.length, 12);
 });
 
+test('admgrCmp: 꺼진 세트는 정렬과 무관하게 맨 아래', () => {
+  const f = g('admgrCmp');
+  vm.runInContext("admgr.sort = [{ key: 'spend', dir: -1 }];", ctx);
+  const rows = [{ id: '1', status: 'PAUSED', spend: 900, created: '2026-10-01' }, { id: '2', status: 'ACTIVE', spend: 10, created: '2026-10-02' }, { id: '3', spend: 500, created: '2026-10-03' }, { id: '4', status: 'ACTIVE', spend: 300, created: '2026-10-04' }];
+  assert.equal(rows.slice().sort(f).map(r => r.id).join(), '4,2,1,3');   // 켜진 것 지출 큰 순 → 꺼진 것(PAUSED·기간 중 게재) 지출 큰 순
+  vm.runInContext("admgr.sort = [];", ctx);
+  assert.equal(rows.slice().sort(f).map(r => r.id).join(), '4,2,3,1');   // 기본 정렬(최근 생성)도 켜진 것 먼저
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',

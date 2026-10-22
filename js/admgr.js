@@ -226,6 +226,8 @@ function admgrVal(r, key) {
 }
 const ADMGR_STR_KEYS = ['name', 'aname', 'reg', 'offd'];
 function admgrCmp(x, y) {
+  const ox = x.status === 'ACTIVE' ? 0 : 1, oy = y.status === 'ACTIVE' ? 0 : 1;   // 꺼진 것(기간 중 게재 포함)은 어떤 정렬이든 맨 아래 (2026-10-22 사용자 요청)
+  if (ox !== oy) return ox - oy;
   for (const s of admgr.sort) {
     if (ADMGR_STR_KEYS.includes(s.key)) {
       const c = String(admgrVal(x, s.key)).localeCompare(String(admgrVal(y, s.key)), 'ko');
