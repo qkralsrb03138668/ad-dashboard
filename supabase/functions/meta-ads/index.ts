@@ -162,11 +162,11 @@ function pickAct(arr: unknown, types: string[]): number {   // actions 배열에
   for (const t of types) { const hit = list.find((a) => a.action_type === t); if (hit) return num(hit.value); }
   return 0;
 }
-function pickPurchase(arr: unknown): number {
-  const list = (arr ?? []) as { action_type?: string; value?: unknown }[];
+function pickPurchase(arr: unknown, key = "value"): number {   // key: "value"(계정 기본 창) | "1d_click" (action_attribution_windows 요청 시)
+  const list = (arr ?? []) as Record<string, unknown>[];
   for (const t of ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"]) {
     const hit = list.find((a) => a.action_type === t);
-    if (hit) return num(hit.value);
+    if (hit) return num(hit[key]);
   }
   return 0;
 }
@@ -183,6 +183,7 @@ function mapAdRow(r: Record<string, unknown>) {
     spend,
     purchases,
     purchase_value: purchaseValue,
+    purchases_1d: pickPurchase(r.actions, "1d_click"), value_1d: pickPurchase(r.action_values, "1d_click"),   // 클릭 후 1일 기여 (2026-10-22 사용자 요청: 타이트한 판정용)
     roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? purchaseValue / spend : 0),
   };
 }
@@ -223,6 +224,7 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
     graphGet(`${c.account}/insights`, {
       ...(preset === "custom" && custom ? { time_range: JSON.stringify({ since: custom.since, until: custom.until }) } : { date_preset: preset }), level: "ad",
       fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
+      action_attribution_windows: JSON.stringify(["1d_click", "default"]),   // value(기본 창)는 그대로 오고 1d_click 키가 추가된다 (실측 2026-10-22)
       limit: "500",
     }, c.token),
   ]);
@@ -273,9 +275,11 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
     if (!st.name) st.name = String(r.adset_name ?? "");
     const ad = ensureAd(String(r.ad_id ?? ""), String(r.adset_id ?? ""), campId, m.ad_name, "");
     const clicks = num(r.clicks);
-    ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks;
+    ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks; ad.purchases_1d = m.purchases_1d; ad.value_1d = m.value_1d;
     st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value; st.clicks = num(st.clicks) + clicks;
+    st.purchases_1d = num(st.purchases_1d) + m.purchases_1d; st.value_1d = num(st.value_1d) + m.value_1d;
     camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value; camp.clicks = num(camp.clicks) + clicks;
+    camp.purchases_1d = num(camp.purchases_1d) + m.purchases_1d; camp.value_1d = num(camp.value_1d) + m.value_1d;
   }
 
   const campaigns = [...cMap.values()].map((cRow) => ({
@@ -1035,13 +1039,14 @@ Deno.serve(async (req) => {
     // 기여 창 비교 (2026-10-22) — 계정 기본(지금 화면) vs 클릭 후 1일만. 캠페인 단위, preset=today|yesterday|last_7d. 5분 캐시
     if (action === "attrcheck") {
       const preset = url.searchParams.get("preset") ?? "yesterday";
-      const cacheKey = `meta:attrcheck:${preset}:${new Date().toISOString().slice(0, 13)}`;
+      const level = url.searchParams.get("level") === "adset" ? "adset" : "campaign";
+      const cacheKey = `meta:attrcheck:${level}:${preset}:${new Date().toISOString().slice(0, 13)}`;
       const pre = await metaPre(cacheKey, 5 * 60 * 1000);
       if (pre) return pre;
-      const r = await graphGet(`${c.account}/insights`, { date_preset: preset, level: "campaign", fields: "campaign_name,spend,actions,action_values", limit: "200",
+      const r = await graphGet(`${c.account}/insights`, { date_preset: preset, level, fields: "campaign_name,adset_id,adset_name,spend,actions,action_values", limit: "500",
         action_attribution_windows: JSON.stringify(["1d_click", "7d_click", "1d_view", "default"]) }, c.token);
       const pick = (arr: unknown, key: string) => { const list = (arr ?? []) as Record<string, unknown>[]; for (const t of ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"]) { const hit = list.find((a) => a.action_type === t); if (hit) return num(hit[key]); } return 0; };
-      const rows = ((r.data ?? []) as Record<string, unknown>[]).map((x) => ({ name: String(x.campaign_name ?? ""), spend: num(x.spend),
+      const rows = ((r.data ?? []) as Record<string, unknown>[]).map((x) => ({ name: String(level === "adset" ? x.adset_name : x.campaign_name ?? ""), camp: String(x.campaign_name ?? ""), id: String(x.adset_id ?? ""), spend: num(x.spend),
         def: { pur: pick(x.actions, "value"), val: pick(x.action_values, "value") }, c1: { pur: pick(x.actions, "1d_click"), val: pick(x.action_values, "1d_click") },
         c7: { pur: pick(x.actions, "7d_click"), val: pick(x.action_values, "7d_click") }, v1: { pur: pick(x.actions, "1d_view"), val: pick(x.action_values, "1d_view") } }));
       const body = { preset, rows };

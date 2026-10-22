@@ -485,13 +485,21 @@ async function admgrBudgetCancel(pid) {
 const ADMGR_NAME_LABELS = ['캠페인', '광고세트', '광고'];
 const admgrColNorm = l => ADMGR_NAME_LABELS.includes(l) ? '이름' : l === '23:55 세팅' ? '23:45 세팅' : l;   // '23:55 세팅'은 옛 저장값 (2026-10-07 23:45로 변경)
 function admgrColsKey() { return 'adc_admgr_cols'; }
-const ADMGR_COLS_DEFAULT = { hidden: ['23:45 세팅', '최근 변경', '전환값', 'CPC', '클릭'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:45 세팅', '예산', '지출', '클릭', 'ROAS', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
+const ADMGR_COLS_DEFAULT = { hidden: ['23:45 세팅', '최근 변경', '전환값', 'CPC', '클릭', '구매(1일)'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:45 세팅', '예산', '지출', '클릭', 'ROAS', 'ROAS(1일)', '구매(1일)', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
 const admgrColsOk = c => c && Array.isArray(c.hidden) && Array.isArray(c.order);
 const admgrColsNorm = c => ({ hidden: [...new Set(c.hidden.map(admgrColNorm))], order: [...new Set(c.order.map(admgrColNorm))] });
 function admgrColsDefKey() { return 'adc_admgr_colsdef'; }   // 내가 저장한 기본값 (이 브라우저)
 function admgrLsMove(from, to) { const v = lsGet(from, null); if (v != null) { lsSet(to, v); try { localStorage.removeItem(from); } catch { /* 무시 */ } } return v; }   // 옛 탭별 저장값(광고세트)을 공통 키로 한 번 옮김
 function admgrColsDef() { const d = lsGet(admgrColsDefKey(), null) ?? admgrLsMove('adc_admgr_colsdef_set', admgrColsDefKey()); return admgrColsNorm(admgrColsOk(d) ? d : ADMGR_COLS_DEFAULT); }
-function admgrColsCfg() { const c = lsGet(admgrColsKey(), null) ?? admgrLsMove('adc_admgr_cols_set', admgrColsKey()); return admgrColsOk(c) ? admgrColsNorm(c) : admgrColsDef(); }
+function admgrColsCfg() {
+  const c = lsGet(admgrColsKey(), null) ?? admgrLsMove('adc_admgr_cols_set', admgrColsKey());
+  if (!admgrColsOk(c)) return admgrColsDef();
+  const n = admgrColsNorm(c);
+  if (!n.order.includes('ROAS(1일)') && !n.hidden.includes('ROAS(1일)')) {   // 2026-10-22 새 열: 저장된 순서의 ROAS 뒤에 한 번 끼워 넣기, 구매(1일)은 숨김
+    const i = n.order.indexOf('ROAS'); n.order.splice(i < 0 ? n.order.length : i + 1, 0, 'ROAS(1일)', '구매(1일)'); n.hidden.push('구매(1일)'); lsSet(admgrColsKey(), n);
+  }
+  return n;
+}
 function admgrColsDefSave() { lsSet(admgrColsDefKey(), admgrColsCfg()); toast('지금 열 설정을 기본값으로 저장했어요'); }
 function admgrColsSave(c) { lsSet(admgrColsKey(), c); }
 function admgrColsApply() {
