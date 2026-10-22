@@ -339,7 +339,10 @@ function admgrAgo(iso) {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   return s < 60 ? s + '초 전' : Math.round(s / 60) + '분 전';
 }
-const admgrRoas1Td = r => r.spend ? ((r.value_1d || 0) / r.spend < 1 ? `<b style="color:#dc2626;">${((r.value_1d || 0) / r.spend).toFixed(2)}</b>` : ((r.value_1d || 0) / r.spend).toFixed(2)) : '—';   // 클릭 1일 ROAS (2026-10-22)
+/* 조회 의존 (2026-10-22): 구매 3건 이상인데 그중 절반 이상이 '조회 후 1일' 기여 — 광고를 누르지 않은 사람의 구매가 잡힌 세트. 기본 ROAS는 좋아 보여도 클릭 1일로는 낮다 */
+const admgrViewDep = r => (r.purchases || 0) >= 3 && (r.purchases_1dv || 0) >= 0.5 * r.purchases;
+const admgrViewBadge = r => admgrViewDep(r) ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="구매 ${comma(r.purchases)}건 중 조회 후 1일 기여 ${comma(r.purchases_1dv)}건 (${Math.round(100 * r.purchases_1dv / r.purchases)}%) — 누르지 않고 산 사람이 절반 이상이라 기본 ROAS가 부풀어 보여요">조회 의존</span>` : '';
+const admgrRoas1Td = r => (r.spend ? ((r.value_1d || 0) / r.spend < 1 ? `<b style="color:#dc2626;">${((r.value_1d || 0) / r.spend).toFixed(2)}</b>` : ((r.value_1d || 0) / r.spend).toFixed(2)) : '—') + admgrViewBadge(r);   // 클릭 1일 ROAS (2026-10-22)
 const admgrRoasTd = r => r.spend ? (r.value / r.spend < 1 ? `<b style="color:#dc2626;">${(r.value / r.spend).toFixed(2)}</b>` : (r.value / r.spend).toFixed(2)) : '—';   // 1 미만만 강조 (전부 색칠하면 소음)
 const admgrMoney = v => v ? won(v) : '—';
 const admgrCpa = r => r.purchases ? won(r.spend / r.purchases) : '—';
@@ -526,7 +529,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     <td colspan="${lead}" style="text-align:left;">${vis.length}개 ${VIEW_LABEL}의 결과</td>
     ${extraCols}
     <td>${won(tot.spend)}</td>${isCamp || isSet ? '' : `<td class="m-hide">${comma(tot.clicks)}</td>`}<td>${comma(tot.purchases)}</td>
-    <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td>${comma(tot.purchases_1d)}</td><td>${admgrRoas1Td(tot)}</td><td class="m-hide">${cpcTd(tot)}</td><td class="xp"></td>
+    <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td>${comma(tot.purchases_1d)}</td><td>${admgrRoas1Td({ spend: tot.spend, value_1d: tot.value_1d })}</td><td class="m-hide">${cpcTd(tot)}</td><td class="xp"></td>
   </tr></tfoot>`;
   /* 행 끝 ∨ — 기본 숨김 열(구매당 비용·전환값·클릭·CPC·최근 변경·게재)을 상세 행으로 (2026-09-14 리디자인: 기본 열 6개) */
   const chev = `<button class="ag-chev" onclick="event.stopPropagation();admgrRowToggle(this)" title="자세히"><i class="fa-solid fa-chevron-down"></i></button>`;

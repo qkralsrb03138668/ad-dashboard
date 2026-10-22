@@ -183,7 +183,8 @@ function mapAdRow(r: Record<string, unknown>) {
     spend,
     purchases,
     purchase_value: purchaseValue,
-    purchases_1d: pickPurchase(r.actions, "1d_click"), value_1d: pickPurchase(r.action_values, "1d_click"),   // 클릭 후 1일 기여 (2026-10-22 사용자 요청: 타이트한 판정용)
+    purchases_1d: pickPurchase(r.actions, "1d_click"), value_1d: pickPurchase(r.action_values, "1d_click"),
+    purchases_1dv: pickPurchase(r.actions, "1d_view"),   // 조회 후 1일 (조회 의존 배지용)   // 클릭 후 1일 기여 (2026-10-22 사용자 요청: 타이트한 판정용)
     roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? purchaseValue / spend : 0),
   };
 }
@@ -224,7 +225,7 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
     graphGet(`${c.account}/insights`, {
       ...(preset === "custom" && custom ? { time_range: JSON.stringify({ since: custom.since, until: custom.until }) } : { date_preset: preset }), level: "ad",
       fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
-      action_attribution_windows: JSON.stringify(["1d_click", "default"]),   // value(기본 창)는 그대로 오고 1d_click 키가 추가된다 (실측 2026-10-22)
+      action_attribution_windows: JSON.stringify(["1d_click", "1d_view", "default"]),   // value(기본 창)는 그대로 오고 1d_click 키가 추가된다 (실측 2026-10-22)
       limit: "500",
     }, c.token),
   ]);
@@ -275,11 +276,11 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
     if (!st.name) st.name = String(r.adset_name ?? "");
     const ad = ensureAd(String(r.ad_id ?? ""), String(r.adset_id ?? ""), campId, m.ad_name, "");
     const clicks = num(r.clicks);
-    ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks; ad.purchases_1d = m.purchases_1d; ad.value_1d = m.value_1d;
+    ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks; ad.purchases_1d = m.purchases_1d; ad.value_1d = m.value_1d; ad.purchases_1dv = m.purchases_1dv;
     st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value; st.clicks = num(st.clicks) + clicks;
-    st.purchases_1d = num(st.purchases_1d) + m.purchases_1d; st.value_1d = num(st.value_1d) + m.value_1d;
+    st.purchases_1d = num(st.purchases_1d) + m.purchases_1d; st.value_1d = num(st.value_1d) + m.value_1d; st.purchases_1dv = num(st.purchases_1dv) + m.purchases_1dv;
     camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value; camp.clicks = num(camp.clicks) + clicks;
-    camp.purchases_1d = num(camp.purchases_1d) + m.purchases_1d; camp.value_1d = num(camp.value_1d) + m.value_1d;
+    camp.purchases_1d = num(camp.purchases_1d) + m.purchases_1d; camp.value_1d = num(camp.value_1d) + m.value_1d; camp.purchases_1dv = num(camp.purchases_1dv) + m.purchases_1dv;
   }
 
   const campaigns = [...cMap.values()].map((cRow) => ({
