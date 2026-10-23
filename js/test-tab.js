@@ -79,6 +79,7 @@ function renderAdmgrTest() {
     <details class="tt-more"><summary class="filter-tab" title="기타 기능"><i class="fa-solid fa-ellipsis"></i></summary><div class="tt-dd">
       ${dd('판정 기준 바꾸기', 'admgrTJudgeToggle()', 'fa-sliders')}
       ${dd('이번 주 리포트 모아보기', 'admgrTestReport()', 'fa-clipboard-list')}
+      ${dd(`추가소재 요청 목록 (${all.filter(a => a.meta.asset_req_at && !a.meta.asset_done_at).length})`, 'admgrReqListModal()', 'fa-pen-ruler')}
       ${dd('엑셀로 받기', "admgr.test.filter='all';admgrTestXlsx()", 'fa-file-arrow-down')}
       ${dd(`테스트 끝난 소재 (${by('gone').length})`, "admgrTtStage('gone')", 'fa-box-archive')}
       ${dd(`숨긴 소재 (${by('hidden').length})`, "admgrTtStage('hidden')", 'fa-eye-slash')}

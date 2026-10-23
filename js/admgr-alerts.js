@@ -224,7 +224,7 @@ function admgrCheckFatigue(cfg) {
   const line = h => `${esc(h.prod)} ${comma(Math.round(h.cpaPrev))}→<b>${comma(Math.round(h.cpaNow))}</b>원(+${Math.round(h.up * 100)}%)`;
   const done = hits.filter(h => log[h.prod]), manual = hits.filter(h => !log[h.prod] && none[h.prod]), wait = hits.filter(h => !log[h.prod] && !none[h.prod]);
   const out = [];
-  if (done.length) out.push({ key: 'fatigue:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${done.length}개 상품 — 추가소재 요청을 올려뒀어요 <small>(구매당 비용 지난주→이번 주)</small><br/>${done.map(line).join(' · ')}`, act: { label: '요청 보기', onclick: "admgrSetView('test');admgr.test.filter='req';renderAdmgr()" } });
+  if (done.length) out.push({ key: 'fatigue:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${done.length}개 상품 — 추가소재 요청을 올려뒀어요 <small>(구매당 비용 지난주→이번 주)</small><br/>${done.map(line).join(' · ')}`, act: { label: '요청 보기', onclick: 'admgrReqListModal()' } });
   if (manual.length) out.push({ key: 'fatigue-m:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${manual.length}개 상품 — 테스트 소재가 없어(세트명에 test 없음·CBO만) 요청은 직접 올려주세요<br/>${manual.map(line).join(' · ')}` });
   if (wait.length) out.push({ key: 'fatigue-w:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${wait.length}개 상품 ${dnrbCan('creative') ? '— 테스트 소재를 확인하는 대로 추가소재 요청을 올려요' : ''}<br/>${wait.map(line).join(' · ')}` });
   return out;
@@ -303,3 +303,19 @@ function admgrCheckHygiene() {
   return admgrHygieneCalc(admgrRows().sets, A.pages || null, todayStr(0));
 }
 admgrAlert.checks.push(admgrCheckHygiene);
+
+/* ── 추가소재 요청 목록 (2026-10-23): 요청됐고 아직 제작완료 전인 소재 — 피로 자동 등록분·수동 요청 모두. 컨텐츠팀 화면(내 소재 성과 '만들어 달라는 요청')과 같은 데이터 */
+function admgrReqListModal() {
+  const t = admgr.test; if (!t.loaded) { toast('테스트 소재를 불러오는 중이에요 — 잠시 뒤 다시'); if (!t.loading && typeof admgrTestFetch === 'function') admgrTestFetch().then(() => admgrReqListModal()); return; }
+  const L = ((t.data || {}).ads || []).map(a => ({ a, m: t.state.get(a.id) || {} })).filter(x => x.m.asset_req_at).sort((x, y) => (x.m.asset_done_at ? 1 : 0) - (y.m.asset_done_at ? 1 : 0) || String(y.m.asset_req_at).localeCompare(String(x.m.asset_req_at)));
+  const open = L.filter(x => !x.m.asset_done_at);
+  const row = x => `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;${x.m.asset_done_at ? 'opacity:.55;' : ''}">
+      <span style="flex:1;min-width:0;"><b style="color:#1e1b4b;">${esc(admgrProductOf(x.a))}</b> <span style="color:#6b7280;font-size:.7rem;word-break:break-all;">${esc(admgrBase(x.a.adset_name || x.a.name))}</span>
+        <div style="color:#6b7280;font-size:.7rem;">${fmtMD(String(x.m.asset_req_at).slice(0, 10))} 요청${x.m.asset_done_at ? ` · <span style="color:#15803d;font-weight:700;">${fmtMD(String(x.m.asset_done_at).slice(0, 10))} 제작완료</span>` : ''}${x.m.memo ? ` · ${esc(x.m.memo)}` : ''}</div></span>
+      ${x.m.asset_done_at ? '' : `<button class="ag-al-btn" style="flex:none;" onclick="admgrTestAsset('${esc(x.a.id)}','asset_done_at').then(()=>admgrReqListModal())">제작완료</button>`}</div>`;
+  $('abm-title').textContent = `추가소재 요청 — 진행 중 ${open.length}개`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">컨텐츠팀은 <b>내 소재 성과 → 만들어 달라는 요청</b>에서 같은 목록을 봐요 · "자동 · 피로 감지"는 알림판이 올린 것</div>
+    <div style="max-height:50vh;overflow:auto;">${L.map(row).join('') || '<div style="color:#9ca3af;padding:10px 0;">요청이 없어요</div>'}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
