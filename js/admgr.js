@@ -411,7 +411,8 @@ function renderAdmgr(keepScroll) {
       ${!own ? `<button class="btn-ghost ag-btn ag-hide-m" onclick="admgrColsMenu(event)" title="표시할 열 선택 · 드래그로 순서 변경 (기본은 핵심 열만, 나머지는 행 끝 ∨로 펼치기)"><i class="fa-solid fa-table-columns"></i> 열</button>` : ''}
     </div>`;
   const controls = toolbar + filters;
-  const banner = '';
+  const banner = typeof admgrAlertPanel === 'function' ? admgrAlertPanel() : '';   // 알림판 (admgr-alerts.js) — 켜진 일예산 합계·상한·검사 항목
+  if (admgr.data && !admgr.demo && typeof admgrAlertCfgEnsure === 'function') setTimeout(() => admgrAlertCfgEnsure(), 0);
 
   /* 탭 (건수 포함 — 조회 전이면 숫자 생략) */
   const R = admgrRows();

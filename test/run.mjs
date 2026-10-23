@@ -297,6 +297,20 @@ test('admgrCmp: 꺼진 세트는 정렬과 무관하게 맨 아래', () => {
   assert.equal(rows.slice().sort(f).map(r => r.id).join(), '4,2,3,1');   // 기본 정렬(최근 생성)도 켜진 것 먼저
 });
 
+test('admgrBudgetTotal·알림판: 켜진 세트+CBO 예산 합, 임시 저장 반영, 상한 초과 표시', () => {
+  vm.runInContext(`admgr.demo = false; admgr.data = { campaigns: [
+    { id: 'c1', name: 'CBO4', status: 'ACTIVE', budget: 130000, adsets: [{ id: 's0', status: 'ACTIVE', budget: 0 }] },
+    { id: 'c2', name: '테스트', status: 'ACTIVE', budget: 0, adsets: [{ id: 's1', name: 'a', status: 'ACTIVE', budget: 50000 }, { id: 's2', name: 'b', status: 'PAUSED', budget: 90000 }, { id: 's3', name: 'c', status: 'ACTIVE', budget: 20000 }] },
+    { id: 'c3', name: '꺼진CBO', status: 'PAUSED', budget: 500000, adsets: [] } ] };
+    for (const k of Object.keys(admgrDraft)) delete admgrDraft[k]; Object.assign(admgrDraft, { s1: 80000, s2: 10000 }); admgrAlert.cfg = { cap: 150000 };`, ctx);
+  const B = g('admgrBudgetTotal')(true);
+  assert.equal([B.sets, B.cbo, B.total, B.after].join(), '70000,130000,200000,230000');   // 꺼진 세트·캠페인 제외 · 임시 저장은 켜진 s1만(+30000)
+  const html = g('admgrAlertPanel')();
+  assert.ok(html.includes('켜진 일예산 20만원') && html.includes('상한 초과 +5만'), html);
+  vm.runInContext("admgrAlert.cfg = { cap: 0 }; for (const k of Object.keys(admgrDraft)) delete admgrDraft[k];", ctx);
+  const h0 = g('admgrAlertPanel')(); assert.ok(!h0.includes('상한 초과') && !h0.includes('· 상한'), h0);   // 상한 0 = 표시도 경고도 없음 ([기준] 버튼 툴팁의 '상한'은 제외)
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
