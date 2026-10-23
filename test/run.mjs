@@ -373,14 +373,6 @@ test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표
   assert.equal(H([], [{ page_id: 'A', name: 'x' }], '2026-10-23').length, 0);
 });
 
-test('admgrViewBadge: 조회 후 1일 비중 50%↑ 조회 의존(노랑) · 30~50% 조회 n%(회색) · 구매 3건 미만은 없음', () => {
-  const f = g('admgrViewBadge');
-  assert.ok(f({ purchases: 35, purchases_1dv: 16, purchases_1d: 12 }).includes('badge-gray') && f({ purchases: 35, purchases_1dv: 16, purchases_1d: 12 }).includes('조회 46%'));   // 론다 P2 실데이터
-  assert.ok(f({ purchases: 10, purchases_1dv: 6 }).includes('조회 의존'));
-  assert.equal(f({ purchases: 2, purchases_1dv: 2 }), '');     // 표본 적음
-  assert.equal(f({ purchases: 20, purchases_1dv: 4 }), '');    // 20%
-});
-
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',

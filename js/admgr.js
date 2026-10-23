@@ -342,12 +342,8 @@ function admgrAgo(iso) {
   return s < 60 ? s + '초 전' : Math.round(s / 60) + '분 전';
 }
 /* 조회 의존 (2026-10-22): 구매 3건 이상인데 그중 절반 이상이 '조회 후 1일' 기여 — 광고를 누르지 않은 사람의 구매가 잡힌 세트. 기본 ROAS는 좋아 보여도 클릭 1일로는 낮다 */
-/* 두 단계 (2026-10-23 사용자: 론다 P2가 7일 구매 35건 중 조회 16건(46%)인데 배지가 없었다): 50%↑ = '조회 의존'(노랑), 30~50% = '조회 n%'(회색). 구매 3건↑일 때만 */
-const admgrViewShare = r => (r.purchases || 0) >= 3 ? (r.purchases_1dv || 0) / r.purchases : 0;
-const admgrViewDep = r => admgrViewShare(r) >= 0.5;
-const admgrViewBadge = r => { const sh = admgrViewShare(r); if (sh < 0.3) return '';
-  const tip = `구매 ${comma(r.purchases)}건 중 조회 후 1일 기여 ${comma(r.purchases_1dv)}건 (${Math.round(sh * 100)}%) · 클릭 후 1일 ${comma(r.purchases_1d || 0)}건 — 누르지 않고 산 사람이 ${sh >= 0.5 ? '절반 이상이라 기본 ROAS가 부풀어 보여요' : '적지 않아요 (클릭 1일 ROAS를 같이 보세요)'}`;
-  return sh >= 0.5 ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="${tip}">조회 의존</span>` : ` <span class="status-badge badge-gray" style="font-size:.6rem;padding:1px 5px;" title="${tip}">조회 ${Math.round(sh * 100)}%</span>`; };
+const admgrViewDep = r => (r.purchases || 0) >= 3 && (r.purchases_1dv || 0) >= 0.5 * r.purchases;
+const admgrViewBadge = r => admgrViewDep(r) ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="구매 ${comma(r.purchases)}건 중 조회 후 1일 기여 ${comma(r.purchases_1dv)}건 (${Math.round(100 * r.purchases_1dv / r.purchases)}%) — 누르지 않고 산 사람이 절반 이상이라 기본 ROAS가 부풀어 보여요">조회 의존</span>` : '';
 const admgrRoas1Td = r => r.spend ? ((r.value_1d || 0) / r.spend < 1 ? `<b style="color:#dc2626;">${((r.value_1d || 0) / r.spend).toFixed(2)}</b>` : ((r.value_1d || 0) / r.spend).toFixed(2)) : '—';   // 클릭 1일 ROAS (2026-10-22) — 조회 의존 배지는 세트명 옆 (사용자 요청)
 const admgrRoasTd = r => r.spend ? (r.value / r.spend < 1 ? `<b style="color:#dc2626;">${(r.value / r.spend).toFixed(2)}</b>` : (r.value / r.spend).toFixed(2)) : '—';   // 1 미만만 강조 (전부 색칠하면 소음)
 const admgrMoney = v => v ? won(v) : '—';
@@ -542,7 +538,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const chev = `<button class="ag-chev" onclick="event.stopPropagation();admgrRowToggle(this)" title="자세히"><i class="fa-solid fa-chevron-down"></i></button>`;
   const detail = r => `<tr class="ag-detail"><td colspan="99"><div class="ag-detail-grid">
       <span><i>구매당 비용</i>${admgrCpa(r)}</span><span><i>전환값</i>${admgrMoney(r.value)}</span><span><i>클릭</i>${comma(r.clicks || 0)}</span><span><i>CPC</i>${cpcTd(r)}</span>
-      ${r.purchases_1d != null || r.purchases_1dv != null ? `<span title="기본 창(클릭 7일+조회 1일) 구매를 기여 창별로 — 두 값은 겹칠 수 있어 합이 기본과 다를 수 있어요"><i>구매 기여</i>클릭1일 ${comma(r.purchases_1d || 0)} · 조회1일 ${comma(r.purchases_1dv || 0)}</span>` : ''}
       ${showChg ? `<span><i>최근 변경</i>${admgrChgCell(r)}</span>` : ''}${r.budget_life ? `<span><i>총예산</i>${won(r.budget_life)}</span>` : ''}</div></td></tr>`;
 
   let table;
