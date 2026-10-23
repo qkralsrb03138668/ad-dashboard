@@ -873,7 +873,7 @@ async function admgrRepostRun() {
 }
 function admgrCopyModal() {
   const { camps, ads } = admgrRows();
-  const picked = ads.filter(a => admgr.selAds.has(a.id));
+  const picked = admgr.copyPick || ads.filter(a => admgr.selAds.has(a.id));   // copyPick: 승격 후보 모달에서 넘어온 테스트 광고 (계층 데이터에 없어도 복사)
   if (!picked.length) { toast('복사할 광고를 먼저 체크하세요'); return; }
   const cid = admgr.copyCamp && camps.some(c => c.id === admgr.copyCamp) ? admgr.copyCamp : (camps[0] || {}).id;
   admgr.copyCamp = cid;
@@ -933,7 +933,7 @@ function admgrCopyModal() {
 }
 async function admgrCopyRun() {
   const setId = ($('ag-copy-set') || {}).value || '';
-  const camps = admgrRows().camps, ads = admgrRows().ads.filter(a => admgr.selAds.has(a.id));
+  const camps = admgrRows().camps, ads = admgr.copyPick || admgrRows().ads.filter(a => admgr.selAds.has(a.id));
   const camp = camps.find(c => c.id === admgr.copyCamp);
   if (!setId || !ads.length || !camp) return;
   const btn = $('ag-copy-go'); btn.disabled = true; btn.textContent = '복사 중…';
@@ -950,9 +950,9 @@ async function admgrCopyRun() {
       items.push({ id: sid, name: admgrMarkName(sname, [...has, campName]) });
     }
     if (items.length) { const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items }); marked = r.ok || 0; }
-    admgr.selAds.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
+    admgr.selAds.clear(); admgr.mSelect = false; admgr.copyPick = null;   // 폰 선택모드였다면 동작 완료로 나감 (B)
     const tgt = (admgr.copySets && admgr.copySets[admgr.copyCamp] || []).find(x => x.id === setId) || admgrRows().sets.find(x => x.id === setId) || {};
-    admgrCopyResult(d, campName, admgrBase(tgt.name || ''), marked);
+    admgrCopyResult(d, campName, admgrBase(tgt.name || ''), marked, [...bySet.keys()]);
     admgrFetch();
   } catch (e) {
     btn.disabled = false; btn.textContent = '복사';
@@ -962,7 +962,7 @@ async function admgrCopyRun() {
 async function admgrCampCopyRun() {
   const w = admgr.write;
   if (!w.pin) { admgrPinPrompt(() => admgrCampCopyRun()); return; }
-  const ads = admgrRows().ads.filter(a => admgr.selAds.has(a.id));
+  const ads = admgr.copyPick || admgrRows().ads.filter(a => admgr.selAds.has(a.id));
   const modelId = ($('ag-copy-model') || {}).value || admgr.copyCamp, product = (($('ag-copy-prod') || {}).value || '').trim();
   const budget = Number(String(($('ag-copy-budget') || {}).value || '').replace(/[^\d]/g, ''));
   if (!ads.length || !modelId) return;
@@ -977,8 +977,8 @@ async function admgrCampCopyRun() {
     const items = [];
     for (const [sid, sname] of bySet) { const { camps: has } = admgrMarkParse(sname); if (!has.includes(d.name)) items.push({ id: sid, name: admgrMarkName(sname, [...has, d.name]) }); }
     if (items.length) { try { const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items }); marked = r.ok || 0; } catch { /* 표시만 실패 */ } }
-    admgr.selAds.clear(); admgr.mSelect = false; admgr.copyProduct = ''; admgr.copyBudget = '';
-    admgrCopyResult(d, d.name, d.name + ' (캠페인·세트 꺼짐 · 광고 켜짐)', marked);
+    admgr.selAds.clear(); admgr.mSelect = false; admgr.copyProduct = ''; admgr.copyBudget = ''; admgr.copyPick = null;
+    admgrCopyResult(d, d.name, d.name + ' (캠페인·세트 꺼짐 · 광고 켜짐)', marked, [...bySet.keys()]);
     admgrFetch();
   } catch (e) {
     btn.disabled = false; btn.textContent = '캠페인 만들기';
@@ -986,8 +986,9 @@ async function admgrCampCopyRun() {
     toast('캠페인 만들기 실패: ' + e.message);
   }
 }
-function admgrCopyResult(d, campName, setName, marked) {
+function admgrCopyResult(d, campName, setName, marked, srcSets) {   // srcSets: 복사 성공한 광고의 원본 테스트 세트 id — 예산 1,000원 임시 저장 버튼 (2026-10-23 ⑦)
   const ok = (d.created || []), skip = (d.skipped || []), bad = (d.failed || []);
+  const src = (srcSets || []).filter(id => admgrRows().sets.some(s => s.id === id && s.status === 'ACTIVE' && s.budget > 1000));
   const line = (t, c) => `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;"><span style="flex:none;color:${c};font-weight:800;">${c === '#15803d' ? '✓' : c === '#b45309' ? '!' : '✗'}</span><span style="min-width:0;">${t}</span></div>`;
   $('abm-title').textContent = '광고 복사 결과';
   $('abm-sub').style.display = 'none';
@@ -999,6 +1000,7 @@ function admgrCopyResult(d, campName, setName, marked) {
       ${skip.map(x => line(`${esc(x.name)} <span style="color:#b45309;">— 이미 같은 소재가 있어요${x.existing ? ` (${esc(x.existing)})` : ''}</span>`, '#b45309')).join('')}
       ${bad.map(x => line(`${esc(x.id)} <span style="color:#dc2626;">— ${esc(String(x.error || '실패'))}</span>`, '#dc2626')).join('')}</div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">복사본은 꺼져 있어요 — 메타나 이 화면의 켜기/끄기로 켜주세요</div>
+    ${src.length ? `<div style="margin-top:10px;padding:8px 10px;border:1px solid #fde68a;background:#fffbeb;border-radius:8px;font-size:.76rem;color:#92400e;">같은 소재가 테스트 세트에서도 돌고 있어요 — <button class="btn-ghost" style="padding:3px 10px;font-size:.74rem;" onclick="admgrPromoCut(${esc(JSON.stringify(src))})">원본 테스트 세트 ${src.length}개 예산 1,000원 임시 저장</button></div>` : ''}
     <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }

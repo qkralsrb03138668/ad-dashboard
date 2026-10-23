@@ -325,6 +325,25 @@ test('admgrCheckHog: CBO 안 한 광고 독식 + 구매당 비용이 마진×60%
   assert.equal(f(cfg).length, 0);
 });
 
+test('admgrPromoCands: 테스트 캠페인 세트의 7일 성과 — 구매 30↑·ROAS 5↑·CBO 미등록 → 종합, 우수 2개↑·상품 60↑ → 상품 (켜진 상품CBO 있으면 제외)', () => {
+  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.demo = false; admgr.data = { campaigns: [] };
+    admgrAlert.h7 = { range: { start: '2026-10-16', end: '2026-10-22' }, campaigns: [
+      { id: 'c1', name: '테스트2_260914', status: 'ACTIVE', adsets: [
+        { id: 's1', name: '루즈핏 니트_R1_28_261001', status: 'ACTIVE', spend: 400000, purchases: 50, value: 2400000, ads: [{ id: 'a1' }] },
+        { id: 's2', name: '루즈핏 니트_R2_28_261001_test', status: 'ACTIVE', spend: 150000, purchases: 15, value: 900000, ads: [] },
+        { id: 's3', name: '스커트_P1_20_261001 [→CBO4]', status: 'ACTIVE', spend: 400000, purchases: 50, value: 2400000, ads: [{ id: 'a3' }] },
+        { id: 's4', name: '블라우스_R1_20_261001', status: 'ACTIVE', spend: 400000, purchases: 50, value: 1200000, ads: [{ id: 'a4' }] },
+        { id: 's5', name: '가디건_R1_20_261001', status: 'PAUSED', spend: 400000, purchases: 50, value: 2400000, ads: [] },
+        { id: 's6', name: '베리쉬 세트_P1_27_261016', status: 'ACTIVE', spend: 300000, purchases: 60, value: 3000000, ads: [] } ] },
+      { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '니트_R9', status: 'ACTIVE', spend: 900000, purchases: 90, value: 9000000, ads: [] }] },
+      { id: 'c3', name: '상품CBO_베리쉬 세트_261019', status: 'ACTIVE', budget: 300000, adsets: [] } ] };`, ctx);
+  const c = g('admgrPromoCands')();
+  assert.equal(c.ads.map(r => r.s.id).join(), 's1');                          // s3 CBO 표시 · s4 ROAS 3 · s2 구매 15 · s5 꺼짐 · s6 상품CBO 켜짐 · CBO4 세트는 테스트 캠페인 아님
+  assert.equal(c.prods.map(p => p.name + ':' + p.goods.length).join(), '루즈핏 니트:2');   // 우수 2개(손익 1.79×2.5=4.5 ↑) · 상품 65건
+  const items = g('admgrCheckPromo')(); assert.ok(items.length === 1 && items[0].text.includes('종합 CBO 1개 · 상품 CBO 1개'), JSON.stringify(items));
+  vm.runInContext("admgrAlert.h7 = null;", ctx);
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',

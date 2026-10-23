@@ -49,6 +49,25 @@ try {
   out.test_ads = { count: ads.filter(a => /test/i.test(a.adset + a.name)).length, ...kpi(sum(ads.filter(a => /test/i.test(a.adset + a.name)))) };
 } catch (e) { out.meta_error = String(e.message || e); }
 
+// 승격 후보 (2026-10-23 ⑦) — 월요일 브리핑에만 (또는 --promo). 직전 7일 Meta 성과로: 종합 CBO 후보 = 테스트 세트 광고 중 구매 30↑·ROAS 5↑·아직 [→CBO] 표시 없음
+//   상품 CBO 후보 = 한 상품에 우수(구매 10↑·ROAS 5↑) 소재 2개↑ 이고 상품 구매 60↑·상품CBO 표시 없음. 대시보드 승격 후보(admgr-alerts.js)와 같은 기준(손익분기 대신 고정 5)
+const isMonday = new Date(seoulToday + 'T00:00:00+09:00').getDay() === 1;
+if (isMonday || process.argv.includes('--promo')) try {
+  const h7 = await day(addDays(seoulToday, -7), addDays(seoulToday, -1));
+  // 테스트 세트는 세트당 광고 1개라 세트 단위로 본다 — hierarchy의 광고 목록은 500행에서 잘려 큰 기간엔 테스트 광고가 빠진다 (2026-10-23 확인)
+  const tests = h7.campaigns.filter(c => /테스트/.test(c.name)).flatMap(c => (c.adsets || []).map(s => ({ ...s, adset: s.name }))).filter(s => s.status === 'ACTIVE' && s.spend > 0);   // 테스트 캠페인 안 세트 전부 (이름에 _test가 없는 옛 세트 포함)
+  const roas = a => a.spend ? a.value / a.spend : 0, prod = n => String(n).split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim();
+  const norm = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+  const prodCbo = new Set(h7.campaigns.filter(c => /^상품CBO_/.test(c.name) && c.status === 'ACTIVE').map(c => norm(c.name.replace(/^상품CBO_/, '').replace(/_\d{6}$/, ''))));   // 이미 상품 CBO가 도는 상품은 후보에서 제외 (이름 표시가 지워졌어도)
+  const hasProdCbo = a => prodCbo.has(norm(prod(a.adset)));
+  const all = tests.filter(a => !/\[→/.test(a.adset) && !hasProdCbo(a) && a.purchases >= 30 && roas(a) >= 5).sort((a, b) => roas(b) - roas(a))
+    .map(a => ({ adset: a.adset, purchases: a.purchases, roas: r1(roas(a)), spend: Math.round(a.spend), cpa: Math.round(a.spend / a.purchases) }));
+  const byP = new Map(); tests.forEach(a => { const k = prod(a.adset); (byP.get(k) || byP.set(k, []).get(k)).push(a); });
+  const prods = [...byP.entries()].map(([name, L]) => ({ name, purchases: L.reduce((s, a) => s + a.purchases, 0), creatives: L.length, good: L.filter(a => a.purchases >= 10 && roas(a) >= 5).map(a => ({ adset: a.adset, purchases: a.purchases, roas: r1(roas(a)) })), has_product_cbo: L.some(a => /\[→상품CBO_/.test(a.adset) || hasProdCbo(a)) }))
+    .filter(x => !x.has_product_cbo && x.purchases >= 60 && x.good.length >= 2).sort((a, b) => b.purchases - a.purchases);
+  out.promotion = { range: [addDays(seoulToday, -7), addDays(seoulToday, -1)], general_cbo: all.slice(0, 12), product_cbo: prods.slice(0, 6) };
+} catch (e) { out.promotion_error = String(e.message || e).slice(0, 200); }
+
 // 오늘 판정할 테스트 소재 수 — 대시보드 테스트 소재 탭 '판정할 차례'와 같은 규칙(D+2, 금액 조건 없음, 판정 안 함, 숨김·종료 제외, 기준 전에 직접 끈 것 포함)
 try {
   const [ta, st] = await Promise.all([api('meta-ads', { action: 'testads' }), api('meta-ads', { action: 'state_list' })]);

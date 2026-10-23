@@ -74,6 +74,7 @@ function renderAdmgrTest() {
     <span class="tt-info">테스트 세트 ${(t.data || {}).adset_count || 0}개 · ${admgrAgo((t.data || {}).fetched_at)} 기준 · 성과는 등록 이후 누적</span>
     ${admgrMakerBtn()}
     <button class="filter-tab" style="color:#4f46e5;border-color:#c7d2fe;" onclick="admgrEndReportList()"><i class="fa-solid fa-clipboard-check"></i> 완료 리포트</button>
+    ${(() => { const c = typeof admgrPromoCands === 'function' ? admgrPromoCands() : { ads: [], prods: [] }; const n = c.ads.length + c.prods.length; return n ? `<button class="filter-tab" style="color:#0369a1;border-color:#bae6fd;background:#f0f9ff;" onclick="admgrPromoModal()" title="최근 7일 구매 30↑·ROAS 5↑ (종합 CBO) / 우수 소재 2개↑·상품 구매 60↑ (상품 CBO)"><i class="fa-solid fa-arrow-up-right-dots"></i> 승격 후보 ${n}</button>` : ''; })()}
     <details class="tt-more m-hide"><summary class="filter-tab" title="보일 열 고르기"><i class="fa-solid fa-table-columns"></i> 열</summary><div class="tt-dd">${TT_OPT_COLS.map(([k, l]) => `<label style="display:flex;gap:8px;align-items:center;padding:7px 10px;font-size:.8rem;cursor:pointer;"><input type="checkbox" ${admgrTtCols()[k] ? 'checked' : ''} onchange="admgrTtColToggle('${k}')"> ${l}</label>`).join('')}</div></details>
     <details class="tt-more"><summary class="filter-tab" title="기타 기능"><i class="fa-solid fa-ellipsis"></i></summary><div class="tt-dd">
       ${dd('판정 기준 바꾸기', 'admgrTJudgeToggle()', 'fa-sliders')}
