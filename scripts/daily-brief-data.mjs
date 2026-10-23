@@ -68,6 +68,16 @@ if (isMonday || process.argv.includes('--promo')) try {
   out.promotion = { range: [addDays(seoulToday, -7), addDays(seoulToday, -1)], general_cbo: all.slice(0, 12), product_cbo: prods.slice(0, 6) };
 } catch (e) { out.promotion_error = String(e.message || e).slice(0, 200); }
 
+// 소재 피로 (2026-10-23 ⑧) — 상품 단위 구매당 비용: 최근 7일 vs 그 전 7일. 지난주 구매 20↑ · 이번 주 5↑ · 25% 이상 상승. 대시보드 알림판과 같은 기준(기본값)
+try {
+  const [hn, hp] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -14), addDays(seoulToday, -8))]);
+  const prod = n => String(n).split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim();
+  const agg = h => { const m = new Map(); for (const c of h.campaigns) for (const s of c.adsets || []) { if (!(s.spend > 0)) continue; const k = prod(s.name); const o = m.get(k) || { spend: 0, pur: 0 }; o.spend += s.spend; o.pur += s.purchases || 0; m.set(k, o); } return m; };
+  const now = agg(hn), prev = agg(hp), hits = [];
+  for (const [k, a] of now) { const bb = prev.get(k); if (!bb || bb.pur < 20 || a.pur < 5) continue; const c1 = a.spend / a.pur, c0 = bb.spend / bb.pur; if ((c1 - c0) / c0 >= 0.25) hits.push({ product: k, cpa_prev: Math.round(c0), cpa_now: Math.round(c1), up_pct: Math.round((c1 - c0) / c0 * 100), purchases_prev: bb.pur, purchases_now: a.pur }); }
+  out.fatigue = { range_now: [addDays(seoulToday, -7), addDays(seoulToday, -1)], range_prev: [addDays(seoulToday, -14), addDays(seoulToday, -8)], products: hits.sort((x, y) => y.up_pct - x.up_pct).slice(0, 8) };
+} catch (e) { out.fatigue_error = String(e.message || e).slice(0, 200); }
+
 // 오늘 판정할 테스트 소재 수 — 대시보드 테스트 소재 탭 '판정할 차례'와 같은 규칙(D+2, 금액 조건 없음, 판정 안 함, 숨김·종료 제외, 기준 전에 직접 끈 것 포함)
 try {
   const [ta, st] = await Promise.all([api('meta-ads', { action: 'testads' }), api('meta-ads', { action: 'state_list' })]);

@@ -344,6 +344,17 @@ test('admgrPromoCands: 테스트 캠페인 세트의 7일 성과 — 구매 30�
   vm.runInContext("admgrAlert.h7 = null;", ctx);
 });
 
+test('admgrFatigueCalc: 상품 단위 구매당 비용 전주 대비 25%↑ & 지난주 구매 20↑만', () => {
+  const f = g('admgrFatigueCalc'), cfg = { fatigue: 25, fatigueMinPur: 20 };
+  const H = (rows) => ({ campaigns: [{ adsets: rows.map(([name, spend, pur]) => ({ name, spend, purchases: pur })) }] });
+  const now = H([['니트_R1_28_261001', 300000, 20], ['니트_R2_28_261001', 200000, 10], ['스커트_P1_20_261001', 100000, 10], ['신상_P1_20_261020', 100000, 10]]);   // 니트 구매당 16,667 · 스커트 10,000
+  const prev = H([['니트_R1_28_261001', 250000, 25], ['스커트_P1_20_261001', 100000, 11], ['가디건_R1_20_261001', 100000, 10]]);                                      // 니트 10,000 · 스커트 9,091 · 가디건(이번 주 없음)
+  const r = f(now, prev, cfg);
+  assert.equal(r.map(x => x.prod + ':' + Math.round(x.up * 100)).join(), '니트:67');   // 스커트 +10%는 미달 · 신상은 지난주 없음 · 가디건 이번 주 없음
+  assert.equal(f(now, prev, { fatigue: 70, fatigueMinPur: 20 }).length, 0);
+  assert.equal(f(now, prev, { fatigue: 25, fatigueMinPur: 30 }).length, 0);           // 지난주 구매 25 < 30
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
