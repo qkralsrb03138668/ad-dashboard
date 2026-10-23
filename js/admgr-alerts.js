@@ -204,8 +204,9 @@ async function admgrFatigueAuto() {   // 자동 등록 — 테스트 소재 데�
   A.fBusy = true;
   try {
     for (const h of due) {
-      const ads = ((t.data || {}).ads || []).filter(a => admgrProductOf(a) === h.prod && !a.gone && !(t.state.get(a.id) || {}).hidden).sort((x, y) => (y.purchases || 0) - (x.purchases || 0));
-      const a = ads[0]; if (!a) { none[h.prod] = today; continue; }   // 테스트 소재가 없는 상품(세트명에 test 없음·CBO만) — 요청 올릴 자리가 없어 알림만
+      // 테스트 완료로 _test를 뗀 소재(gone, 60일 보관)도 요청 대상 — 완료된 소재가 곧 그 상품의 대표 소재라서. 켜진 것 먼저, 구매 많은 순
+      const ads = ((t.data || {}).ads || []).filter(a => admgrProductOf(a) === h.prod && !(t.state.get(a.id) || {}).hidden).sort((x, y) => (x.gone ? 1 : 0) - (y.gone ? 1 : 0) || (y.purchases || 0) - (x.purchases || 0));
+      const a = ads[0]; if (!a) { none[h.prod] = today; continue; }   // 테스트 소재 기록이 전혀 없는 상품(CBO만·옛 세트) — 요청 올릴 자리가 없어 알림만
       const cur = t.state.get(a.id) || {}, note = `자동 · 피로 감지 ${today.slice(5)}: 구매당 ${comma(Math.round(h.cpaPrev))}→${comma(Math.round(h.cpaNow))}원 (+${Math.round(h.up * 100)}%)`;
       await admgrTestSave(a.id, { asset_req_at: new Date().toISOString(), memo: ((cur.memo ? cur.memo + ' / ' : '') + note).slice(0, 500) });
       log[h.prod] = today;
