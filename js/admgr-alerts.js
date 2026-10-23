@@ -230,3 +230,76 @@ function admgrCheckFatigue(cfg) {
   return out;
 }
 admgrAlert.checks.push(admgrCheckFatigue);
+
+/* ── 검사 ⑨ 작년 같은 시즌 승자 (2026-10-23): Meta 성과는 37개월 조회가 되므로 '작년 (3~7주 뒤) 기간'의 세트를 구매순으로 본다 — 끌올 소재를 Meta에서 뒤지지 않게.
+   하루 한 번 받아 브라우저에 보관(adc_admgr_season). 지금 켜진 세트에 같은 상품이 있으면 '끌올됨' */
+const ADMGR_SEASON = { lead: 21, span: 28, minPur: 20, minRoas: 3, top: 12 };
+function admgrGuessProduct(name) {   // 옛 이름('영상_(기모ver.) 클레르 블라우스_24.000')도 상품명으로 — 상품 목록에서 찾기 → 없으면 가장 긴 토막(괄호·날짜·가격·색상 제거)
+  const base = admgrBase(name), n = admgrNorm(base), p = (typeof admgrProdIdx === 'function' ? admgrProdIdx() : []).find(x => n.includes(x.n));
+  if (p) return coreName(p.name);
+  return base.split('_').map(x => coreName(x).replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}([.,]\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').replace(/\s+/g, ' ').trim())
+    .filter(x => x && !/^\d+$/.test(x) && !/^(영상|이미지|릴스|스토리|인스타|메인|히어로|전환|테스트|사본)\d*$/.test(x)).sort((a, b) => b.length - a.length)[0] || admgrProductOf({ adset_name: base });
+}
+function admgrSeasonRange(today) { const base = admgrShiftDay(today, -365); return { since: admgrShiftDay(base, ADMGR_SEASON.lead), until: admgrShiftDay(base, ADMGR_SEASON.lead + ADMGR_SEASON.span - 1) }; }
+function admgrSeasonCalc(h, curSets, today) {   // 순수 계산 → [{ name, camp, pur, roas, spend, prod, now }]
+  const live = new Set((curSets || []).filter(s => s.status === 'ACTIVE').map(s => admgrNorm(admgrGuessProduct(s.name))));
+  return ((h && h.campaigns) || []).flatMap(c => (c.adsets || []).map(s => ({ ...s, camp: c.name })))
+    .filter(s => s.spend > 0 && (s.purchases || 0) >= ADMGR_SEASON.minPur && s.value / s.spend >= ADMGR_SEASON.minRoas)
+    .map(s => { const prod = admgrGuessProduct(s.name); return { name: s.name, camp: s.camp, pur: s.purchases, roas: s.value / s.spend, spend: s.spend, prod, now: live.has(admgrNorm(prod)) }; })
+    .sort((x, y) => y.pur - x.pur).slice(0, ADMGR_SEASON.top);
+}
+async function admgrSeasonEnsure() {
+  const A = admgrAlert, today = todayStr(0); if (admgr.demo || !admgrCfg() || A.sLoading) return;
+  const saved = lsGet('adc_admgr_season', null); if (saved && saved.day === today) { A.season = saved.h; return; }
+  A.sLoading = true;
+  try { const r = admgrSeasonRange(today); A.season = await metaGet({ action: 'hierarchy', preset: 'custom', since: r.since, until: r.until }); lsSet('adc_admgr_season', { day: today, h: A.season }); renderAdmgr(true); }
+  catch (e) { A.season = A.season || null; }
+  A.sLoading = false;
+}
+function admgrSeasonCands() { const A = admgrAlert; if (!A.season) { if (admgr.data && !admgr.demo) setTimeout(() => admgrSeasonEnsure(), 0); return null; } return admgrSeasonCalc(A.season, admgrRows().sets, todayStr(0)); }
+function admgrCheckSeason() {
+  const L = admgrSeasonCands(); if (!L || !L.length) return [];
+  const r = admgrSeasonRange(todayStr(0)), fresh = L.filter(x => !x.now).length;
+  return [{ key: 'season:' + todayStr(0), lvl: 'blue', text: `<b>작년 이맘때 베스트</b> ${L.length}개 <small>작년 ${r.since.slice(5)}~${r.until.slice(5)} 구매순${fresh ? ` · 아직 안 켠 상품 ${fresh}개` : ' · 전부 끌올됨'}</small>`, act: { label: '보기', onclick: 'admgrSeasonModal()' } }];
+}
+admgrAlert.checks.push(admgrCheckSeason);
+function admgrSeasonCopy(n) { navigator.clipboard.writeText(n).then(() => toast('세트명을 복사했어요 — Meta 광고관리자 검색창에 붙여넣어 찾은 뒤 복사하세요'), () => toast('복사 실패 — 이름을 직접 선택해 복사하세요')); }
+function admgrSeasonModal() {
+  const L = admgrSeasonCands() || [], r = admgrSeasonRange(todayStr(0));
+  const row = x => `<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;"><span style="flex:1;min-width:0;word-break:break-all;"><b style="color:#1e1b4b;">${esc(x.prod)}</b><div style="color:#6b7280;font-size:.7rem;">${esc(admgrBase(x.name))} · ${esc(x.camp)}</div></span><span style="flex:none;color:#374151;">구매 <b>${x.pur}</b> · ROAS ${x.roas.toFixed(1)}</span>${x.now ? '<span class="status-badge badge-green" style="flex:none;font-size:.62rem;">끌올됨</span>' : `<button class="ag-al-btn" style="flex:none;" data-n="${esc(admgrBase(x.name))}" onclick="admgrSeasonCopy(this.dataset.n)">세트명 복사</button>`}</div>`;
+  $('abm-title').textContent = '작년 이맘때 베스트 (3~7주 뒤 시즌)'; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">작년 ${r.since}~${r.until} · 구매 ${ADMGR_SEASON.minPur}건↑ · ROAS ${ADMGR_SEASON.minRoas}↑ · 구매 많은 순 ${ADMGR_SEASON.top}개 · "끌올됨" = 지금 같은 상품 세트가 켜져 있음</div>
+    <div style="max-height:50vh;overflow:auto;">${L.map(row).join('') || '<div style="color:#9ca3af;padding:10px 0;">작년 이 기간에 기준을 넘은 세트가 없어요</div>'}</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">끌올 순서: Meta에서 세트 복사 → 대시보드 새로고침 → ⋯ 메뉴 '끌올 사본 정리'로 이름 맞추기</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+
+/* ── 검사 ⑩ 이름·페이지 위생 (2026-10-23): ' - 사본' 미정리 세트 · 3일 안에 만든 테스트 캠페인 세트 중 이름 규칙(상품명_R1_소구점_마진_날짜_test) 밖 · 다른 페이스북 페이지로 나가는 광고(adpages, 30분마다) */
+const AG_NAME_OK = /^[^_]+_.*_\d+_\d{6}(_test)?$/;   // 느슨한 규칙: 상품명_…_마진_YYMMDD(_test) — 인스타게시물 세트(R/P 번호 없음)·테스트 완료(_test 뗌)도 통과
+function admgrHygieneCalc(sets, pages, today) {
+  const out = [];
+  const copies = sets.filter(s => AG_COPY_TAIL.test(admgrBase(s.name)));
+  if (copies.length) out.push({ key: 'hy-copy:' + today, lvl: 'yellow', text: `<b>사본 세트</b> ${copies.length}개 — 이름이 아직 "- 사본"이에요`, act: { label: '끌올 사본 정리', onclick: 'admgrRepostModal()' } });
+  const since = admgrShiftDay(today, -3);
+  const odd = sets.filter(s => /테스트/.test(s._campName || '') && String(s.created || '').slice(0, 10) >= since && !AG_NAME_OK.test(admgrBase(s.name)) && !AG_COPY_TAIL.test(admgrBase(s.name)));
+  if (odd.length) out.push({ key: 'hy-name:' + today, lvl: 'yellow', text: `<b>이름 규칙 밖</b> 최근 3일 테스트 세트 ${odd.length}개 <small>${esc(odd.slice(0, 3).map(s => admgrBase(s.name)).join(' · '))}${odd.length > 3 ? ' …' : ''}</small> — '상품명_…_마진_날짜' 형식이 아니면 테스트 탭·리포트에서 상품을 못 잡아요` });
+  if (pages && pages.length) {
+    const cnt = {}; pages.forEach(a => { cnt[a.page_id] = (cnt[a.page_id] || 0) + 1; });
+    const main = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
+    const off = pages.filter(a => a.page_id && a.page_id !== main);
+    if (off.length) out.push({ key: 'hy-page:' + today, lvl: 'red', text: `<b>다른 페이지로 나가는 광고</b> ${off.length}개 — ${esc(off.slice(0, 3).map(a => a.name).join(' · '))}${off.length > 3 ? ' …' : ''} <small>(페이지 ${esc(off[0].page || off[0].page_id)})</small>` });
+  }
+  return out;
+}
+async function admgrPagesEnsure() {
+  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.pLoading || (A.pages && Date.now() - A.pagesAt < 30 * 60000) || !dnrbCan('budget')) return;
+  A.pLoading = true;
+  try { const d = await metaGet({ action: 'adpages' }); A.pages = d.ads || []; A.pagesAt = Date.now(); renderAdmgr(true); } catch (e) { A.pages = A.pages || []; A.pagesAt = Date.now(); }
+  A.pLoading = false;
+}
+function admgrCheckHygiene() {
+  const A = admgrAlert; if (!A.pages && admgr.data && !admgr.demo) setTimeout(() => admgrPagesEnsure(), 0);
+  return admgrHygieneCalc(admgrRows().sets, A.pages || null, todayStr(0));
+}
+admgrAlert.checks.push(admgrCheckHygiene);

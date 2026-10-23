@@ -78,6 +78,31 @@ try {
   out.fatigue = { range_now: [addDays(seoulToday, -7), addDays(seoulToday, -1)], range_prev: [addDays(seoulToday, -14), addDays(seoulToday, -8)], products: hits.sort((x, y) => y.up_pct - x.up_pct).slice(0, 8) };
 } catch (e) { out.fatigue_error = String(e.message || e).slice(0, 200); }
 
+// 작년 이맘때 베스트 (2026-10-23 ⑨, 월요일) — 작년 3~7주 뒤 기간 세트 구매순 (Meta 37개월 조회). 지금 켜진 세트에 같은 상품이 있으면 already_on
+if (isMonday || process.argv.includes('--promo')) try {
+  const base = addDays(seoulToday, -365), since = addDays(base, 21), until = addDays(base, 48);
+  const [hs, hn] = await Promise.all([day(since, until), day(seoulToday, seoulToday)]);
+  const norm = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^0-9a-z가-힣]/g, ''), core = n => String(n || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+  const pr = (await api('cafe24-perf', { action: 'products' })).rows || [], idx = pr.filter(p => p.price > 0).map(p => ({ name: core(p.name), n: norm(core(p.name)) })).filter(p => p.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
+  const prod = name => { const bn = String(name).replace(/\s*\[→[^\]]+\]/g, ''), n = norm(bn), p = idx.find(x => n.includes(x.n)); if (p) return p.name;   // 옛 이름('영상_(기모ver.) 클레르 블라우스_24.000')도 상품 목록에서 찾기
+    return bn.split('_').map(x => core(x).replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}([.,]\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').trim()).filter(x => x && !/^\d+$/.test(x) && !/^(영상|이미지|릴스|스토리|인스타|메인|히어로|전환|테스트|사본)\d*$/.test(x)).sort((a, b) => b.length - a.length)[0] || bn.split('_')[0]; };
+  const live = new Set(hn.campaigns.flatMap(c => (c.adsets || []).filter(s => s.status === 'ACTIVE').map(s => norm(prod(s.name)))));
+  out.season = { range: [since, until], sets: hs.campaigns.flatMap(c => (c.adsets || []).map(s => ({ ...s, camp: c.name }))).filter(s => s.spend > 0 && s.purchases >= 20 && s.value / s.spend >= 3)
+    .sort((a, b) => b.purchases - a.purchases).slice(0, 12).map(s => ({ adset: s.name, campaign: s.camp, product: prod(s.name), purchases: s.purchases, roas: r1(s.value / s.spend), spend: Math.round(s.spend), already_on: live.has(norm(prod(s.name))) })) };
+} catch (e) { out.season_error = String(e.message || e).slice(0, 200); }
+
+// 이름·페이지 위생 (2026-10-23 ⑩) — 사본 미정리 · 최근 3일 테스트 세트 중 이름 규칙 밖 · 다른 페이스북 페이지로 나가는 켜진 광고
+try {
+  const hn = await day(seoulToday, seoulToday), RULE = /^[^_]+_.*_\d+_\d{6}(_test)?$/, COPY = /\s*[-–—]?\s*(사본|copy)\s*\d*\s*$/i, since3 = addDays(seoulToday, -3);   // 느슨한 규칙(대시보드 AG_NAME_OK와 동일)
+  const sets = hn.campaigns.flatMap(c => (c.adsets || []).map(s => ({ ...s, camp: c.name })));
+  const baseName = n => String(n).replace(/\s*\[→[^\]]+\]/g, '').trim();
+  const copies = sets.filter(s => COPY.test(baseName(s.name))).map(s => s.name);
+  const odd = sets.filter(s => /테스트/.test(s.camp) && String(s.created || '').slice(0, 10) >= since3 && !RULE.test(baseName(s.name)) && !COPY.test(baseName(s.name))).map(s => s.name);
+  const ap = await api('meta-ads', { action: 'adpages' }); const cnt = {}; (ap.ads || []).forEach(a => { cnt[a.page_id] = (cnt[a.page_id] || 0) + 1; });
+  const main = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]; const off = (ap.ads || []).filter(a => main && a.page_id !== main[0]).map(a => ({ ad: a.name, campaign: a.campaign, page: a.page || a.page_id }));
+  out.hygiene = { copies, odd_names: odd.slice(0, 10), wrong_page: off.slice(0, 10), main_page: main ? (ap.ads.find(a => a.page_id === main[0]) || {}).page || main[0] : null };
+} catch (e) { out.hygiene_error = String(e.message || e).slice(0, 200); }
+
 // 오늘 판정할 테스트 소재 수 — 대시보드 테스트 소재 탭 '판정할 차례'와 같은 규칙(D+2, 금액 조건 없음, 판정 안 함, 숨김·종료 제외, 기준 전에 직접 끈 것 포함)
 try {
   const [ta, st] = await Promise.all([api('meta-ads', { action: 'testads' }), api('meta-ads', { action: 'state_list' })]);

@@ -355,6 +355,24 @@ test('admgrFatigueCalc: 상품 단위 구매당 비용 전주 대비 25%↑ & �
   assert.equal(f(now, prev, { fatigue: 25, fatigueMinPur: 30 }).length, 0);           // 지난주 구매 25 < 30
 });
 
+test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표시 · 사본/이름 규칙/페이지 위생', () => {
+  const S = g('admgrSeasonCalc');
+  vm.runInContext("admgr.products = [{ no: 1, name: '(기모ver.) 클레르 블라우스 (3 colors)', price: 24000, supply: 9000 }]; admgrPI = null;", ctx);
+  const h = { campaigns: [{ name: '다나로브 릴스', adsets: [{ name: '영상_(기모ver.) 클레르 블라우스_24.000', spend: 100000, purchases: 50, value: 800000 }, { name: '베일리 니트 원피스_R1_22_251110_test', spend: 50000, purchases: 10, value: 400000 }, { name: '싸구려_P1', spend: 90000, purchases: 30, value: 150000 }] }] };
+  const L = S(h, [{ status: 'ACTIVE', name: '클레르 블라우스_R9_25_261020_test' }], '2026-10-23');
+  assert.equal(L.map(x => x.prod + ':' + x.pur + ':' + x.now).join(), '클레르 블라우스:50:true');   // 옛 이름도 상품 목록으로 '클레르 블라우스' · 지금 켜진 세트에 같은 상품 → 끌올됨 · 구매 10 미달·ROAS 1.7 미달은 제외
+  assert.equal(g('admgrGuessProduct')('1111_영상(범준)_하울브이원피스 블랙먼저'), '하울브이원피스 블랙먼저');   // 상품 목록에 없으면 가장 긴 토막
+  const r = g('admgrSeasonRange')('2026-10-23'); assert.equal(r.since + '~' + r.until, '2025-11-13~2025-12-10');
+  const H = g('admgrHygieneCalc');
+  const sets = [{ name: '니트_R1_28_261022_test - 사본', _campName: '테스트2', created: '2026-10-22' }, { name: '막이름 세트', _campName: '테스트2', created: '2026-10-22' }, { name: '막이름 옛세트', _campName: '테스트2', created: '2026-09-01' }, { name: 'CBO 세트', _campName: 'CBO4', created: '2026-10-22' },
+    { name: '오르노 라인 케이블 가디건_인스타게시물_26_261021', _campName: '테스트2', created: '2026-10-21' }, { name: '양가죽 플랫슈즈_P4_인스타_30_261020', _campName: '테스트2', created: '2026-10-21' }];   // 인스타게시물·_test 뗀 이름은 규칙 통과
+  const pages = [{ page_id: 'A', name: 'ad1' }, { page_id: 'A', name: 'ad2' }, { page_id: 'B', name: '엉뚱', page: 'Kustom' }];
+  const out = H(sets, pages, '2026-10-23');
+  assert.equal(out.map(x => x.key.split(':')[0] + ':' + x.lvl).join(), 'hy-copy:yellow,hy-name:yellow,hy-page:red');
+  assert.ok(out[1].text.includes('1개') && out[1].text.includes('막이름 세트') && out[2].text.includes('엉뚱') && out[2].text.includes('Kustom'));
+  assert.equal(H([], [{ page_id: 'A', name: 'x' }], '2026-10-23').length, 0);
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
