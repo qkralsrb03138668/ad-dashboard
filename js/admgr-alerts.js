@@ -60,3 +60,46 @@ async function admgrAlertCfgSave() {
     admgrAlert.cfg = d; admgrAlert.ver = r.ver; closeModal('admgr-budget-modal'); toast('알림 기준을 저장했어요'); renderAdmgr(true);
   } catch (e) { toast('저장 실패: ' + e.message); }
 }
+
+/* ── 검사 ③ CBO 독식 (2026-10-23): CBO 캠페인(캠페인 예산 있음·켜짐) 안에서 광고 하나가 지출의 hog% 이상을 먹고,
+   그 광고의 구매당 비용이 마진×hogCpa% 를 넘거나(구매 0이면 마진만큼 쓴 경우) → 빨강 + [이 광고 끄기 임시 저장]. 데이터는 지금 화면 기간 기준 */
+function admgrCheckHog(cfg) {
+  const out = [], R = admgrRows();
+  const per = admgr.preset === 'custom' && admgr.customRange ? `${admgr.customRange.since.slice(5)}~${admgr.customRange.until.slice(5)}` : (ADMGR_PRESETS[admgr.preset] || '오늘');
+  for (const c of R.camps) {
+    if (c.status !== 'ACTIVE' || !(c.budget > 0)) continue;
+    const ads = (c.adsets || []).flatMap(s => s.ads || []).filter(a => a.spend > 0);
+    const total = ads.reduce((a, x) => a + x.spend, 0); if (total < 30000 || ads.length < 2) continue;
+    const top = ads.slice().sort((x, y) => y.spend - x.spend)[0], share = top.spend / total;
+    if (share * 100 < cfg.hog) continue;
+    const m = typeof admgrMarginOf === 'function' ? admgrMarginOf({ id: top.id, name: top.name }).m : null;
+    const cpa = top.purchases > 0 ? top.spend / top.purchases : null;
+    const bad = m ? (cpa == null ? top.spend >= m : cpa > m * cfg.hogCpa / 100) : cpa == null;
+    if (!bad) continue;
+    out.push({ key: 'hog:' + c.id + ':' + top.id, lvl: 'red',
+      text: `<b>CBO 독식</b> ${esc(c.name)} — "${esc(top.name)}"가 ${per} 지출의 <b>${Math.round(share * 100)}%</b>(${won(top.spend)}) · 구매당 ${cpa == null ? '<b>구매 0</b>' : `<b>${won(cpa)}</b>`}${m ? ` (마진 ${comma(m)}의 ${cpa == null ? '—' : Math.round(cpa / m * 100) + '%'})` : ''}`,
+      act: { label: '이 광고 끄기 임시 저장', onclick: `admgrHogOff('${esc(top.id)}')` } });
+  }
+  return out;
+}
+function admgrHogOff(adId) {   // 끄기 임시 저장 → 상단 '게시'로 Meta 반영 (다른 켜기/끄기와 같은 길)
+  admgrSDraft[adId] = { level: 'ad', status: 'PAUSED' }; lsSet('adc_admgr_sdraft', admgrSDraft);
+  toast('끄기를 임시 저장했어요 — 상단 [게시]를 눌러야 Meta에 반영돼요'); renderAdmgr(true);
+}
+/* ── 23:45 관련 알림을 팝업 대신 여기로 (사용자 요청: 알림은 한 곳에) — 원복 승인 상태 · 예약 건수 · 반영 결과 */
+function admgrCheck2345(cfg) {
+  const w = admgr.write, out = []; if (!w || !w.st) return out;
+  const k = admgrKst(new Date().toISOString()), hm = k ? k.getUTCHours() * 60 + k.getUTCMinutes() : 0;
+  const npend = w.pendingByObj ? w.pendingByObj.size : 0;
+  if (w.resetRow) out.push({ key: 'reset:' + todayStr(0), lvl: 'blue', text: `오늘 23:45 원복 승인됨 <small>${esc(w.resetRow.object_name || '')}</small>${npend ? ` · 예약 ${npend}건` : ''}`, act: npend ? { label: '예약 목록', onclick: 'admgrMidList()' } : null });
+  else if (hm >= 15 * 60 && hm < 23 * 60 + 45 && dnrbCan('budget')) out.push({ key: 'noreset:' + todayStr(0), lvl: 'yellow', text: `오늘 23:45 원복 승인이 아직 없어요${npend ? ` · 예약 ${npend}건은 그대로 실행` : ''}`, act: { label: '승인하기', onclick: 'admgrMidMenu(event)' } });
+  else if (npend) out.push({ key: 'pend:' + todayStr(0), lvl: 'blue', text: `23:45 예약 ${npend}건`, act: { label: '예약 목록', onclick: 'admgrMidList()' } });
+  const d = w.lastPending, rows = d && d.lastrun || [];
+  if (rows.length) {
+    const key = d.run_day || String(rows[0].applied_at || '').slice(0, 10);
+    const ok = rows.filter(r => r.status === 'applied').length, fail = rows.length - ok;
+    if (rows.some(r => r.mode === 'reset_approve' || r.mode === 'midnight')) out.push({ key: 'run:' + key, lvl: fail ? 'yellow' : 'blue', text: `23:45 반영 결과 (${key.slice(5).replace('-', '/')}) — 완료 ${ok}${fail ? ` · <b>실패 ${fail}</b>` : ''}`, act: { label: '자세히', onclick: `admgrRunNotify(admgr.write.lastPending, true)` } });
+  }
+  return out;
+}
+admgrAlert.checks.push(admgrCheckHog, admgrCheck2345);

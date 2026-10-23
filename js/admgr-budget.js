@@ -15,10 +15,10 @@ async function admgrWriteInit() {
 /* ═══ 23:45 반영 결과 알림창 (2026-09-08 사용자 요청) — 원복 승인분·23:45 예약분이 실행되면 한 번 띄운다.
    서버 pending 응답의 lastrun(가장 최근 23:45 이후 실행 행)을 보고, 같은 실행(run_day)은 adc_admgr_runseen 으로 한 번만.
    승인 행이 아직 pending이면(실행 중) 건너뛰고 다음 확인 때 다시 본다. 23:45~00:40 사이엔 1분마다 서버만 확인(Meta 호출 없음) */
-function admgrRunNotify(d) {
-  const rows = d.lastrun || []; if (!rows.length) return;
+function admgrRunNotify(d, force) {   // force: 알림판 [자세히]에서 열 때 (2026-10-23부터 자동 팝업은 안 띄우고 알림판에 한 줄로)
+  const rows = (d && d.lastrun) || []; if (!rows.length) return;
   const key = d.run_day || rows[0].applied_at.slice(0, 10);
-  if (lsGet('adc_admgr_runseen', '') === key) return;
+  if (!force && lsGet('adc_admgr_runseen', '') === key) return;
   const appr = rows.find(r => r.mode === 'reset_approve');
   const resets = rows.filter(r => r.mode === 'reset'), mids = rows.filter(r => r.mode === 'midnight');
   if (!appr && !mids.length) return;
@@ -52,8 +52,8 @@ async function admgrWritePending() {
     admgr.write.resetRow = pend.find(p => p.mode === 'reset_approve' && p.apply_date === todayStr(0)) || null;   // 오늘 23:45 원복 승인
     admgr.write.pendingByObj = new Map(pend.filter(p => p.mode !== 'reset_approve').map(p => [p.object_id, p]));
     admgr.write.daystart = new Map((d.daystart || []).map(r => [String(r.adset_id), Number(r.budget)]));   // 오늘 시작 예산(00:10 스냅샷) — 자정세팅 열
+    admgr.write.lastPending = d;   // 알림판(admgr-alerts.js admgrCheck2345)이 승인 상태·예약·반영 결과를 보여준다 — 팝업은 [자세히]로만
     renderAdmgr(true);
-    admgrRunNotify(d);   // 23:45 반영 결과 알림창 (한 번만)
   } catch { /* 무시 */ }
 }
 /* 예산 셀 — 일예산 있는 행은 클릭 편집(연필), 자정 예약이 있으면 배지 */

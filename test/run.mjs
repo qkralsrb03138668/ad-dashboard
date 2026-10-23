@@ -311,6 +311,20 @@ test('admgrBudgetTotal·알림판: 켜진 세트+CBO 예산 합, 임시 저장 �
   const h0 = g('admgrAlertPanel')(); assert.ok(!h0.includes('상한 초과') && !h0.includes('· 상한'), h0);   // 상한 0 = 표시도 경고도 없음 ([기준] 버튼 툴팁의 '상한'은 제외)
 });
 
+test('admgrCheckHog: CBO 안 한 광고 독식 + 구매당 비용이 마진×60% 초과면 빨강, 아니면 없음', () => {
+  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.preset = 'today'; admgr.demo = false;
+    admgr.data = { campaigns: [{ id: 'c1', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's', status: 'ACTIVE', budget: 0, ads: [
+      { id: 'a1', name: '루즈핏 니트_R1', status: 'ACTIVE', spend: 150000, purchases: 7, value: 0 }, { id: 'a2', name: '루즈핏 니트_R2', status: 'ACTIVE', spend: 40000, purchases: 5, value: 0 }, { id: 'a3', name: '루즈핏 니트_R3', status: 'ACTIVE', spend: 10000, purchases: 0, value: 0 }] }] }] };`, ctx);
+  const f = g('admgrCheckHog'), cfg = { hog: 60, hogCpa: 60 };
+  const r = f(cfg);   // a1: 75% 독식 · 구매당 21,429 > 마진 28,000×60%=16,800
+  assert.equal(r.length, 1); assert.ok(r[0].lvl === 'red' && r[0].text.includes('75%') && r[0].text.includes('21,429') && r[0].act.onclick.includes("admgrHogOff('a1')"), r[0].text);
+  assert.equal(f({ hog: 80, hogCpa: 60 }).length, 0);                                   // 독식 기준 80%면 해당 없음
+  vm.runInContext("admgr.data.campaigns[0].adsets[0].ads[0].purchases = 12;", ctx);      // 구매당 12,500 ≤ 16,800 → 독식이어도 경고 없음
+  assert.equal(f(cfg).length, 0);
+  vm.runInContext("admgr.data.campaigns[0].budget = 0;", ctx);                           // CBO가 아니면 검사 안 함
+  assert.equal(f(cfg).length, 0);
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
