@@ -117,7 +117,7 @@ async function admgrPromoEnsure() {
   A.h7Loading = false;
 }
 function admgrPromoCands() {
-  const h = admgrAlert.h7; if (!h || !h.campaigns) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPromoEnsure(), 0); return { ads: [], prods: [], ready: false }; }
+  const h = admgrAlert.h7; if (!h || !h.campaigns) { if (!admgr.demo && admgrCfg()) setTimeout(() => admgrPromoEnsure(), 0); return { ads: [], prods: [], ready: false }; }   // 테스트 소재 메뉴로 바로 들어와 광고관리자 데이터가 없어도 7일 성과는 따로 받는다
   const prodCbo = new Set(h.campaigns.filter(c => /^상품CBO_/.test(admgrBase(c.name)) && c.status === 'ACTIVE').map(c => admgrNorm(admgrBase(c.name).replace(/^상품CBO_/, '').replace(/_\d{6}$/, ''))));
   const rows = [];
   for (const c of h.campaigns) { if (!/테스트/.test(c.name) || c.status !== 'ACTIVE') continue;
