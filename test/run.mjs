@@ -337,10 +337,15 @@ test('admgrPromoCands: 테스트 캠페인 세트의 7일 성과 — 구매 30�
         { id: 's6', name: '베리쉬 세트_P1_27_261016', status: 'ACTIVE', spend: 300000, purchases: 60, value: 3000000, ads: [] } ] },
       { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '니트_R9', status: 'ACTIVE', spend: 900000, purchases: 90, value: 9000000, ads: [] }] },
       { id: 'c3', name: '상품CBO_베리쉬 세트_261019', status: 'ACTIVE', budget: 300000, adsets: [] } ] };`, ctx);
-  const c = g('admgrPromoCands')();
-  assert.equal(c.ads.map(r => r.s.id).join(), 's1');                          // s3 CBO 표시 · s4 ROAS 3 · s2 구매 15 · s5 꺼짐 · s6 상품CBO 켜짐 · CBO4 세트는 테스트 캠페인 아님
+  localStorage.removeItem('adc_promo_toall');
+  let c = g('admgrPromoCands')();
   assert.equal(c.prods.map(p => p.name + ':' + p.goods.length).join(), '루즈핏 니트:2');   // 우수 2개(손익 1.79×2.5=4.5 ↑) · 상품 65건
-  const items = g('admgrCheckPromo')(); assert.ok(items.length === 1 && items[0].text.includes('종합 CBO 1개 · 상품 CBO 1개'), JSON.stringify(items));
+  assert.equal(c.ads.map(r => r.s.id).join(), '');                            // s1은 상품 CBO 후보 상품이라 종합엔 안 올라감 · s3 CBO 표시 · s4 ROAS 3 · s2 구매 15 · s5 꺼짐 · s6 상품CBO 켜짐
+  let items = g('admgrCheckPromo')(); assert.ok(items[0].text.includes('종합 CBO 0개 · 상품 CBO 1개'), JSON.stringify(items));
+  localStorage.setItem('adc_promo_toall', JSON.stringify(['루즈핏 니트']));            // 사용자가 '종합 CBO로' → 세트가 종합 후보로
+  c = g('admgrPromoCands')();
+  assert.equal(c.ads.map(r => r.s.id + (r.fromProd ? '*' : '')).join(), 's1*'); assert.ok(c.prods[0].toAll);
+  localStorage.removeItem('adc_promo_toall');
   vm.runInContext("admgrAlert.h7 = null;", ctx);
 });
 

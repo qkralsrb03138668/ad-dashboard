@@ -125,11 +125,14 @@ function admgrPromoCands() {
       const p = s.purchases || 0, roas = s.value / s.spend, prod = admgrProductOf(s), pc = prodCbo.has(admgrNorm(prod));
       const be = (typeof admgrBreakEven === 'function' && admgrBreakEven({ adset_id: s.id, adset_name: s.name, name: s.name }) || {}).be || null;
       rows.push({ s, a: { id: s.id, adset_id: s.id, adset_name: s.name, name: s.name }, p, roas, spend: s.spend, be, prod, prodCbo: pc, inCbo: /\[→/.test(s.name) || pc, adIds: (s.ads || []).map(a => a.id), good: p >= ADMGR_PROMO.goodPur && roas >= (be ? be * ADMGR_PROMO.goodMul : ADMGR_PROMO.roas) }); } }
-  const ads = rows.filter(r => !r.inCbo && r.p >= ADMGR_PROMO.pur && r.roas >= ADMGR_PROMO.roas).sort((x, y) => y.roas - x.roas);
   const byProd = new Map(); rows.forEach(r => (byProd.get(r.prod) || byProd.set(r.prod, []).get(r.prod)).push(r));
+  const toAll = new Set(lsGet('adc_promo_toall', []));   // 상품 CBO 후보지만 사용자가 "종합으로"라고 정한 상품 (2026-10-23 사용자 요청)
   const prods = [...byProd.entries()].map(([name, L]) => ({ name, n: L.length, pur: L.reduce((t, r) => t + r.p, 0), goods: L.filter(r => r.good).sort((x, y) => y.roas - x.roas), inCbo: L.some(r => r.prodCbo),
-      roas: L.reduce((t, r) => t + r.roas * r.spend, 0) / Math.max(1, L.reduce((t, r) => t + r.spend, 0)) }))
+      roas: L.reduce((t, r) => t + r.roas * r.spend, 0) / Math.max(1, L.reduce((t, r) => t + r.spend, 0)), toAll: toAll.has(name) }))
     .filter(x => !x.inCbo && x.pur >= ADMGR_PROMO.prodPur && x.goods.length >= ADMGR_PROMO.goodMin).sort((x, y) => y.pur - x.pur);
+  // 상품 CBO 후보로 분류된 상품의 세트는 종합 후보에 안 넣는다 — 사용자가 '종합으로' 돌린 상품만 예외 (2026-10-23 사용자 요청: 양쪽에 겹치지 않게)
+  const prodOnly = new Set(prods.filter(x => !x.toAll).map(x => x.name));
+  const ads = rows.filter(r => !r.inCbo && !prodOnly.has(r.prod) && r.p >= ADMGR_PROMO.pur && r.roas >= ADMGR_PROMO.roas).map(r => ({ ...r, fromProd: toAll.has(r.prod) })).sort((x, y) => y.roas - x.roas);
   return { ads, prods, ready: true, range: h.range };
 }
 function admgrCheckPromo() {
@@ -140,17 +143,21 @@ admgrAlert.checks.push(admgrCheckPromo);
 function admgrPromoModal(mode) {
   const c = admgrPromoCands(); admgr.promoMode = mode || admgr.promoMode || (c.ads.length ? 'all' : 'prod');
   const M = admgr.promoMode;
-  const row = (r, chk) => `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;cursor:pointer;"><input type="checkbox" class="pm-ad" value="${esc(r.s.id)}" ${chk ? 'checked' : ''} /><span style="flex:1;min-width:0;word-break:break-all;">${esc(admgrBase(r.s.name))}</span><span style="flex:none;color:#6b7280;">7일 구매 ${r.p} · ROAS <b>${r.roas.toFixed(1)}</b>${r.inCbo ? ' · <span class="ag-mark">⧉ CBO 있음</span>' : ''}</span></label>`;
+  const row = (r, chk) => `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;cursor:pointer;"><input type="checkbox" class="pm-ad" value="${esc(r.s.id)}" ${chk ? 'checked' : ''} /><span style="flex:1;min-width:0;word-break:break-all;">${esc(admgrBase(r.s.name))}${r.fromProd ? ' <span class="status-badge badge-blue" style="font-size:.58rem;" title="상품 CBO 후보였지만 종합으로 보내기로 한 상품">상품→종합</span>' : ''}</span><span style="flex:none;color:#6b7280;">7일 구매 ${r.p} · ROAS <b>${r.roas.toFixed(1)}</b>${r.inCbo ? ' · <span class="ag-mark">⧉ CBO 있음</span>' : ''}</span></label>`;
   let body;
   if (!c.ready) body = '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">최근 7일 성과를 불러오는 중…</div>';
   else if (M === 'all') body = c.ads.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">최근 7일(${(c.range || {}).start || ''}~${(c.range || {}).end || ''}) 구매 ${ADMGR_PROMO.pur}건↑ · ROAS ${ADMGR_PROMO.roas}↑ · 아직 CBO에 없는 세트 — 체크해서 종합 CBO 세트에 복사</div>${c.ads.map(r => row(r, true)).join('')}` : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">지금 기준을 넘는 소재가 없어요</div>';
-  else if (M !== 'all') body = c.prods.length ? c.prods.map(x => `<div style="margin:8px 0 4px;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · ROAS ${x.roas.toFixed(1)} · 우수 소재 ${x.goods.length}개</span></div>${x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">우수 소재 2개↑·7일 구매 60↑인 상품이 없어요</div>';
+  else if (M !== 'all') body = c.prods.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">상품 CBO 후보로 잡힌 상품의 세트는 종합 후보에 안 올라가요 — 종합이 낫다고 보시면 [종합 CBO로]를 누르세요 (이 브라우저에 기억)</div>` + c.prods.map(x => `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;${x.toAll ? 'opacity:.6;' : ''}"><span style="flex:1;min-width:0;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · ROAS ${x.roas.toFixed(1)} · 우수 소재 ${x.goods.length}개</span>${x.toAll ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">종합으로 보냄</span>' : ''}</span><button class="ag-al-btn ${x.toAll ? 'ghost' : ''}" style="flex:none;" onclick="admgrPromoToAll(${JSON.stringify(x.name).replace(/"/g, '&quot;')}, ${x.toAll ? 'false' : 'true'})">${x.toAll ? '상품 CBO로 되돌리기' : '종합 CBO로'}</button></div>${x.toAll ? '' : x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">우수 소재 2개↑·7일 구매 60↑인 상품이 없어요</div>';
   $('abm-title').textContent = '승격 후보'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="display:flex;gap:6px;margin-bottom:8px;"><button class="filter-tab ${M === 'all' ? 'active' : ''}" onclick="admgrPromoModal('all')">종합 CBO 후보 (${c.ads.length})</button><button class="filter-tab ${M === 'prod' ? 'active' : ''}" onclick="admgrPromoModal('prod')">상품 CBO 후보 (${c.prods.length})</button></div>
     <div style="max-height:45vh;overflow:auto;">${body}</div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">복사 뒤 결과 창에서 원본 테스트 세트 예산을 1,000원으로 내릴 수 있어요 (같은 소재 두 곳 동시 운영 방지)</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrPromoCopy()"><i class="fa-solid fa-copy"></i> ${M === 'all' ? '종합 CBO 세트에 복사' : '새 상품 CBO 만들기'}</button></div>`;
   $('admgr-budget-modal').classList.add('show');
+}
+function admgrPromoToAll(name, on) {   // 상품 CBO 후보 → 종합 CBO 후보로 (사용자 판단) · 되돌리기
+  const L = new Set(lsGet('adc_promo_toall', [])); on ? L.add(name) : L.delete(name); lsSet('adc_promo_toall', [...L]);
+  toast(on ? `${name} — 이제 종합 CBO 후보 탭에 세트가 올라와요` : `${name} — 상품 CBO 후보로 되돌렸어요`); admgrPromoModal(on ? 'all' : 'prod');
 }
 async function admgrPromoCopy() {   // 체크한 후보 세트의 광고를 광고 복사 모달로 — 7일 계층에 광고가 안 실린 세트는 썸네일 조회(creatives)로 광고 id를 찾는다
   const setIds = [...document.querySelectorAll('.pm-ad:checked')].map(x => x.value); if (!setIds.length) { toast('소재를 체크하세요'); return; }

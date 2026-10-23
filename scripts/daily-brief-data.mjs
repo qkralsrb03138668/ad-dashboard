@@ -65,7 +65,8 @@ if (isMonday || process.argv.includes('--promo')) try {
   const byP = new Map(); tests.forEach(a => { const k = prod(a.adset); (byP.get(k) || byP.set(k, []).get(k)).push(a); });
   const prods = [...byP.entries()].map(([name, L]) => ({ name, purchases: L.reduce((s, a) => s + a.purchases, 0), creatives: L.length, good: L.filter(a => a.purchases >= 10 && roas(a) >= 5).map(a => ({ adset: a.adset, purchases: a.purchases, roas: r1(roas(a)) })), has_product_cbo: L.some(a => /\[→상품CBO_/.test(a.adset) || hasProdCbo(a)) }))
     .filter(x => !x.has_product_cbo && x.purchases >= 60 && x.good.length >= 2).sort((a, b) => b.purchases - a.purchases);
-  out.promotion = { range: [addDays(seoulToday, -7), addDays(seoulToday, -1)], general_cbo: all.slice(0, 12), product_cbo: prods.slice(0, 6) };
+  const prodNames = new Set(prods.map(p => norm(p.name)));   // 상품 CBO 후보 상품의 세트는 종합 후보에 안 넣는다 (대시보드와 같은 규칙)
+  out.promotion = { range: [addDays(seoulToday, -7), addDays(seoulToday, -1)], general_cbo: all.filter(a => !prodNames.has(norm(prod(a.adset)))).slice(0, 12), product_cbo: prods.slice(0, 6) };
 } catch (e) { out.promotion_error = String(e.message || e).slice(0, 200); }
 
 // 소재 피로 (2026-10-23 ⑧) — 상품 단위 구매당 비용: 최근 7일 vs 그 전 7일. 지난주 구매 20↑ · 이번 주 5↑ · 25% 이상 상승. 대시보드 알림판과 같은 기준(기본값)
