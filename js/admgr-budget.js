@@ -180,6 +180,29 @@ function admgrPopAt(ev, html, w) {
   pop.style.top = (below + h <= window.innerHeight - 8 ? below : Math.max(8, Math.min(r0.top - 6 - h, window.innerHeight - h - 8))) + 'px';
 }
 const agItem = (icon, label, onclick, sub) => `<button class="ag-item" onclick="document.getElementById('admgr-bpop').style.display='none';${onclick}"><i class="fa-solid ${icon}"></i><span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
+/* 추천 예산 불러오기 (2026-10-25) — Claude가 shared_state 'budget_reco' {items:[{id,level,name,from,to,why}], at, note}에 저장한 추천을 임시 저장(admgrDraft)으로 올린다.
+   Meta 반영은 기존 [게시]+PIN 흐름 그대로. 추천 당시 예산(from)과 지금 예산이 다르면 건너뛰어 알려준다 */
+async function admgrRecoLoad() {
+  let d;
+  try { d = (await sbCall('client-log', { action: 'state_get', key: 'budget_reco' }) || {}).data; }
+  catch (e) { toast('추천 불러오기 실패: ' + e.message); return; }
+  if (!d || !(d.items || []).length) { toast('저장된 추천 예산이 없어요'); return; }
+  const R = admgrRows(); const ok = [], skip = [];
+  for (const it of d.items) {
+    const node = R.camps.find(x => x.id === it.id) || R.sets.find(x => x.id === it.id);
+    if (!node || node.status !== 'ACTIVE') { skip.push(`${it.name} — 지금 목록에 없거나 꺼져 있음`); continue; }
+    if (node.budget !== it.from) { skip.push(`${it.name} — 추천 당시 ${comma(it.from)}원이었는데 지금 ${comma(node.budget)}원`); continue; }
+    admgrDraft[it.id] = it.to; ok.push(it);
+  }
+  lsSet('adc_admgr_draft', admgrDraft); renderAdmgr(true);
+  $('abm-title').textContent = `추천 예산 ${ok.length}건 임시 저장`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">${esc(d.note || '')} · ${esc(admgrKstLabel(d.at))} 저장</div>
+    <div style="max-height:45vh;overflow:auto;font-size:.78rem;">${ok.map(it => `<div style="padding:4px 0;border-bottom:1px solid #f3f4f6;">${esc(it.name)} <span style="color:#9ca3af;">${comma(it.from)} →</span> <b>${comma(it.to)}</b><div style="font-size:.68rem;color:#9ca3af;">${esc(it.why || '')}</div></div>`).join('')}
+    ${skip.map(t => `<div style="padding:4px 0;color:#b45309;">건너뜀: ${esc(t)}</div>`).join('')}</div>
+    <div style="font-size:.72rem;color:#374151;margin-top:10px;">아직 Meta에는 반영되지 않았어요 — 상단 <b>[게시]</b>를 누르고 PIN을 넣으면 한 번에 반영돼요. 빼고 싶은 건 예산 칸에서 취소하세요.</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
 function admgrMoreMenu(ev) {
   const w = admgr.write, nd = admgrDraftTargets().length, npend = w.pendingByObj ? w.pendingByObj.size : 0;
   const rect = ev.currentTarget.getBoundingClientRect();
@@ -193,6 +216,7 @@ function admgrMoreMenu(ev) {
     ${npend && !admgrMobile() ? agItem('fa-list', `23:45 예약 목록 (${npend})`, 'admgrMidList()') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') && admgrCopySets().length ? agItem('fa-arrow-up-from-bracket', `끌올 사본 정리 (${admgrCopySets().length})`, 'admgrRepostModal()', '" - 사본" 붙은 세트·광고 이름을 소재 업로드 규칙으로') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-sliders', '알림 기준', 'admgrAlertCfgModal()', '일예산 상한 · CBO 독식 · 소재 피로 기준 (모든 계정 공유)') : ''}
+    ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-wand-magic-sparkles', '추천 예산 불러오기', 'admgrRecoLoad()', 'Claude가 저장해 둔 예산 추천을 임시 저장으로 — 반영은 상단 [게시] (PIN)') : ''}
     ${nd ? agItem('fa-eraser', `임시 저장 전체 취소 (${nd})`, 'admgrClearDrafts()', 'Meta에는 아무 변화 없어요') : ''}
     ${!admgrCfg() || admgr.demo ? '' : agItem('fa-wand-magic-sparkles', '데모 데이터로 보기', 'admgrDemo()')}
   </div>`);
