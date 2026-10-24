@@ -747,7 +747,7 @@ Deno.serve(async (req) => {
        · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
     const menus = me.perms ? (me.perms.menus ?? []) : null;
     const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
-    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting", "attrcheck"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
+    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting", "attrcheck", "statusevents"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
     const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
     if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
     if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);
@@ -1092,6 +1092,23 @@ Deno.serve(async (req) => {
     // Meta 활동 로그(약 90일)의 update_ad_set_run_status 이벤트: new_value 1=활성, 그 외=비활성.
     // activities는 최신순이라 세트별 첫 이벤트 = 기간 내 마지막 상태. 마지막이 비활성인 세트만(껐다 켠 세트 제외), 테스트 세트 제외.
     // 한계: 세트 스위치를 직접 끈 것 기준 — 캠페인을 통째로 끈 경우는 세트 이벤트가 없어 안 잡힌다 (가이드 §7-4).
+    // 세트 켜짐/꺼짐 변경 이력 (2026-10-24) — 기간 안의 update_ad_set_run_status 전부 (테스트 세트 포함), 세트 이름 붙여서. 5분 캐시
+    if (action === "statusevents") {
+      const s = url.searchParams.get("start_date") ?? seoulToday();
+      const e = url.searchParams.get("end_date") ?? s;
+      const cacheKey = `meta:statusevents:v2:${s}:${e}`;
+      const pre = await metaPre(cacheKey, 5 * 60 * 1000);
+      if (pre) return pre;
+      const acts = await graphGetAll(`${c.account}/activities`, { fields: "event_type,event_time,object_id,object_name,extra_data",
+        since: String(Math.floor(Date.parse(`${s}T00:00:00+09:00`) / 1000)), until: String(Math.floor(Date.parse(`${addDays(e, 1)}T00:00:00+09:00`) / 1000)), limit: "500" }, c.token, 8);
+      const events = acts.filter((r) => /^update_(ad_set|campaign)_run_status$/.test(String(r.event_type ?? ""))).map((r) => {
+        let nv = 0; try { const raw = r.extra_data; const extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {}; nv = num(((extra.run_status ?? {}) as Record<string, unknown>).new_value); } catch { /* 없음 */ }
+        return { time: String(r.event_time ?? ""), id: String(r.object_id ?? ""), name: String(r.object_name ?? ""), on: nv === 1, level: String(r.event_type).includes("campaign") ? "campaign" : "adset" };
+      }).filter((x) => x.id);
+      const body = { events };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
     if (action === "offsets") {
       const s = url.searchParams.get("start_date") ?? addDays(seoulToday(), -7);
       const e = url.searchParams.get("end_date") ?? seoulToday();
