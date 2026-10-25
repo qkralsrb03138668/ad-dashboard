@@ -1389,7 +1389,7 @@ function admgrTestCopy(adId) {
   });
 }
 /* 세트명 앞부분(첫 _ 앞) = 상품명 — 상품별 묶기·소재 등록 이동에 사용 */
-const admgrProductOf = a => String(a.adset_name || a.name || '').normalize('NFC').split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim() || '(이름 없음)';   // 꼬리 날짜·가격 숫자 제거 ('안스 후드 집업 28500 260906 test' → '안스 후드 집업')
+const admgrProductOf = a => String(a.adset_name || a.name || '').normalize('NFC').split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').replace(/\s+(R|P)\d+\s*$/i, '').trim() || '(이름 없음)';   // ' R1' 꼬리도 제거 — '하울 브이 니트 원피스 R1_26_…'이 R2와 다른 상품으로 갈리던 문제 (2026-10-26)   // 꼬리 날짜·가격 숫자 제거 ('안스 후드 집업 28500 260906 test' → '안스 후드 집업')
 async function admgrTestGoRegister(prodName) {
   showMenu('ptest');
   try { await regPresetInit(); } catch (e) { toast('상품 목록을 불러오지 못했어요'); return; }

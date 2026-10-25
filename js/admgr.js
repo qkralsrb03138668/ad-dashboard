@@ -115,6 +115,7 @@ async function admgrFetch() {
     if (admgrJudgeView()) admgrBudgetFetch();   // '최근 변경' 열은 오늘·직접 지정 기간에서 (예산 변경 이력은 오늘 것)
     admgrWriteInit();                                     // 예산 쓰기 가능 여부(토큰·PIN 설정) 확인
     metaGet({ action: 'usage' }).then(u => { admgr.usage = u; renderAdmgr(true); }).catch(() => {});
+    if (typeof admgrPromoEnsure === 'function' && typeof admgrAlert === 'object') { admgrAlert.h7At = 0; admgrPromoEnsure(); }   // 새로고침마다 승격 후보(7일)도 새로 (2026-10-26 사용자 요청)
     admgrMarkerSync();   // 소재가 들어간 캠페인 표시 정리 (우리 서버 → Meta 이름만, 10분에 한 번)   // Meta 사용량·쿨다운 표시 (우리 서버만 조회)
   } catch (e) {
     toast('Meta 불러오기 실패: ' + e.message);   // 실패해도 보고 있던 데이터는 유지
