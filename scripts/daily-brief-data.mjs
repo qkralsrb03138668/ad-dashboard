@@ -56,14 +56,16 @@ if (isMonday || process.argv.includes('--promo')) try {
   const h7 = await day(addDays(seoulToday, -7), addDays(seoulToday, -1));
   // 테스트 세트는 세트당 광고 1개라 세트 단위로 본다 — hierarchy의 광고 목록은 500행에서 잘려 큰 기간엔 테스트 광고가 빠진다 (2026-10-23 확인)
   const tests = h7.campaigns.filter(c => /테스트/.test(c.name)).flatMap(c => (c.adsets || []).map(s => ({ ...s, adset: s.name }))).filter(s => s.status === 'ACTIVE' && s.spend > 0);   // 테스트 캠페인 안 세트 전부 (이름에 _test가 없는 옛 세트 포함)
-  const roas = a => a.spend ? a.value / a.spend : 0, prod = n => String(n).split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim();
+  // 클릭 후 7일 기준 (2026-10-25): 서버 purchases_7d·value_7d, 없으면 기본 − 조회1일 (메타 기본 창 = 클릭7일 + 조회1일)
+  const P7 = a => a.purchases_7d != null ? a.purchases_7d : Math.max(0, (a.purchases || 0) - (a.purchases_1dv || 0)), V7 = a => a.value_7d != null ? a.value_7d : (a.purchases > 0 ? (a.value || 0) * P7(a) / a.purchases : (a.value || 0));
+  const roas = a => a.spend ? V7(a) / a.spend : 0, prod = n => String(n).split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim();
   const norm = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
   const prodCbo = new Set(h7.campaigns.filter(c => /^상품CBO_/.test(c.name) && c.status === 'ACTIVE').map(c => norm(c.name.replace(/^상품CBO_/, '').replace(/_\d{6}$/, ''))));   // 이미 상품 CBO가 도는 상품은 후보에서 제외 (이름 표시가 지워졌어도)
   const hasProdCbo = a => prodCbo.has(norm(prod(a.adset)));
-  const all = tests.filter(a => !/\[→/.test(a.adset) && !hasProdCbo(a) && a.purchases >= 30 && roas(a) >= 5).sort((a, b) => roas(b) - roas(a))
-    .map(a => ({ adset: a.adset, purchases: a.purchases, roas: r1(roas(a)), spend: Math.round(a.spend), cpa: Math.round(a.spend / a.purchases) }));
+  const all = tests.filter(a => !/\[→/.test(a.adset) && !hasProdCbo(a) && P7(a) >= 30 && roas(a) >= 5).sort((a, b) => roas(b) - roas(a))
+    .map(a => ({ adset: a.adset, purchases: P7(a), roas: r1(roas(a)), spend: Math.round(a.spend), cpa: Math.round(a.spend / P7(a)) }));
   const byP = new Map(); tests.forEach(a => { const k = prod(a.adset); (byP.get(k) || byP.set(k, []).get(k)).push(a); });
-  const prods = [...byP.entries()].map(([name, L]) => ({ name, purchases: L.reduce((s, a) => s + a.purchases, 0), creatives: L.length, good: L.filter(a => a.purchases >= 10 && roas(a) >= 5).map(a => ({ adset: a.adset, purchases: a.purchases, roas: r1(roas(a)) })), has_product_cbo: L.some(a => /\[→상품CBO_/.test(a.adset) || hasProdCbo(a)) }))
+  const prods = [...byP.entries()].map(([name, L]) => ({ name, purchases: L.reduce((s, a) => s + P7(a), 0), creatives: L.length, good: L.filter(a => P7(a) >= 10 && roas(a) >= 5).map(a => ({ adset: a.adset, purchases: P7(a), roas: r1(roas(a)) })), has_product_cbo: L.some(a => /\[→상품CBO_/.test(a.adset) || hasProdCbo(a)) }))
     .filter(x => !x.has_product_cbo && x.purchases >= 60 && x.good.length >= 2).sort((a, b) => b.purchases - a.purchases);
   const prodNames = new Set(prods.map(p => norm(p.name)));   // 상품 CBO 후보 상품의 세트는 종합 후보에 안 넣는다 (대시보드와 같은 규칙)
   out.promotion = { range: [addDays(seoulToday, -7), addDays(seoulToday, -1)], general_cbo: all.filter(a => !prodNames.has(norm(prod(a.adset)))).slice(0, 12), product_cbo: prods.slice(0, 6) };
