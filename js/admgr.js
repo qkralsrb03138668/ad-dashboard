@@ -36,6 +36,10 @@ const ADMGR_USER = '대시보드';                  // 판정·담기 기록자 
 
 /* 판정 칩·오늘 예산 칩·최근 변경 열을 보여주는 기간 — 오늘 + 직접 지정 (2026-09-17 사용자 요청: 날짜를 직접 골라도 같은 화면). 판정은 그 기간의 지출·구매로, 예산 변경 칩은 오늘 이력 */
 const admgrJudgeView = () => admgr.preset === 'today' || admgr.preset === 'custom';
+/* 클릭 후 7일 구매·전환값 (2026-10-25 사용자: '구매(클릭7일)'·'ROAS(클릭7일)' 열과 판정을 클릭 후 1일 → 클릭 후 7일로, 조회 기여 제외).
+   서버 캐시가 아직 옛 응답이면 purchases_7d가 없다 → 기본 창 − 조회 후 1일 (메타 실측: 기본 = 클릭7일 + 조회1일, 겹침 없음)로 계산 */
+const admgrP7 = r => r.purchases_7d != null ? r.purchases_7d : Math.max(0, (r.purchases || 0) - (r.purchases_1dv || 0));
+const admgrV7 = r => r.value_7d != null ? r.value_7d : (r.value || 0);
 function admgrCfg() {
   const c = window.DASH_CFG || {};
   return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null;
@@ -219,8 +223,8 @@ function admgrVal(r, key) {
     case 'cpc':   return r.clicks ? r.spend / r.clicks : -1;
     case 'value': return r.value || 0;
     case 'roas':  return r.spend ? r.value / r.spend : -1;
-    case 'purch1': return r.purchases_1d || 0;
-    case 'roas1': return r.spend ? (r.value_1d || 0) / r.spend : -1;
+    case 'purch1': return admgrP7(r);
+    case 'roas1': return r.spend ? admgrV7(r) / r.spend : -1;
     default: return 0;
   }
 }
@@ -344,7 +348,7 @@ function admgrAgo(iso) {
 /* 조회 의존 (2026-10-22): 구매 3건 이상인데 그중 절반 이상이 '조회 후 1일' 기여 — 광고를 누르지 않은 사람의 구매가 잡힌 세트. 기본 ROAS는 좋아 보여도 클릭 1일로는 낮다 */
 const admgrViewDep = r => (r.purchases || 0) >= 3 && (r.purchases_1dv || 0) >= 0.5 * r.purchases;
 const admgrViewBadge = r => admgrViewDep(r) ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="구매 ${comma(r.purchases)}건 중 조회 후 1일 기여 ${comma(r.purchases_1dv)}건 (${Math.round(100 * r.purchases_1dv / r.purchases)}%) — 누르지 않고 산 사람이 절반 이상이라 기본 ROAS가 부풀어 보여요">조회 의존</span>` : '';
-const admgrRoas1Td = r => r.spend ? ((r.value_1d || 0) / r.spend < 1 ? `<b style="color:#dc2626;">${((r.value_1d || 0) / r.spend).toFixed(2)}</b>` : ((r.value_1d || 0) / r.spend).toFixed(2)) : '—';   // 클릭 1일 ROAS (2026-10-22) — 조회 의존 배지는 세트명 옆 (사용자 요청)
+const admgrRoas1Td = r => r.spend ? (admgrV7(r) / r.spend < 1 ? `<b style="color:#dc2626;">${(admgrV7(r) / r.spend).toFixed(2)}</b>` : (admgrV7(r) / r.spend).toFixed(2)) : '—';   // 클릭 1일 ROAS (2026-10-22) — 조회 의존 배지는 세트명 옆 (사용자 요청)
 const admgrRoasTd = r => r.spend ? (r.value / r.spend < 1 ? `<b style="color:#dc2626;">${(r.value / r.spend).toFixed(2)}</b>` : (r.value / r.spend).toFixed(2)) : '—';   // 1 미만만 강조 (전부 색칠하면 소음)
 const admgrMoney = v => v ? won(v) : '—';
 const admgrCpa = r => r.purchases ? won(r.spend / r.purchases) : '—';
@@ -513,8 +517,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
 
   admgr._dispIds = vis.map(r => r.id);   // 헤더 전체선택용 (검색·활성만·판정 필터 반영된 표시 행)
   /* 요약 타일 (표시분 기준) */
-  const tot = { spend: 0, purchases: 0, value: 0, clicks: 0, purchases_1d: 0, value_1d: 0 };
-  for (const r of vis) { tot.spend += r.spend || 0; tot.purchases += r.purchases || 0; tot.value += r.value || 0; tot.clicks += r.clicks || 0; tot.purchases_1d += r.purchases_1d || 0; tot.value_1d += r.value_1d || 0; }
+  const tot = { spend: 0, purchases: 0, value: 0, clicks: 0, purchases_7d: 0, value_7d: 0 };   // 합계 줄의 클릭7일 열은 직접 누적 (admgrP7/V7 폴백이 tot엔 안 맞음)
+  for (const r of vis) { tot.spend += r.spend || 0; tot.purchases += r.purchases || 0; tot.value += r.value || 0; tot.clicks += r.clicks || 0; tot.purchases_7d += admgrP7(r); tot.value_7d += admgrV7(r) || 0; }
   const sumRoas = tot.spend ? tot.value / tot.spend : 0;
   /* 폰 요약줄 = 정렬 머리글 (2026-09-20 사용자 요청): 지출·구매·ROAS를 누르면 큰 순 ▼ → 작은 순 ▲ → 해제. 카드의 숫자 3개와 같은 순서라 표 머리글처럼 읽힌다. 펼치기는 오른쪽 ∨ */
   const sortBtn = (key, label, val, color) => { const so = admgr.sort.length === 1 && admgr.sort[0].key === key ? admgr.sort[0].dir : 0;
@@ -532,7 +536,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     <td colspan="${lead}" style="text-align:left;">${vis.length}개 ${VIEW_LABEL}의 결과</td>
     ${extraCols}
     <td>${won(tot.spend)}</td>${isCamp || isSet ? '' : `<td class="m-hide">${comma(tot.clicks)}</td>`}<td>${comma(tot.purchases)}</td>
-    <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td>${comma(tot.purchases_1d)}</td><td>${admgrRoas1Td(tot)}</td><td class="m-hide">${cpcTd(tot)}</td><td class="xp"></td>
+    <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td>${comma(tot.purchases_7d)}</td><td>${admgrRoas1Td(tot)}</td><td class="m-hide">${cpcTd(tot)}</td><td class="xp"></td>
   </tr></tfoot>`;
   /* 행 끝 ∨ — 기본 숨김 열(구매당 비용·전환값·클릭·CPC·최근 변경·게재)을 상세 행으로 (2026-09-14 리디자인: 기본 열 6개) */
   const chev = `<button class="ag-chev" onclick="event.stopPropagation();admgrRowToggle(this)" title="자세히"><i class="fa-solid fa-chevron-down"></i></button>`;
@@ -546,7 +550,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
       <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 구매(클릭 후 1일) 기준 — 0건(지출 있음)=감액 ÷10 · 1~2건=곧 도달 · 3건+=증액 검토. 아래 줄의 마진·지출%는 참고">판정</th>' : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:45 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:45에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:45 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
-        ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(1일)')}${admgrTh('roas1', 'ROAS(1일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
+        ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(클릭7일)')}${admgrTh('roas1', 'ROAS(클릭7일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
         <tr class="ag-row ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'sel' : ''}" onclick="admgrRowClick(event,'${isCamp ? 'camp' : 'set'}','${r.id}')" title="행을 클릭하면 선택/해제">
           <td class="cb"><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
@@ -565,7 +569,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${admgrCpa(r)}</td>
           <td class="m-hide">${admgrMoney(r.value)}</td>
           <td>${admgrRoasTd(r)}</td>
-          <td>${comma(r.purchases_1d || 0)}</td>
+          <td>${comma(admgrP7(r))}</td>
           <td>${admgrRoas1Td(r)}</td>
           <td class="m-hide">${cpcTd(r)}</td>
           <td class="xp">${chev}</td>
@@ -575,7 +579,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   } else {
     table = `<div class="table-wrap"><table>
       <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => admgr.selAds.has(r.id)) ? 'checked' : ''} onclick="event.stopPropagation();admgrSelAllDisp()" title="표시된 광고 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', '광고', 'l')}${admgrTh('spend', '지출')}${admgrTh('clicks', '클릭', 'm-hide')}
-        ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(1일)')}${admgrTh('roas1', 'ROAS(1일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
+        ${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(클릭7일)')}${admgrTh('roas1', 'ROAS(클릭7일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
         <tr onclick="showMetaPreview('${r.id}')" style="cursor:pointer;" title="클릭 → 소재 미리보기" class="${admgr.selAds.has(r.id) ? 'sel' : ''}">
           <td class="cb" onclick="event.stopPropagation()"><input type="checkbox" ${admgr.selAds.has(r.id) ? 'checked' : ''} onclick="admgrToggleAd('${r.id}')" title="복사할 광고 선택" /></td>
@@ -588,7 +592,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${admgrCpa(r)}</td>
           <td class="m-hide">${admgrMoney(r.value)}</td>
           <td>${admgrRoasTd(r)}</td>
-          <td>${comma(r.purchases_1d || 0)}</td>
+          <td>${comma(admgrP7(r))}</td>
           <td>${admgrRoas1Td(r)}</td>
           <td class="m-hide">${cpcTd(r)}</td>
           <td class="xp" onclick="event.stopPropagation()">${chev}</td>
@@ -638,7 +642,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(prod)}</b></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
         ${jb || tail || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) || admgrViewDep(r) ? `<div class="mc-r2">${jb ? `<span class="mc-jb ${jb[0]}"><i></i>${jb[1]}</span>` : ''}${admgrViewBadge(r)}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
-        <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span><span class="mc-kv"><i>1일</i><b style="color:${!r.spend ? '#9ca3af' : (r.value_1d || 0) / r.spend < 1 ? '#dc2626' : (r.value_1d || 0) / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${r.spend ? ((r.value_1d || 0) / r.spend).toFixed(2) : '—'}</b></span></div>
+        <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span><span class="mc-kv"><i>클릭7일</i><b style="color:${!r.spend ? '#9ca3af' : admgrV7(r) / r.spend < 1 ? '#dc2626' : admgrV7(r) / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${r.spend ? (admgrV7(r) / r.spend).toFixed(2) : '—'}</b></span></div>
         <div class="mc-foot">
           ${admgr.view === 'ad' ? '<div class="mc-budget"><small>탭하면 소재 미리보기</small></div>'
             : canBudget && r.budget > 0 ? `<button class="mc-budget" onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')">${budget}</button>` : `<div class="mc-budget">${budget}</div>`}
@@ -1142,11 +1146,11 @@ const admgrIsTest = r => /test/i.test(String(r.name || '').normalize('NFC'));   
 function admgrJudge(r) {   // 2026-09-15 사용자 규칙: 구매 수로만 판정 (마진·지출%는 참고 표시). 지출 0원인 세트는 감액 후보에서 제외
   const { m, src } = admgrMarginOf(r);
   if (admgrIsTest(r)) return { key: 'testing', m, src, ratio: m > 0 ? (r.spend || 0) / m : null };
-  const spend = r.spend || 0, pur = r.purchases_1d != null ? r.purchases_1d : (r.purchases || 0);   // 2026-10-22: 클릭 후 1일 구매로 판정 (조회 기여·며칠 뒤 구매 제외). 서버 갱신 전 데이터면 기본 창
+  const spend = r.spend || 0, pur = admgrP7(r);   // 2026-10-25: 클릭 후 7일 구매로 판정 (조회 기여 제외). 서버 갱신 전 데이터면 기본 − 조회1일
   const ratio = m > 0 ? spend / m : null;
   const evs = (admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || [];
   const cutToday = evs.some(e => e.new_value < e.old_value);
-  const roas = spend > 0 ? (r.value_1d != null ? r.value_1d : (r.value || 0)) / spend : 0;
+  const roas = spend > 0 ? (admgrV7(r)) / spend : 0;
   if (cutToday && pur >= 2 && roas >= 5)  return { key: 'rebound', m, src, ratio, roas };   // 감액 후 성과가 붙은 세트 — 되돌릴지 검토 (2026-09-16 사용자 규칙: 구매 2건 이상 + ROAS 500% 이상)
   if (pur >= 3)                  return { key: 'up',   m, src, ratio };   // 구매 3건 이상 → 증액 검토
   if (pur >= 1)                  return { key: 'warn', m, src, ratio };   // 구매 1~2건 → 곧 도달
@@ -1166,7 +1170,7 @@ function admgrJudgeCell(r) {
   const j = admgrJudge(r);
   const b = ADMGR_JUDGE[j.key];
   const pen = `<i class="fa-solid fa-pen" title="마진 직접 입력${j.src ? ' — 현재: ' + esc(j.src) : ''}" style="font-size:.55rem;color:#a5b4fc;cursor:pointer;margin-left:4px;" onclick="event.stopPropagation();admgrMarginEdit('${r.id}')"></i>`;
-  const sub = j.m > 0 ? `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;">구매 ${comma(r.purchases_1d != null ? r.purchases_1d : (r.purchases || 0))}(1일) · 마진 ${comma(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%${pen}</div>` : `<div style="font-size:.62rem;color:#9ca3af;">구매 ${comma(r.purchases || 0)} · ${j.src ? esc(j.src.slice(0, 18)) : '마진 정보 없음'}${pen}</div>`;
+  const sub = j.m > 0 ? `<div style="font-size:.62rem;color:#9ca3af;white-space:nowrap;">구매 ${comma(admgrP7(r))}(클릭7일) · 마진 ${comma(j.m)} · 지출 ${Math.round((j.ratio || 0) * 100)}%${pen}</div>` : `<div style="font-size:.62rem;color:#9ca3af;">구매 ${comma(r.purchases || 0)} · ${j.src ? esc(j.src.slice(0, 18)) : '마진 정보 없음'}${pen}</div>`;
   const act = j.key === 'cut' && admgr.write.st && dnrbCan('budget') && r.budget > 0
     ? ` <button class="filter-tab" style="padding:2px 8px;font-size:.66rem;color:#dc2626;border-color:#fca5a5;" title="${comma(r.budget)} → ${comma(Math.max(1000, Math.round(r.budget / 10)))}원으로 임시 저장 — 상단 \'게시\'로 반영" onclick="event.stopPropagation();admgrCut10('${r.id}')">÷10</button>` : '';
   return `${b ? `<span class="status-badge ${b.cls}" style="white-space:nowrap;">${b.t}</span>${act}` : '<span style="color:#d1d5db;">—</span>'}${sub}`;

@@ -510,9 +510,9 @@ async function admgrBudgetCancel(pid) {
    렌더 후 DOM을 재배치한다(무명 열=체크박스는 항상 맨 앞, 합계 행의 colspan은 풀어서 열 수를 맞춘 뒤 처리)
    2026-10-01: 캠페인·광고세트·광고 탭이 한 설정을 같이 쓴다 — 이름 열(캠페인/광고세트/광고)은 '이름'으로 묶고, 그 탭에 없는 열은 건너뛴다 */
 const ADMGR_NAME_LABELS = ['캠페인', '광고세트', '광고'];
-const admgrColNorm = l => ADMGR_NAME_LABELS.includes(l) ? '이름' : l === '23:55 세팅' ? '23:45 세팅' : l;   // '23:55 세팅'은 옛 저장값 (2026-10-07 23:45로 변경)
+const admgrColNorm = l => ADMGR_NAME_LABELS.includes(l) ? '이름' : l === '23:55 세팅' ? '23:45 세팅' : l === '구매(클릭7일)' ? '구매(클릭7일)' : l === 'ROAS(클릭7일)' ? 'ROAS(클릭7일)' : l;   // 옛 저장값 이름 → 현재 이름 (10/7 23:45 · 10/25 클릭7일)   // '23:55 세팅'은 옛 저장값 (2026-10-07 23:45로 변경)
 function admgrColsKey() { return 'adc_admgr_cols'; }
-const ADMGR_COLS_DEFAULT = { hidden: ['23:45 세팅', '최근 변경', '전환값', 'CPC', '클릭', '구매(1일)'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:45 세팅', '예산', '지출', '클릭', 'ROAS', 'ROAS(1일)', '구매(1일)', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
+const ADMGR_COLS_DEFAULT = { hidden: ['23:45 세팅', '최근 변경', '전환값', 'CPC', '클릭', '구매(클릭7일)'], order: ['켜짐', '이름', '판정', '구매', '구매당 비용', '23:45 세팅', '예산', '지출', '클릭', 'ROAS', 'ROAS(클릭7일)', '구매(클릭7일)', '최근 변경', '전환값', 'CPC'] };   // 사용자가 정한 표시·순서 (2026-09-30)
 const admgrColsOk = c => c && Array.isArray(c.hidden) && Array.isArray(c.order);
 const admgrColsNorm = c => ({ hidden: [...new Set(c.hidden.map(admgrColNorm))], order: [...new Set(c.order.map(admgrColNorm))] });
 function admgrColsDefKey() { return 'adc_admgr_colsdef'; }   // 내가 저장한 기본값 (이 브라우저)
@@ -522,8 +522,8 @@ function admgrColsCfg() {
   const c = lsGet(admgrColsKey(), null) ?? admgrLsMove('adc_admgr_cols_set', admgrColsKey());
   if (!admgrColsOk(c)) return admgrColsDef();
   const n = admgrColsNorm(c);
-  if (!n.order.includes('ROAS(1일)') && !n.hidden.includes('ROAS(1일)')) {   // 2026-10-22 새 열: 저장된 순서의 ROAS 뒤에 한 번 끼워 넣기, 구매(1일)은 숨김
-    const i = n.order.indexOf('ROAS'); n.order.splice(i < 0 ? n.order.length : i + 1, 0, 'ROAS(1일)', '구매(1일)'); n.hidden.push('구매(1일)'); lsSet(admgrColsKey(), n);
+  if (!n.order.includes('ROAS(클릭7일)') && !n.hidden.includes('ROAS(클릭7일)')) {   // 2026-10-22 새 열: 저장된 순서의 ROAS 뒤에 한 번 끼워 넣기, 구매(1일)은 숨김
+    const i = n.order.indexOf('ROAS'); n.order.splice(i < 0 ? n.order.length : i + 1, 0, 'ROAS(클릭7일)', '구매(클릭7일)'); n.hidden.push('구매(클릭7일)'); lsSet(admgrColsKey(), n);
   }
   return n;
 }
