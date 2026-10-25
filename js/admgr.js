@@ -39,7 +39,7 @@ const admgrJudgeView = () => admgr.preset === 'today' || admgr.preset === 'custo
 /* 클릭 후 7일 구매·전환값 (2026-10-25 사용자: '구매(클릭7일)'·'ROAS(클릭7일)' 열과 판정을 클릭 후 1일 → 클릭 후 7일로, 조회 기여 제외).
    서버 캐시가 아직 옛 응답이면 purchases_7d가 없다 → 기본 창 − 조회 후 1일 (메타 실측: 기본 = 클릭7일 + 조회1일, 겹침 없음)로 계산 */
 const admgrP7 = r => r.purchases_7d != null ? r.purchases_7d : Math.max(0, (r.purchases || 0) - (r.purchases_1dv || 0));
-const admgrV7 = r => r.value_7d != null ? r.value_7d : (r.value || 0);
+const admgrV7 = r => r.value_7d != null ? r.value_7d : (r.purchases > 0 ? (r.value || 0) * admgrP7(r) / r.purchases : (r.value || 0));   // 캐시 전 응답: 전환값을 구매 비율로 나눠 근사
 function admgrCfg() {
   const c = window.DASH_CFG || {};
   return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null;
