@@ -345,9 +345,10 @@ function admgrAgo(iso) {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   return s < 60 ? s + '초 전' : Math.round(s / 60) + '분 전';
 }
-/* 조회 의존 (2026-10-22): 구매 3건 이상인데 그중 절반 이상이 '조회 후 1일' 기여 — 광고를 누르지 않은 사람의 구매가 잡힌 세트. 기본 ROAS는 좋아 보여도 클릭 1일로는 낮다 */
-const admgrViewDep = r => (r.purchases || 0) >= 3 && (r.purchases_1dv || 0) >= 0.5 * r.purchases;
-const admgrViewBadge = r => admgrViewDep(r) ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="구매 ${comma(r.purchases)}건 중 조회 후 1일 기여 ${comma(r.purchases_1dv)}건 (${Math.round(100 * r.purchases_1dv / r.purchases)}%) — 누르지 않고 산 사람이 절반 이상이라 기본 ROAS가 부풀어 보여요">조회 의존</span>` : '';
+/* 조회 의존 (2026-10-22, 10-25 클릭7일 기준으로): 클릭 후 7일 구매와 조회 후 1일 구매를 나란히 놓고, 조회 쪽이 클릭 쪽 이상이면(=전체의 절반↑) '조회 의존'. 합이 3건↑일 때만.
+   (메타 기본 창 = 클릭7일 + 조회1일, 겹침 없음 — 10/25 실측) */
+const admgrViewDep = r => { const c = admgrP7(r), v = r.purchases_1dv || 0; return c + v >= 3 && v >= c; };
+const admgrViewBadge = r => admgrViewDep(r) ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="클릭 후 7일 구매 ${comma(admgrP7(r))}건 · 조회 후 1일 구매 ${comma(r.purchases_1dv || 0)}건 — 광고를 누르지 않고 산 사람이 누른 사람보다 많아요. 판단은 ROAS(클릭7일)·구매(클릭7일) 열로">조회 의존</span>` : '';
 const admgrRoas1Td = r => r.spend ? (admgrV7(r) / r.spend < 1 ? `<b style="color:#dc2626;">${(admgrV7(r) / r.spend).toFixed(2)}</b>` : (admgrV7(r) / r.spend).toFixed(2)) : '—';   // 클릭 1일 ROAS (2026-10-22) — 조회 의존 배지는 세트명 옆 (사용자 요청)
 const admgrRoasTd = r => r.spend ? (r.value / r.spend < 1 ? `<b style="color:#dc2626;">${(r.value / r.spend).toFixed(2)}</b>` : (r.value / r.spend).toFixed(2)) : '—';   // 1 미만만 강조 (전부 색칠하면 소음)
 const admgrMoney = v => v ? won(v) : '—';
