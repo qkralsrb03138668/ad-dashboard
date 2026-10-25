@@ -326,3 +326,34 @@ function admgrReqListModal() {
     <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
+
+/* ── 예산 조정 플랜 (2026-10-25): Claude가 계산해 shared_state 'budget_plan'에 저장한 세트별 변경(from→to)을 임시 저장으로 한 번에 넣는다 → 사용자가 확인 후 [게시].
+   지금 예산이 플랜의 from과 다른 세트(그 사이 바뀜)는 건너뛰고 알려준다. 적용하면 applied_at을 기록해 다른 사람 화면에서도 사라진다 */
+async function admgrPlanEnsure() {
+  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.planLoading || (A.plan !== undefined && Date.now() - (A.planAt || 0) < 5 * 60000)) return;
+  A.planLoading = true;
+  try { const r = await sbCall('client-log', { action: 'state_get', key: 'budget_plan' }); A.plan = (r && r.data) || null; A.planVer = (r && r.ver) || null; A.planAt = Date.now(); renderAdmgr(true); } catch (e) { A.plan = A.plan || null; A.planAt = Date.now(); }
+  A.planLoading = false;
+}
+function admgrCheckPlan() {
+  const A = admgrAlert; if (A.plan === undefined) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPlanEnsure(), 0); return []; }
+  const P = A.plan; if (!P || P.applied_at || !Array.isArray(P.items)) return [];
+  const ch = P.items.filter(i => i.to !== i.from), up = ch.filter(i => i.to > i.from).length;
+  if (!ch.length || !dnrbCan('budget')) return [];
+  return [{ key: 'plan:' + String(P.at).slice(0, 10), lvl: 'blue', text: `<b>예산 조정 플랜</b> ${ch.length}건 (증액 ${up} · 감액 ${ch.length - up}) <small>${esc(P.title || '')} · ${fmtMD(String(P.at).slice(0, 10))} 계산</small>`, act: { label: '임시 저장에 넣기', onclick: 'admgrPlanApply()' } }];
+}
+async function admgrPlanApply() {
+  const A = admgrAlert, P = A.plan; if (!P) return;
+  const sets = new Map(admgrRows().sets.map(s => [s.id, s]));
+  let n = 0; const skipped = [], gone = [];
+  for (const it of P.items) { if (it.to === it.from) continue; const s = sets.get(it.id); if (!s) { gone.push(it.name); continue; } if (s.budget !== it.from) { skipped.push(`${admgrBase(it.name)} (지금 ${comma(s.budget)} ≠ 플랜 기준 ${comma(it.from)})`); continue; } admgrDraft[it.id] = it.to; n++; }
+  lsSet('adc_admgr_draft', admgrDraft);
+  try { const r = await sbCall('client-log', { action: 'state_set' }, { key: 'budget_plan', base: A.planVer, data: { ...P, applied_at: new Date().toISOString(), applied_by: typeof ADMGR_USER !== 'undefined' ? ADMGR_USER : '' } }); if (!r.conflict) { A.plan = { ...P, applied_at: new Date().toISOString() }; A.planVer = r.ver; } } catch (e) { /* 표시만 — 임시 저장은 이미 들어감 */ }
+  $('abm-title').textContent = '예산 조정 플랜 → 임시 저장'; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.82rem;color:#374151;line-height:1.7;">세트 <b style="color:#15803d;">${n}</b>개의 변경을 임시 저장에 넣었어요. 표에서 금액을 확인·수정한 뒤 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
+    ${skipped.length ? `<div style="margin-top:8px;color:#b45309;"><b>건너뜀 ${skipped.length}개</b> — 플랜 계산 뒤 예산이 바뀐 세트 (직접 정하세요)<div style="font-size:.74rem;color:#6b7280;">${skipped.map(esc).join('<br/>')}</div></div>` : ''}
+    ${gone.length ? `<div style="margin-top:8px;color:#9ca3af;font-size:.74rem;">화면 데이터에 없는 세트 ${gone.length}개 — 새로고침 뒤 다시 시도</div>` : ''}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal');admgrSetView('set');renderAdmgr()">세트 표에서 확인</button></div>`;
+  $('admgr-budget-modal').classList.add('show'); renderAdmgr(true);
+}
+admgrAlert.checks.push(admgrCheckPlan);
