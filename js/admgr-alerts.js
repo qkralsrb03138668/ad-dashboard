@@ -132,7 +132,8 @@ function admgrPromoCands() {
     .filter(x => !x.inCbo && x.pur >= ADMGR_PROMO.prodPur && x.goods.length >= ADMGR_PROMO.goodMin).sort((x, y) => y.pur - x.pur);
   // 상품 CBO 후보로 분류된 상품의 세트는 종합 후보에 안 넣는다 — 사용자가 '종합으로' 돌린 상품만 예외 (2026-10-23 사용자 요청: 양쪽에 겹치지 않게)
   const prodOnly = new Set(prods.filter(x => !x.toAll).map(x => x.name));
-  const ads = rows.filter(r => !r.inCbo && !prodOnly.has(r.prod) && r.p >= ADMGR_PROMO.pur && r.roas >= ADMGR_PROMO.roas).map(r => ({ ...r, fromProd: toAll.has(r.prod) })).sort((x, y) => y.roas - x.roas);
+  // [종합 CBO로] 보낸 상품은 그 상품의 '우수 세트'(상품 CBO 후보 기준) 전부가 종합 후보로 — 세트 하나하나가 30건을 넘어야 하던 규칙 때문에 상품당 1개만 넘어가던 문제 (2026-10-26 사용자 지적)
+  const ads = rows.filter(r => !r.inCbo && (toAll.has(r.prod) ? r.good : (!prodOnly.has(r.prod) && r.p >= ADMGR_PROMO.pur && r.roas >= ADMGR_PROMO.roas))).map(r => ({ ...r, fromProd: toAll.has(r.prod) })).sort((x, y) => y.roas - x.roas);
   return { ads, prods, ready: true, range: h.range };
 }
 function admgrCheckPromo() {
