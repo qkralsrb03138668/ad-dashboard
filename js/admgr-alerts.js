@@ -165,9 +165,12 @@ async function admgrPromoCopy() {   // 체크한 후보 세트의 광고를 광�
   const c = admgrPromoCands(), rows = [...c.ads, ...c.prods.flatMap(p => p.goods)].filter((r, i, L) => setIds.includes(r.s.id) && L.findIndex(x => x.s.id === r.s.id) === i);
   const need = rows.filter(r => !r.adIds.length).map(r => r.s.id); const found = new Map();
   if (need.length) { try { for (let i = 0; i < need.length; i += 100) { const d = await metaGet({ action: 'creatives', set_ids: need.slice(i, i + 100).join(',') }); (d.ads || []).forEach(a => { if (a.effective_status !== 'DELETED') (found.get(String(a.adset_id)) || found.set(String(a.adset_id), []).get(String(a.adset_id))).push(a.id); }); } } catch (e) { toast('광고 목록 조회 실패: ' + e.message); return; } }
-  admgr.copyPick = rows.flatMap(r => (r.adIds.length ? r.adIds : (found.get(String(r.s.id)) || [])).map(id => ({ id, name: r.s.name, _setId: r.s.id, _setName: r.s.name })));
+  admgr.copyPick = rows.flatMap(r => (r.adIds.length ? r.adIds : (found.get(String(r.s.id)) || [])).map(id => ({ id, name: r.s.name, _setId: r.s.id, _setName: r.s.name, _prod: r.prod })));
   if (!admgr.copyPick.length) { toast('복사할 광고를 찾지 못했어요'); return; }
   admgr.copyMode = admgr.promoMode === 'prod' ? 'new' : 'set';
+  // 상품 CBO: 상품마다 캠페인 하나씩 — 여러 상품을 체크하면 한 캠페인으로 묶이던 문제 (2026-10-26 사용자 지적)
+  admgr.copyGroups = null;
+  if (admgr.copyMode === 'new') { const g = new Map(); admgr.copyPick.forEach(a => (g.get(a._prod) || g.set(a._prod, []).get(a._prod)).push(a)); admgr.copyGroups = [...g.entries()].map(([product, ads]) => ({ product, ads })); }
   if (admgr.copyMode === 'new') { const p = c.prods.find(x => x.goods.some(g => setIds.includes(g.s.id))); admgr.copyProduct = p ? p.name : ''; }
   admgrCopyModal();
 }
