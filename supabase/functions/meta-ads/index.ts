@@ -1212,6 +1212,28 @@ async function handle(req: Request): Promise<Response> {
 
     // ═══ 시간대별 성과 (원본 hourlystats) — 예산 변경 '영향 분석'용: 어제~오늘 시간별 지출·구매 ═══
     // breakdowns=hourly_stats_aggregated_by_advertiser_time_zone = 광고계정 시간대(한국) 기준 시간 버킷. time_increment=1로 날짜 분리 → 최대 48행. 5분 캐시.
+    // ── 상품 일별 이력 (2026-10-26, 읽기 전용): 광고 이름에 q가 들어간 광고의 일별 지출·구매 + 캠페인 예산 방식(CBO/ABO) — CBO vs ABO 이력 분석용. 지난 기간은 24시간 캐시
+    if (action === "proddaily") {
+      const q = (url.searchParams.get("q") ?? "").normalize("NFC").trim();
+      const since = url.searchParams.get("since") ?? "", until = url.searchParams.get("until") ?? "";
+      if (!q || q.length > 40 || !DAY_RE.test(since) || !DAY_RE.test(until) || since > until) return json({ error: "q·since·until 형식 오류" }, 400);
+      const t = seoulToday();
+      const cacheKey = `meta:proddaily:${q}:${since}:${until}`;
+      const pre = await metaPre(cacheKey, until < t ? 24 * 3600_000 : 10 * 60_000);
+      if (pre) return pre;
+      const [ins, camps] = await Promise.all([
+        graphGetAll(`${c.account}/insights`, { level: "ad", time_range: JSON.stringify({ since, until }), time_increment: "1",
+          filtering: JSON.stringify([{ field: "ad.name", operator: "CONTAIN", value: q }]),
+          fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values", limit: "500" }, c.token, 40),
+        graphGetAll(`${c.account}/campaigns`, { fields: "id,name,daily_budget,lifetime_budget,created_time", limit: "500" }, c.token, 4),
+      ]);
+      const rows = ins.map((r) => ({ d: String(r.date_start ?? ""), ad_id: String(r.ad_id ?? ""), ad: String(r.ad_name ?? ""), set_id: String(r.adset_id ?? ""), set: String(r.adset_name ?? ""),
+        camp_id: String(r.campaign_id ?? ""), camp: String(r.campaign_name ?? ""), sp: num(r.spend), p: pickPurchase(r.actions), v: pickPurchase(r.action_values) })).filter((r) => r.sp > 0 || r.p > 0);
+      const cmap = Object.fromEntries(camps.map((x) => [String(x.id), { name: String(x.name ?? ""), cbo: num(x.daily_budget) > 0 || num(x.lifetime_budget) > 0, budget: num(x.daily_budget), created: String(x.created_time ?? "") }]));
+      const body = { q, since, until, rows, camps: cmap, pages_capped: ins.length >= 20000 };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
     if (action === "hourlystats") {
       const objId = url.searchParams.get("object_id") ?? "";
       if (!/^\d{5,25}$/.test(objId)) return json({ error: "object_id 필수 (광고세트/캠페인 id)" }, 400);
