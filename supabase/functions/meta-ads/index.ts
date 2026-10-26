@@ -1202,9 +1202,10 @@ Deno.serve(async (req) => {
     if (action === "hourlystats") {
       const objId = url.searchParams.get("object_id") ?? "";
       if (!/^\d{5,25}$/.test(objId)) return json({ error: "object_id 필수 (광고세트/캠페인 id)" }, 400);
-      const t = seoulToday(), y = addDays(t, -1);
-      const cacheKey = `meta:hourly:${objId}:${t}`;
-      const pre = await metaPre(cacheKey, 5 * 60 * 1000);
+      const dayP = url.searchParams.get("day") ?? "";   // 특정 날 하루만 (2026-10-26: 지난 날 감액 시각 전후 분석용) — 없으면 어제+오늘
+      const t = DAY_RE.test(dayP) ? dayP : seoulToday(), y = DAY_RE.test(dayP) ? dayP : addDays(t, -1);
+      const cacheKey = `meta:hourly:${objId}:${y}:${t}`;
+      const pre = await metaPre(cacheKey, DAY_RE.test(dayP) && dayP < seoulToday() ? 24 * 60 * 60 * 1000 : 5 * 60 * 1000);   // 지난 날은 안 바뀌니 하루 캐시
       if (pre) return pre;
       const body = await graphGet(`${objId}/insights`, {
         time_range: JSON.stringify({ since: y, until: t }),
