@@ -242,6 +242,8 @@ function admgrCmp(x, y) {
     const vx = admgrVal(x, s.key), vy = admgrVal(y, s.key);
     if (vx !== vy) return (vx - vy) * s.dir;
   }
+  /* 운영 역할 + 광고세트 탭 + 오늘: 열 정렬이 없으면 예상 마감 높은 순(구매 0 먼저) — 2026-10-26 사용자 승인 기본값 */
+  if (!admgr.sort.length && admgr.role === 'ops' && admgr.view === 'set' && admgrJudgeView()) { const px = admgrVal(x, 'proj'), py = admgrVal(y, 'proj'); if (px !== py) return py - px; }
   /* 기본 = 메타 광고관리자와 같은 '최근 생성 순' (created 내림차순, 없으면 id — id도 시간순) */
   const cx = x.created || x.created_time || '', cy = y.created || y.created_time || '';
   if (cx && cy && cx !== cy) return cx < cy ? 1 : -1;
@@ -1181,10 +1183,7 @@ function admgrRoleOf(r) {
 }
 function admgrRolePass(r, role) { if (role === 'all') return true; const k = admgrRoleOf(r); return r.adsets && role !== 'cbo' ? k !== 'cbo' : k === role; }
 function admgrRoleSet(k) {
-  admgr.role = k; lsSet('adc_admgr_role', k);
-  const projSort = admgr.sort.length === 1 && admgr.sort[0].key === 'proj';
-  if (k === 'ops' && admgr.view === 'set' && admgrJudgeView()) admgr.sort = [{ key: 'proj', dir: -1 }];   // 운영 기본 정렬 = 예상 마감 높은 순(구매 0 먼저)
-  else if (projSort) admgr.sort = [];
+  admgr.role = k; lsSet('adc_admgr_role', k);   // 운영 역할의 기본 정렬(예상 마감 높은 순)은 admgrCmp가 열 정렬 없을 때 알아서
   admgr.judgeFilter = k === 'test' ? 'all' : admgr.judgeFilter === 'testing' ? 'all' : admgr.judgeFilter;   // 테스트 역할에서 '운영중(test 제외)' 칩이 남아 빈 표가 되지 않게
   renderAdmgr(true);
 }
