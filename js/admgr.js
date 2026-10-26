@@ -906,16 +906,21 @@ function admgrCopyModal() {
       <button class="filter-tab ${newMode ? 'active' : ''}" onclick="admgr.copyMode='new';admgrCopyModal()">새 상품 CBO 캠페인 만들기</button></div>`;
   if (newMode) {   // 상품 CBO (2026-10-16): 본뜰 캠페인 설정으로 새 CBO 캠페인 + 세트 1개(꺼짐) + 광고(켜짐) 복사 — PIN
     const guess = admgr.copyProduct || admgrBase(picked[0].name).split(/[_]| \d|\(/)[0].replace(/\s*-\s*사본.*$/, '').trim();
+    const kindAll = admgr.copyKind === 'all', ymd = todayStr(0).replace(/-/g, '').slice(2);   // 종합 CBO: 캠페인 하나, 이름 종합CBO_날짜 (2026-10-26 사용자 요청)
     $('abm-body').innerHTML = `${list}
+    <div class="filter-tabs" style="margin-bottom:8px;">
+      <button class="filter-tab ${kindAll ? '' : 'active'}" onclick="admgr.copyKind='prod';admgrCopyModal()">상품 CBO <small class="ag-muted">상품마다 캠페인</small></button>
+      <button class="filter-tab ${kindAll ? 'active' : ''}" onclick="admgr.copyKind='all';admgrCopyModal()">종합 CBO <small class="ag-muted">캠페인 하나 · 종합CBO_${ymd}</small></button></div>
     <div style="display:flex;flex-direction:column;gap:8px;">
       <label style="font-size:.76rem;font-weight:700;color:#4b5563;">본뜰 캠페인 <span style="font-weight:400;color:#9ca3af;">(목표·입찰·타겟·노출 위치·전환 이벤트를 그대로)</span>
         <select class="inp" id="ag-copy-model" style="width:100%;margin-top:4px;" onchange="admgr.copyCamp=this.value">
           ${camps.map(c => `<option value="${c.id}" ${c.id === cid ? 'selected' : ''}>${esc(admgrBase(c.name))}${c.budget ? ' · CBO' : ''}${c.status === 'ACTIVE' ? '' : ' (꺼짐)'}</option>`).join('')}</select></label>
-      ${admgr.copyGroups && admgr.copyGroups.length > 1 ? `<div style="font-size:.76rem;font-weight:700;color:#4b5563;">상품 ${admgr.copyGroups.length}개 → 캠페인 ${admgr.copyGroups.length}개를 따로 만들어요 <span style="font-weight:400;color:#9ca3af;">— 상품CBO_상품명_${todayStr(0).replace(/-/g, '').slice(2)}</span>
+      ${kindAll ? `<div style="font-size:.76rem;font-weight:700;color:#4b5563;">캠페인 이름: 종합CBO_${ymd} <span style="font-weight:400;color:#9ca3af;">— 체크한 광고 ${picked.length}개가 세트 하나에 들어가요</span></div>`
+      : admgr.copyGroups && admgr.copyGroups.length > 1 ? `<div style="font-size:.76rem;font-weight:700;color:#4b5563;">상품 ${admgr.copyGroups.length}개 → 캠페인 ${admgr.copyGroups.length}개를 따로 만들어요 <span style="font-weight:400;color:#9ca3af;">— 상품CBO_상품명_${todayStr(0).replace(/-/g, '').slice(2)}</span>
         <div style="font-weight:400;margin-top:4px;line-height:1.7;">${admgr.copyGroups.map(g => `· ${esc(g.product)} <span style="color:#9ca3af;">(광고 ${g.ads.length}개)</span>`).join('<br/>')}</div></div>`
       : `<label style="font-size:.76rem;font-weight:700;color:#4b5563;">상품명 <span style="font-weight:400;color:#9ca3af;">— 캠페인 이름: 상품CBO_상품명_${todayStr(0).replace(/-/g, '').slice(2)}</span>
         <input class="inp" id="ag-copy-prod" value="${esc(guess)}" style="width:100%;margin-top:4px;" oninput="admgr.copyProduct=this.value" /></label>`}
-      <label style="font-size:.76rem;font-weight:700;color:#4b5563;">캠페인 일예산 (원)${admgr.copyGroups && admgr.copyGroups.length > 1 ? ' <span style="font-weight:400;color:#9ca3af;">— 캠페인마다 같은 금액</span>' : ''}
+      <label style="font-size:.76rem;font-weight:700;color:#4b5563;">캠페인 일예산 (원)${!kindAll && admgr.copyGroups && admgr.copyGroups.length > 1 ? ' <span style="font-weight:400;color:#9ca3af;">— 캠페인마다 같은 금액</span>' : ''}
         <input class="inp" id="ag-copy-budget" type="text" inputmode="numeric" value="${admgr.copyBudget || ''}" placeholder="예: 100000" style="width:100%;margin-top:4px;" oninput="admgr.copyBudget=this.value" /></label>
     </div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;">캠페인·광고세트는 <b>꺼진 상태</b>, 광고는 <b>켜진 상태</b>로 만들어요 — 세트를 켜면 바로 게재돼요 · 같은 소재는 하나만 들어가요<br/>원본 세트 이름 뒤에 [→캠페인명] 표시가 붙어요</div>
@@ -972,20 +977,20 @@ async function admgrCampCopyRun() {
   const w = admgr.write;
   if (!w.pin) { admgrPinPrompt(() => admgrCampCopyRun()); return; }
   const ads = admgr.copyPick || admgrRows().ads.filter(a => admgr.selAds.has(a.id));
-  const multi = admgr.copyGroups && admgr.copyGroups.length > 1;
-  const modelId = ($('ag-copy-model') || {}).value || admgr.copyCamp, product = multi ? '' : (($('ag-copy-prod') || {}).value || '').trim();
+  const kindAll = admgr.copyKind === 'all', multi = !kindAll && admgr.copyGroups && admgr.copyGroups.length > 1;
+  const modelId = ($('ag-copy-model') || {}).value || admgr.copyCamp, product = (multi || kindAll) ? '' : (($('ag-copy-prod') || {}).value || '').trim();
   const budget = Number(String(($('ag-copy-budget') || {}).value || '').replace(/[^\d]/g, ''));
   if (!ads.length || !modelId) return;
-  if (!multi && !product) { toast('상품명을 입력하세요'); return; }
+  if (!multi && !kindAll && !product) { toast('상품명을 입력하세요'); return; }
   if (!(budget >= 1000)) { toast('캠페인 일예산을 입력하세요 (1,000원 이상)'); return; }
   const btn = $('ag-copy-go'); btn.disabled = true; btn.textContent = '만드는 중…';
-  const groups = multi ? admgr.copyGroups : [{ product, ads }];   // 상품마다 캠페인 하나씩 (2026-10-26)
+  const groups = multi ? admgr.copyGroups : [{ product, ads }];   // 상품마다 캠페인 하나씩 (2026-10-26) · 종합 CBO는 묶지 않고 하나
   try {
     const all = { created: [], skipped: [], failed: [] }, names = [], srcSets = new Set(); let marked = 0;
     for (const g of groups) {
       if (groups.length > 1) btn.textContent = `만드는 중… ${names.length + 1}/${groups.length} ${g.product}`;
       let d;
-      try { d = await sbCall('meta-upload', { action: 'campaign_copy' }, { pin: w.pin, model_campaign_id: modelId, product: g.product, daily_budget: budget, ads: g.ads.map(a => a.id) }); }
+      try { d = await sbCall('meta-upload', { action: 'campaign_copy' }, { pin: w.pin, model_campaign_id: modelId, product: g.product, kind: kindAll ? 'all' : 'prod', daily_budget: budget, ads: g.ads.map(a => a.id) }); }
       catch (e) { if (/PIN/.test(e.message)) throw e; all.failed.push({ id: '', name: `${g.product} 캠페인`, error: e.message }); continue; }   // 한 상품이 실패해도 다음 상품은 계속
       names.push(d.name);
       for (const c of (d.created || [])) { const a = g.ads.find(x => x.id === c.id); all.created.push({ ...c, name: `${c.name} → ${d.name}` }); if (a) srcSets.add(a._setId); }
@@ -995,7 +1000,7 @@ async function admgrCampCopyRun() {
       if (items.length) { try { const r = await sbCall('meta-upload', { action: 'adset_rename' }, { items }); marked += r.ok || 0; } catch { /* 표시만 실패 */ } }
     }
     admgr.selAds.clear(); admgr.mSelect = false; admgr.copyProduct = ''; admgr.copyBudget = ''; admgr.copyPick = null; admgr.copyGroups = null;
-    admgrCopyResult(all, names.length > 1 ? `상품CBO ${names.length}개 만듦` : (names[0] || '상품CBO'), (names.length > 1 ? names.join(' · ') : names[0] || '') + ' (캠페인·세트 꺼짐 · 광고 켜짐)', marked, [...srcSets]);
+    admgrCopyResult(all, names.length > 1 ? `상품CBO ${names.length}개 만듦` : (names[0] || (kindAll ? '종합CBO' : '상품CBO')), (names.length > 1 ? names.join(' · ') : names[0] || '') + ' (캠페인·세트 꺼짐 · 광고 켜짐)', marked, [...srcSets]);
     admgrFetch();
   } catch (e) {
     btn.disabled = false; btn.textContent = '캠페인 만들기';

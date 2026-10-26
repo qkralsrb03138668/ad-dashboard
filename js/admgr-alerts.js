@@ -182,6 +182,7 @@ async function admgrPromoCopy() {   // 체크한 후보 세트의 광고를 광�
   admgr.copyPick = rows.flatMap(r => (r.adIds.length ? r.adIds : (found.get(String(r.s.id)) || [])).map(id => ({ id, name: r.s.name, _setId: r.s.id, _setName: r.s.name, _prod: r.prod })));
   if (!admgr.copyPick.length) { toast('복사할 광고를 찾지 못했어요'); return; }
   admgr.copyMode = admgr.promoMode === 'prod' ? 'new' : 'set';
+  admgr.copyKind = admgr.promoMode === 'prod' ? 'prod' : 'all';   // 종합 후보 탭에서 새로 만들면 종합CBO_날짜 (2026-10-26)
   // 상품 CBO: 상품마다 캠페인 하나씩 — 여러 상품을 체크하면 한 캠페인으로 묶이던 문제 (2026-10-26 사용자 지적)
   admgr.copyGroups = null;
   if (admgr.copyMode === 'new') { const g = new Map(); admgr.copyPick.forEach(a => (g.get(a._prod) || g.set(a._prod, []).get(a._prod)).push(a)); admgr.copyGroups = [...g.entries()].map(([product, ads]) => ({ product, ads })); }

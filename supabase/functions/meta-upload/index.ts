@@ -349,14 +349,15 @@ Deno.serve(async (req) => {
     if (action === "campaign_copy") {
       const modelId = String(body.model_campaign_id ?? "");
       if (!/^\d{5,25}$/.test(modelId)) return json({ error: "본뜰 캠페인을 골라주세요" }, 400);
+      const kindAll = body.kind === "all";   // 종합 CBO (2026-10-26): 이름 종합CBO_날짜, 상품명 불필요
       const product = String(body.product ?? "").normalize("NFC").replace(/[_/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
-      if (!product) return json({ error: "상품명이 필요합니다" }, 400);
+      if (!kindAll && !product) return json({ error: "상품명이 필요합니다" }, 400);
       const budget = Math.round(Number(body.daily_budget ?? 0));
       if (budget < MIN_BUDGET || budget > 3_000_000) return json({ error: `캠페인 일예산은 ${MIN_BUDGET.toLocaleString()}~3,000,000원 사이여야 합니다` }, 400);
       const ids = (body.ads ?? []) as unknown[];
       if (!Array.isArray(ids) || !ids.length || ids.length > 50) return json({ error: "광고를 1~50개 선택하세요" }, 400);
       const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "2-digit", month: "2-digit", day: "2-digit" }).format(new Date()).replace(/-/g, "");
-      const name = `상품CBO_${product}_${ymd}`;
+      const name = kindAll ? `종합CBO_${ymd}` : `상품CBO_${product}_${ymd}`;
       const mc = await graph(modelId, { params: { fields: "name,objective,buying_type,bid_strategy,special_ad_categories,daily_budget,lifetime_budget" } });
       const setsR = await graph(`${modelId}/adsets`, { params: { fields: ADSET_FIELDS + ",effective_status", limit: "50" } });
       const sets = (setsR.data ?? []) as Rec[];
