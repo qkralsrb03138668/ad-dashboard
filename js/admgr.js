@@ -517,6 +517,11 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       todo.push(['hog', `<span class="ag-dot amber"></span>광고 하나가 60%↑ ${hog} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('hog')"], ['zero', `지출 0 광고 ${zero} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('zero')"]);
     } else {
       todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', jk('warn')], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
+      admgrFastEnsure();
+      if (admgr.fast.days) {
+        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑ · 30%↓</small>', r => !!admgrFastOf(r)]);
+        if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>빠른 증액 되돌리기 <small class="ag-muted">이틀 40%↑</small>', r => !!admgrFastRevertOf(r)]);
+      }
       if (vis.some(jk('rebound'))) todo.push(['rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 5+</small>', jk('rebound')]);
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
@@ -531,6 +536,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       <span class="ag-lbl">오늘 할 일</span>
       ${chip('all', '전체', vis.length)}${todo.map(([k, l, p, fn]) => chip(k, l, p ? vis.filter(p).length : null, fn)).join('')}
       <span style="flex:1;"></span>
+      ${admgr.judgeFilter === 'fast' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#16a34a;border-color:transparent;" onclick="admgrFastBoostDisp()" title="표시된 빠른 증액 후보의 일예산을 2배로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요">표시된 세트 2배 임시 저장</button>` : ''}
+      ${admgr.judgeFilter === 'fastback' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#d97706;border-color:transparent;" onclick="admgrFastRevertDisp()" title="2배로 올리기 전 예산으로 임시 저장 — 상단 '게시'로 반영">올리기 전 예산으로 임시 저장</button>` : ''}
       ${admgr.judgeFilter === 'over' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutDisp()" title="지금 표시된 세트 중 오늘 아직 안 깎은 것(구매 0 · 예산 있음)을 ÷10으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요">표시된 세트 ÷10 임시 저장</button>` : ''}
       ${showJudge && admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
     </div>`;
@@ -582,7 +589,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
                onclick="event.stopPropagation();${isCamp ? 'admgrToggleCamp' : 'admgrToggleSet'}('${r.id}')" /></td>
           <td class="l tg">${admgrOnOff(r, isCamp ? 'campaign' : 'adset')}</td>
           <td class="name-cell" title="${esc(r.name || '')}${!isCamp ? ' · ' + esc(r._campName || '') : ''}">
-            <b>${esc(admgrBase(r.name))}</b>${admgrViewBadge(r)}${admgrMarkBadges(r.name)}<button class="btn-ghost row-act"
+            <b>${esc(admgrBase(r.name))}</b>${admgrViewBadge(r)}${admgrFastBadge(r)}${admgrMarkBadges(r.name)}<button class="btn-ghost row-act"
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button>
             <div class="ag-sub">${admgrStBadge(r.status)}${!isCamp && r._campName ? ` · ${esc(r._campName)}` : ''}</div></td>
           ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td><td>${admgrProjCell(r)}</td>` : ''}
@@ -666,7 +673,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       return `<div class="mcard ${sel.has(r.id) ? 'sel' : ''} ${open ? 'open' : ''}" data-id="${r.id}" onclick="admgrCardClick(event,'${kind}','${r.id}')" ontouchstart="admgrCardDown(event,'${kind}','${r.id}')" ontouchmove="admgrCardMove(event)" ontouchend="admgrCardCancel()" ontouchcancel="admgrCardCancel()">
         <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(prod)}</b></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
-        ${jb || tail || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) || admgrViewDep(r) ? `<div class="mc-r2">${jb ? `<span class="mc-jb ${jb[0]}"><i></i>${jb[1]}</span>` : ''}${admgrViewBadge(r)}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
+        ${jb || tail || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) || admgrViewDep(r) || admgrFastBadge(r) ? `<div class="mc-r2">${jb ? `<span class="mc-jb ${jb[0]}"><i></i>${jb[1]}</span>` : ''}${admgrViewBadge(r)}${admgrFastBadge(r)}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
         <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span><span class="mc-kv"><i>클릭7일</i><b style="color:${!r.spend ? '#9ca3af' : admgrV7(r) / r.spend < 1 ? '#dc2626' : admgrV7(r) / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${r.spend ? (admgrV7(r) / r.spend).toFixed(2) : '—'}</b></span></div>
         <div class="mc-foot">
           ${admgr.view === 'ad' ? '<div class="mc-budget"><small>탭하면 소재 미리보기</small></div>'
@@ -1258,6 +1265,81 @@ function admgrMarginEdit(id) {   // 브라우저 prompt() 대신 모달 (2026-09
   setTimeout(() => { const i = $('ag-margin-inp'); if (i) i.focus(); }, 0);
 }
 /* ÷10 감액은 모두 '임시 저장'까지만 — Meta 반영은 상단 '게시'에서 (2026-09-16 사용자 요청: 행별·감액 후보 전체도 즉시 적용 금지) */
+/* ═══ 빠른 증액 (2026-10-26 사용자 확정) ═══
+   운영 세트 · 일예산 5만 이하 · 최근 3일(어제까지) 구매(클릭 7일) 6건 이상 · 3일 구매당 비용 ≤ 마진의 30% → 요일 상관없이 2배.
+   근거: 10/17~25 백테스트 — 이 조건(작은 예산·6건↑·30%↓)을 2배 가까이 키운 5건은 구매당 비용 13%→28%, (마진−광고비) 144만→298만. 3~5건짜리는 17%→55%로 무너짐.
+   올린 뒤 이틀 구매당 비용이 마진 40%를 넘으면 '되돌리기' 칩. 기록: shared_state 'fast_boost' {items:{adset_id:{from,to,day,name}}} — 게시 안 했거나 그 뒤 손으로 바꾼 세트는 지금 예산≠to라 제외 */
+const ADMGR_FAST = { maxBudget: 50000, minPur: 6, pct: 30, mul: 2, revertPct: 40 };
+admgr.fast = { days: null, at: 0, loading: false, failAt: 0, boost: null, ver: null };
+async function admgrFastEnsure() {
+  const F = admgr.fast;
+  if (admgr.demo || !admgrCfg() || F.loading || (F.days && Date.now() - F.at < 30 * 60000) || Date.now() - F.failAt < 5 * 60000) return;
+  F.loading = true;
+  try {
+    const ds = [-3, -2, -1].map(n => todayStr(n));   // 어제까지 꽉 찬 3일 — 날짜별로 받아 이틀(되돌리기)도 같이 쓴다 (서버 캐시)
+    const [hs, st] = await Promise.all([Promise.all(ds.map(d => metaGet({ action: 'hierarchy', preset: 'custom', since: d, until: d }))),
+      sbCall('client-log', { action: 'state_get', key: 'fast_boost' }).catch(() => null)]);
+    F.days = hs.map(h => { const m = new Map(); for (const c of h.campaigns || []) for (const s of c.adsets || []) { let p = 0; for (const x of s.ads || []) p += x.purchases_7d || 0; m.set(s.id, { sp: s.spend || 0, p }); } return m; });
+    F.boost = (st && st.data) || { items: {} }; F.ver = (st && st.ver) || null; F.at = Date.now(); F.failAt = 0;
+    renderAdmgr(true);
+  } catch (e) { F.failAt = Date.now(); }   // 실패하면 5분 쉼
+  F.loading = false;
+}
+function admgrFastSum(id, idx) { const F = admgr.fast; let sp = 0, p = 0; for (const i of idx) { const x = F.days[i].get(id); if (x) { sp += x.sp; p += x.p; } } return { sp, p }; }
+function admgrFastOf(r) {   // 빠른 증액 후보면 {sp, p, pct} — 3일 합계
+  const F = admgr.fast;
+  if (!F.days || r._cbo || admgrIsTest(r) || r.status !== 'ACTIVE' || !(r.budget > 0) || r.budget > ADMGR_FAST.maxBudget) return null;
+  const m = admgrMarginOf(r).m; if (!(m > 0)) return null;
+  const s = admgrFastSum(r.id, [0, 1, 2]); if (s.p < ADMGR_FAST.minPur) return null;
+  const pct = Math.round(s.sp / s.p / m * 100);
+  return pct <= ADMGR_FAST.pct ? { ...s, pct } : null;
+}
+function admgrFastRevertOf(r) {   // 2배 올린 뒤 이틀이 지났고 그 이틀 구매당 비용이 마진 40% 초과면 {pct, from}
+  const F = admgr.fast, b = F.boost && F.boost.items && F.boost.items[r.id];
+  if (!b || !F.days || r.budget !== b.to || b.day > todayStr(-3) || b.day < todayStr(-7)) return null;
+  const m = admgrMarginOf(r).m; if (!(m > 0)) return null;
+  const s = admgrFastSum(r.id, [1, 2]);
+  const pct = s.p ? Math.round(s.sp / s.p / m * 100) : (s.sp > 0 ? 999 : 0);
+  return pct > ADMGR_FAST.revertPct ? { ...s, pct, from: b.from } : null;
+}
+function admgrFastBadge(r) {
+  if (admgr.view !== 'set' || !admgrJudgeView()) return '';
+  const f = admgrFastOf(r);
+  if (f) return ` <span class="status-badge badge-green" style="font-size:.62rem;white-space:nowrap;" title="빠른 증액 후보 — 최근 3일(어제까지) ${f.p}건 · 구매당 비용 ${comma(Math.round(f.sp / f.p))}원 = 마진의 ${f.pct}%">⚡ 빠른 증액</span>`;
+  const b = admgrFastRevertOf(r);
+  return b ? ` <span class="status-badge badge-yellow" style="font-size:.62rem;white-space:nowrap;" title="2배 올린 뒤 이틀 구매당 비용이 마진의 ${b.pct === 999 ? '— (구매 0)' : b.pct + '%'} — 올리기 전 ${comma(b.from)}원으로 되돌리기 후보">↩ 되돌리기</span>` : '';
+}
+async function admgrFastSave(edit) {   // fast_boost 기록 — 충돌이면 최신본에 다시 한 번
+  const F = admgr.fast;
+  for (let i = 0; i < 2; i++) {
+    const cur = JSON.parse(JSON.stringify(F.boost || { items: {} })); cur.items = cur.items || {}; edit(cur);
+    const r = await sbCall('client-log', { action: 'state_set' }, { key: 'fast_boost', base: F.ver, data: cur });
+    if (!r.conflict) { F.boost = cur; F.ver = r.ver; return; }
+    F.boost = r.data || { items: {} }; F.ver = r.ver;
+  }
+}
+function admgrFastBoostDisp() {
+  const ids = new Set(admgr._dispIds || []);
+  const rows = admgrRows().sets.filter(r => ids.has(r.id) && admgrFastOf(r));
+  if (!rows.length) { toast('빠른 증액할 세트가 없어요'); return; }
+  const max = (admgr.write.st && admgr.write.st.max_budget) || 300000, day = todayStr(0);
+  for (const r of rows) admgrDraft[r.id] = Math.min(max, Math.round(r.budget * ADMGR_FAST.mul / 1000) * 1000);
+  lsSet('adc_admgr_draft', admgrDraft);
+  admgrFastSave(d => { for (const k of Object.keys(d.items)) if (d.items[k].day < todayStr(-10)) delete d.items[k];
+    for (const r of rows) d.items[r.id] = { from: r.budget, to: admgrDraft[r.id], day, name: admgrBase(r.name).slice(0, 60) }; }).catch(() => toast('빠른 증액 기록 저장 실패 — 되돌리기 알림이 안 뜰 수 있어요'));
+  toast(`빠른 증액 ${rows.length}개 2배 임시 저장 — 상단 '게시'로 반영. 이틀 뒤 구매당 비용이 마진 40%를 넘으면 '되돌리기'에 올라와요`);
+  renderAdmgr(true);
+}
+function admgrFastRevertDisp() {
+  const ids = new Set(admgr._dispIds || []);
+  const rows = admgrRows().sets.filter(r => ids.has(r.id)).map(r => [r, admgrFastRevertOf(r)]).filter(x => x[1]);
+  if (!rows.length) { toast('되돌릴 세트가 없어요'); return; }
+  for (const [r, v] of rows) admgrDraft[r.id] = v.from;
+  lsSet('adc_admgr_draft', admgrDraft);
+  admgrFastSave(d => { for (const [r] of rows) delete d.items[r.id]; }).catch(() => {});
+  toast(`${rows.length}개를 올리기 전 예산으로 임시 저장 — 상단 '게시'로 반영`);
+  renderAdmgr(true);
+}
 function admgrCutDraft(rows, label) {
   const ok = rows.filter(r => r.budget > 0), skip = rows.length - ok.length;   // 일예산 없는 세트(캠페인 예산 CBO 등)는 세트에서 못 바꿈
   if (!ok.length) { toast(skip ? `일예산이 있는 세트가 없어요 (캠페인 예산 세트 ${skip}개는 캠페인에서 바꿔야 해요)` : '감액할 세트가 없어요'); return 0; }
