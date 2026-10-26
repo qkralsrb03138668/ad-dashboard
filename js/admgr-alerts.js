@@ -111,11 +111,12 @@ admgrAlert.checks.push(admgrCheckHog, admgrCheck2345);
    상품 CBO 후보 = 한 상품에 우수 세트(7일 구매 10↑ · ROAS 손익×2.5↑, 상품 모르면 5↑) 2개↑ 이고 상품 7일 구매 60↑ · 상품 CBO 없음
    테스트 소재 탭 데이터(_test 이름 기준)가 아니라 캠페인 기준인 이유: 테스트 완료로 _test를 뗀 세트가 테스트 캠페인에 그대로 돌아가는데 그게 승격 대상이라서.
    7일 계층 데이터는 패널이 열릴 때 한 번(30분 유지) 따로 받는다 — 서버 5분 캐시라 Meta 추가 호출은 거의 없음 */
-const ADMGR_PROMO = { pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 60, goodMin: 2 };
+const ADMGR_PROMO = { pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 100, goodMin: 2, prodPct: 35, trend: 1.15 };   // 상품 CBO (2026-10-26 사용자 승인): 7일 100건↑ · 상품 7일 구매당 비용 ≤ 마진 35% · 최근 3일 구매당 비용 ≤ 7일 × 1.15 (꺾이는 상품 제외) — 하울·슬리즈가 60건 기준으로 꺾이는 중에 올라갔던 것
 async function admgrPromoEnsure() {
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000) || Date.now() - (A.h7FailAt || 0) < 5 * 60000) return;
   A.h7Loading = true;
-  try { A.h7 = await metaGet({ action: 'hierarchy', preset: 'last_7d' }); A.h7At = Date.now(); A.h7FailAt = 0; renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; A.h7FailAt = Date.now(); }   // 실패하면 5분 쉼 — 렌더마다 재시도하던 것 (2026-10-26 점검)
+  try { const [h7, h3] = await Promise.all([metaGet({ action: 'hierarchy', preset: 'last_7d' }), metaGet({ action: 'hierarchy', preset: 'custom', since: todayStr(-3), until: todayStr(-1) }).catch(() => null)]);   // h3 = 어제까지 3일 — 상품 CBO 추세 확인용
+    A.h7 = h7; A.h3 = h3; A.h7At = Date.now(); A.h7FailAt = 0; renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; A.h7FailAt = Date.now(); }   // 실패하면 5분 쉼 — 렌더마다 재시도하던 것 (2026-10-26 점검)
   /* CBO 캠페인에서 이미 돌아가는 소재(영상·이미지·이름) — 세트 이름의 [→] 표시가 없어도(메타에서 직접 복사, 표시 정리 뒤) 후보에서 빼기 위해 (2026-10-26 사용자 지적) */
   try {
     const cboSets = []; for (const c of ((A.h7 || {}).campaigns || [])) if (c.budget > 0 && c.status === 'ACTIVE') for (const s of (c.adsets || [])) if (s.status === 'ACTIVE') cboSets.push(s.id);
@@ -140,17 +141,24 @@ function admgrPromoCands() {
       const p = admgrP7(s), roas = admgrV7(s) / s.spend, prod = admgrProductOf(s), pc = prodCbo.has(admgrNorm(prod));   // 클릭 후 7일 기준 (2026-10-25) — 조회 기여 제외
       const be = (typeof admgrBreakEven === 'function' && admgrBreakEven({ adset_id: s.id, adset_name: s.name, name: s.name }) || {}).be || null;
       rows.push({ s, a: { id: s.id, adset_id: s.id, adset_name: s.name, name: s.name }, p, roas, spend: s.spend, be, prod, prodCbo: pc, inCbo: /\[→/.test(s.name) || pc || admgrPromoInCbo(s), adIds: (s.ads || []).map(a => a.id), good: p >= ADMGR_PROMO.goodPur && roas >= (be ? be * ADMGR_PROMO.goodMul : ADMGR_PROMO.roas) }); } }
+  const s3 = new Map(); for (const c of ((admgrAlert.h3 || {}).campaigns || [])) for (const s of (c.adsets || [])) { let p = 0; for (const a of (s.ads || [])) p += a.purchases_7d || 0; s3.set(s.id, { sp: s.spend || 0, p }); }
   const byProd = new Map(); rows.forEach(r => (byProd.get(r.prod) || byProd.set(r.prod, []).get(r.prod)).push(r));
   const toAll = new Set(lsGet('adc_promo_toall', []));   // 상품 CBO 후보지만 사용자가 "종합으로"라고 정한 상품 (2026-10-23 사용자 요청)
   // 이미 CBO(종합·상품)에서 도는 세트는 상품 후보 계산에서 뺀다 — 아직 승격 안 된 세트만으로 판단 (2026-10-26)
   const prods = [...byProd.entries()].map(([name, L0]) => { const L = L0.filter(r => !r.inCbo); return ({ name, n: L.length, pur: L.reduce((t, r) => t + r.p, 0), goods: L.filter(r => r.good).sort((x, y) => y.roas - x.roas), inCbo: L0.some(r => r.prodCbo),
-      roas: L.reduce((t, r) => t + r.roas * r.spend, 0) / Math.max(1, L.reduce((t, r) => t + r.spend, 0)), toAll: toAll.has(name) }); })
-    .filter(x => !x.inCbo && x.pur >= ADMGR_PROMO.prodPur && x.goods.length >= ADMGR_PROMO.goodMin).sort((x, y) => y.pur - x.pur);
+      roas: L.reduce((t, r) => t + r.roas * r.spend, 0) / Math.max(1, L.reduce((t, r) => t + r.spend, 0)), toAll: toAll.has(name), ...admgrPromoProdEff(L, s3) }); })
+    .filter(x => !x.inCbo && x.pur >= ADMGR_PROMO.prodPur && x.goods.length >= ADMGR_PROMO.goodMin && x.pct7 != null && x.pct7 <= ADMGR_PROMO.prodPct && x.trendOk).sort((x, y) => y.pur - x.pur);
   // 상품 CBO 후보로 분류된 상품의 세트는 종합 후보에 안 넣는다 — 사용자가 '종합으로' 돌린 상품만 예외 (2026-10-23 사용자 요청: 양쪽에 겹치지 않게)
   const prodOnly = new Set(prods.filter(x => !x.toAll).map(x => x.name));
   // [종합 CBO로] 보낸 상품은 그 상품의 '우수 세트'(상품 CBO 후보 기준) 전부가 종합 후보로 — 세트 하나하나가 30건을 넘어야 하던 규칙 때문에 상품당 1개만 넘어가던 문제 (2026-10-26 사용자 지적)
   const ads = rows.filter(r => !r.inCbo && (toAll.has(r.prod) ? r.good : (!prodOnly.has(r.prod) && r.p >= ADMGR_PROMO.pur && r.roas >= ADMGR_PROMO.roas))).map(r => ({ ...r, fromProd: toAll.has(r.prod) })).sort((x, y) => y.roas - x.roas);
   return { ads, prods, ready: true, range: h.range };
+}
+function admgrPromoProdEff(L, s3) {   // 상품 전체 7일·3일 구매당 비용 ÷ 마진 (2026-10-26)
+  let sp = 0, p = 0, sp3 = 0, p3 = 0, m = null;
+  for (const r of L) { sp += r.spend; p += r.p; const t = s3.get(r.s.id); if (t) { sp3 += t.sp; p3 += t.p; } if (m == null) { const mm = admgrMarginOf({ id: r.s.id, name: r.s.name }).m; if (mm > 0) m = mm; } }
+  const pct7 = p && m ? Math.round(sp / p / m * 100) : null, pct3 = p3 && m ? Math.round(sp3 / p3 / m * 100) : null;
+  return { pct7, pct3, trendOk: pct7 != null && pct3 != null && sp3 / p3 <= (sp / p) * ADMGR_PROMO.trend };
 }
 function admgrCheckPromo() {
   const c = admgrPromoCands(); if (!c.ads.length && !c.prods.length) return [];
@@ -164,7 +172,7 @@ function admgrPromoModal(mode) {
   let body;
   if (!c.ready) body = '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">최근 7일 성과를 불러오는 중…</div>';
   else if (M === 'all') body = c.ads.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">최근 7일(${(c.range || {}).start || ''}~${(c.range || {}).end || ''}) 구매 ${ADMGR_PROMO.pur}건↑ · ROAS ${ADMGR_PROMO.roas}↑ · 아직 CBO에 없는 세트 — 체크해서 종합 CBO 세트에 복사</div>${c.ads.map(r => row(r, true)).join('')}` : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">지금 기준을 넘는 소재가 없어요</div>';
-  else if (M !== 'all') body = c.prods.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">상품 CBO 후보로 잡힌 상품의 세트는 종합 후보에 안 올라가요 — 종합이 낫다고 보시면 [종합 CBO로]를 누르세요 (이 브라우저에 기억)</div>` + c.prods.map(x => `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;${x.toAll ? 'opacity:.6;' : ''}"><span style="flex:1;min-width:0;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · ROAS ${x.roas.toFixed(1)} · 우수 소재 ${x.goods.length}개</span>${x.toAll ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">종합으로 보냄</span>' : ''}</span><button class="ag-al-btn ${x.toAll ? 'ghost' : ''}" style="flex:none;" data-name="${esc(x.name)}" onclick="admgrPromoToAll(this.dataset.name, ${x.toAll ? 'false' : 'true'})">${x.toAll ? '상품 CBO로 되돌리기' : '종합 CBO로'}</button></div>${x.toAll ? '' : x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">우수 소재 2개↑·7일 구매 60↑인 상품이 없어요</div>';
+  else if (M !== 'all') body = c.prods.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">상품 CBO 후보로 잡힌 상품의 세트는 종합 후보에 안 올라가요 — 종합이 낫다고 보시면 [종합 CBO로]를 누르세요 (이 브라우저에 기억)</div>` + c.prods.map(x => `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;${x.toAll ? 'opacity:.6;' : ''}"><span style="flex:1;min-width:0;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · 구매당 비용 마진의 ${x.pct7}% (3일 ${x.pct3}%) · 우수 소재 ${x.goods.length}개</span>${x.toAll ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">종합으로 보냄</span>' : ''}</span><button class="ag-al-btn ${x.toAll ? 'ghost' : ''}" style="flex:none;" data-name="${esc(x.name)}" onclick="admgrPromoToAll(this.dataset.name, ${x.toAll ? 'false' : 'true'})">${x.toAll ? '상품 CBO로 되돌리기' : '종합 CBO로'}</button></div>${x.toAll ? '' : x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">7일 구매 100건↑ · 구매당 비용 마진 35%↓ · 최근 3일 안 꺾임 · 우수 소재 2개↑인 상품이 없어요</div>';
   $('abm-title').textContent = '승격 후보'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="display:flex;gap:6px;margin-bottom:8px;"><button class="filter-tab ${M === 'all' ? 'active' : ''}" onclick="admgrPromoModal('all')">종합 CBO 후보 (${c.ads.length})</button><button class="filter-tab ${M === 'prod' ? 'active' : ''}" onclick="admgrPromoModal('prod')">상품 CBO 후보 (${c.prods.length})</button></div>
     <div style="max-height:45vh;overflow:auto;">${body}</div>
