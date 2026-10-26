@@ -111,7 +111,7 @@ admgrAlert.checks.push(admgrCheckHog, admgrCheck2345);
    상품 CBO 후보 = 한 상품에 우수 세트(7일 구매 10↑ · ROAS 손익×2.5↑, 상품 모르면 5↑) 2개↑ 이고 상품 7일 구매 60↑ · 상품 CBO 없음
    테스트 소재 탭 데이터(_test 이름 기준)가 아니라 캠페인 기준인 이유: 테스트 완료로 _test를 뗀 세트가 테스트 캠페인에 그대로 돌아가는데 그게 승격 대상이라서.
    7일 계층 데이터는 패널이 열릴 때 한 번(30분 유지) 따로 받는다 — 서버 5분 캐시라 Meta 추가 호출은 거의 없음 */
-const ADMGR_PROMO = { pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 100, goodMin: 2, prodPct: 35, trend: 1.15 };   // 상품 CBO (2026-10-26 사용자 승인): 7일 100건↑ · 상품 7일 구매당 비용 ≤ 마진 35% · 최근 3일 구매당 비용 ≤ 7일 × 1.15 (꺾이는 상품 제외) — 하울·슬리즈가 60건 기준으로 꺾이는 중에 올라갔던 것
+const ADMGR_PROMO = { pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 100, goodMin: 2, prodPct: 35, trend: 1.15, allPct: 30, outPct: 40 };   // 종합 CBO (2026-10-26 사용자 승인): 넣기 = 세트 7일 30건↑ · 7일 구매당 비용 ≤ 마진 30% · 3일 안 꺾임(ROAS 5 기준 대체 — 헤이 나그랑처럼 마진 얇은 상품이 들어가던 것) / 빼기 = 광고 3일 구매당 비용 > 마진 40%   // 상품 CBO (2026-10-26 사용자 승인): 7일 100건↑ · 상품 7일 구매당 비용 ≤ 마진 35% · 최근 3일 구매당 비용 ≤ 7일 × 1.15 (꺾이는 상품 제외) — 하울·슬리즈가 60건 기준으로 꺾이는 중에 올라갔던 것
 async function admgrPromoEnsure() {
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000) || Date.now() - (A.h7FailAt || 0) < 5 * 60000) return;
   A.h7Loading = true;
@@ -151,7 +151,7 @@ function admgrPromoCands() {
   // 상품 CBO 후보로 분류된 상품의 세트는 종합 후보에 안 넣는다 — 사용자가 '종합으로' 돌린 상품만 예외 (2026-10-23 사용자 요청: 양쪽에 겹치지 않게)
   const prodOnly = new Set(prods.filter(x => !x.toAll).map(x => x.name));
   // [종합 CBO로] 보낸 상품은 그 상품의 '우수 세트'(상품 CBO 후보 기준) 전부가 종합 후보로 — 세트 하나하나가 30건을 넘어야 하던 규칙 때문에 상품당 1개만 넘어가던 문제 (2026-10-26 사용자 지적)
-  const ads = rows.filter(r => !r.inCbo && (toAll.has(r.prod) ? r.good : (!prodOnly.has(r.prod) && r.p >= ADMGR_PROMO.pur && r.roas >= ADMGR_PROMO.roas))).map(r => ({ ...r, fromProd: toAll.has(r.prod) })).sort((x, y) => y.roas - x.roas);
+  const ads = rows.map(r => ({ ...r, ...admgrPromoProdEff([r], s3) })).filter(r => !r.inCbo && r.pct7 != null && r.pct7 <= ADMGR_PROMO.allPct && r.trendOk && (toAll.has(r.prod) ? r.good : (!prodOnly.has(r.prod) && r.p >= ADMGR_PROMO.pur))).map(r => ({ ...r, fromProd: toAll.has(r.prod) })).sort((x, y) => x.pct7 - y.pct7);
   return { ads, prods, ready: true, range: h.range };
 }
 function admgrPromoProdEff(L, s3) {   // 상품 전체 7일·3일 구매당 비용 ÷ 마진 (2026-10-26)
@@ -165,13 +165,40 @@ function admgrCheckPromo() {
   return [{ key: 'promo:' + todayStr(0), lvl: 'blue', text: `<b>승격 후보</b> 종합 CBO ${c.ads.length}개 · 상품 CBO ${c.prods.length}개 <small>최근 7일 기준</small>`, act: { label: '보기', onclick: 'admgrPromoModal()' } }];
 }
 admgrAlert.checks.push(admgrCheckPromo);
+/* 종합 CBO 빼기 후보 (2026-10-26 사용자 승인): 종합CBO 안에서 켜져 있는 광고 중 어제까지 3일 구매당 비용 > 마진 40% (구매 0이면 3일 지출 ≥ 마진) */
+function admgrZongOut() {
+  const A = admgrAlert; if (!A.h3 || !admgr.data) return [];
+  const live = new Map(admgrRows().ads.map(a => [a.id, a]));
+  const out = [];
+  for (const c of (A.h3.campaigns || [])) { if (!/^종합CBO/.test(admgrBase(c.name))) continue;
+    for (const s of (c.adsets || [])) for (const a of (s.ads || [])) {
+      const now = live.get(a.id); if (!now || now.status !== 'ACTIVE' || (admgrSDraft[a.id] && admgrSDraft[a.id].status === 'PAUSED')) continue;
+      const m = admgrMarginOf({ id: a.id, name: a.name }).m; if (!(m > 0) || !(a.spend > 0)) continue;
+      const p = a.purchases_7d || 0, pct = p ? Math.round(a.spend / p / m * 100) : null;
+      if (p ? pct > ADMGR_PROMO.outPct : a.spend >= m) out.push({ id: a.id, name: a.name, sp: a.spend, p, pct });
+    } }
+  return out.sort((x, y) => y.sp - x.sp);
+}
+function admgrCheckZongOut() {
+  const L = admgrZongOut(); if (!L.length) return [];
+  return [{ key: 'zongout:' + todayStr(0) + ':' + L.map(x => x.id).join(','), lvl: 'red',
+    text: `<b>종합 CBO 빼기 후보</b> ${L.length}개 <small>어제까지 3일 구매당 비용 마진 ${ADMGR_PROMO.outPct}%↑</small> — ${L.slice(0, 3).map(x => `${esc(admgrBase(x.name).slice(0, 18))} ${x.p ? x.pct + '%' : '구매 0'}`).join(' · ')}${L.length > 3 ? ' …' : ''}`,
+    act: dnrbCan('toggle') ? { label: `${L.length}개 끄기 임시 저장`, onclick: `admgrZongOff('${L.map(x => x.id).join(',')}')` } : null }];
+}
+function admgrZongOff(csv) {
+  const ids = String(csv).split(',').filter(x => /^\d{5,25}$/.test(x)); if (!ids.length) return;
+  for (const id of ids) admgrSDraft[id] = { level: 'ad', status: 'PAUSED' };
+  lsSet('adc_admgr_sdraft', admgrSDraft);
+  toast(`종합 CBO 광고 ${ids.length}개 끄기를 임시 저장했어요 — 상단 [게시]를 눌러야 Meta에 반영돼요`); renderAdmgr(true);
+}
+admgrAlert.checks.push(admgrCheckZongOut);
 function admgrPromoModal(mode) {
   const c = admgrPromoCands(); admgr.promoMode = mode || admgr.promoMode || (c.ads.length ? 'all' : 'prod');
   const M = admgr.promoMode;
-  const row = (r, chk) => `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;cursor:pointer;"><input type="checkbox" class="pm-ad" value="${esc(r.s.id)}" ${chk ? 'checked' : ''} /><span style="flex:1;min-width:0;word-break:break-all;">${esc(admgrBase(r.s.name))}${r.fromProd ? ' <span class="status-badge badge-blue" style="font-size:.58rem;" title="상품 CBO 후보였지만 종합으로 보내기로 한 상품">상품→종합</span>' : ''}</span><span style="flex:none;color:#6b7280;">7일 구매 ${r.p} · ROAS <b>${r.roas.toFixed(1)}</b>${r.inCbo ? ' · <span class="ag-mark">⧉ CBO 있음</span>' : ''}</span></label>`;
+  const row = (r, chk) => `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.78rem;cursor:pointer;"><input type="checkbox" class="pm-ad" value="${esc(r.s.id)}" ${chk ? 'checked' : ''} /><span style="flex:1;min-width:0;word-break:break-all;">${esc(admgrBase(r.s.name))}${r.fromProd ? ' <span class="status-badge badge-blue" style="font-size:.58rem;" title="상품 CBO 후보였지만 종합으로 보내기로 한 상품">상품→종합</span>' : ''}</span><span style="flex:none;color:#6b7280;">7일 구매 ${r.p} · ROAS <b>${r.roas.toFixed(1)}</b>${r.pct7 != null ? ` · 마진의 <b>${r.pct7}%</b> (3일 ${r.pct3 ?? '—'}%)` : ''}${r.inCbo ? ' · <span class="ag-mark">⧉ CBO 있음</span>' : ''}</span></label>`;
   let body;
   if (!c.ready) body = '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">최근 7일 성과를 불러오는 중…</div>';
-  else if (M === 'all') body = c.ads.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">최근 7일(${(c.range || {}).start || ''}~${(c.range || {}).end || ''}) 구매 ${ADMGR_PROMO.pur}건↑ · ROAS ${ADMGR_PROMO.roas}↑ · 아직 CBO에 없는 세트 — 체크해서 종합 CBO 세트에 복사</div>${c.ads.map(r => row(r, true)).join('')}` : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">지금 기준을 넘는 소재가 없어요</div>';
+  else if (M === 'all') body = c.ads.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">최근 7일(${(c.range || {}).start || ''}~${(c.range || {}).end || ''}) 구매 ${ADMGR_PROMO.pur}건↑ · 구매당 비용 마진 ${ADMGR_PROMO.allPct}%↓ · 최근 3일 안 꺾임 · 아직 CBO에 없는 세트 — 체크해서 종합 CBO 세트에 복사</div>${c.ads.map(r => row(r, true)).join('')}` : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">지금 기준을 넘는 소재가 없어요</div>';
   else if (M !== 'all') body = c.prods.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">상품 CBO 후보로 잡힌 상품의 세트는 종합 후보에 안 올라가요 — 종합이 낫다고 보시면 [종합 CBO로]를 누르세요 (이 브라우저에 기억)</div>` + c.prods.map(x => `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;${x.toAll ? 'opacity:.6;' : ''}"><span style="flex:1;min-width:0;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · 구매당 비용 마진의 ${x.pct7}% (3일 ${x.pct3}%) · 우수 소재 ${x.goods.length}개</span>${x.toAll ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">종합으로 보냄</span>' : ''}</span><button class="ag-al-btn ${x.toAll ? 'ghost' : ''}" style="flex:none;" data-name="${esc(x.name)}" onclick="admgrPromoToAll(this.dataset.name, ${x.toAll ? 'false' : 'true'})">${x.toAll ? '상품 CBO로 되돌리기' : '종합 CBO로'}</button></div>${x.toAll ? '' : x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">7일 구매 100건↑ · 구매당 비용 마진 35%↓ · 최근 3일 안 꺾임 · 우수 소재 2개↑인 상품이 없어요</div>';
   $('abm-title').textContent = '승격 후보'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="display:flex;gap:6px;margin-bottom:8px;"><button class="filter-tab ${M === 'all' ? 'active' : ''}" onclick="admgrPromoModal('all')">종합 CBO 후보 (${c.ads.length})</button><button class="filter-tab ${M === 'prod' ? 'active' : ''}" onclick="admgrPromoModal('prod')">상품 CBO 후보 (${c.prods.length})</button></div>
