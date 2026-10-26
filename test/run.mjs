@@ -23,7 +23,7 @@ const store = {};
 const localStorage = { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } };
 const window = { addEventListener() {}, innerWidth: 1200, scrollY: 0, scrollTo() {}, DASH_CFG: {}, localStorage, location: { reload() {} } };
 const ctx = { window, document, localStorage, console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {},
-  URLSearchParams, URL, Intl, FormData, fetch: async () => { throw new Error('테스트에선 네트워크 없음'); },
+  URLSearchParams, URL, Intl, FormData, AbortSignal, fetch: async () => { throw new Error('테스트에선 네트워크 없음'); },   // AbortSignal: sbCall 2분 타임아웃(2026-10-26)
   confirm: () => true, prompt: () => null, alert() {}, Image: class {}, FileReader: class {}, Blob: class {}, navigator: {} };
 ctx.globalThis = ctx; ctx.self = ctx;
 vm.createContext(ctx);
@@ -344,7 +344,7 @@ test('admgrPromoCands: 테스트 캠페인 세트의 7일 성과 — 구매 30�
   let items = g('admgrCheckPromo')(); assert.ok(items[0].text.includes('종합 CBO 0개 · 상품 CBO 1개'), JSON.stringify(items));
   localStorage.setItem('adc_promo_toall', JSON.stringify(['루즈핏 니트']));            // 사용자가 '종합 CBO로' → 세트가 종합 후보로
   c = g('admgrPromoCands')();
-  assert.equal(c.ads.map(r => r.s.id + (r.fromProd ? '*' : '')).join(), 's1*'); assert.ok(c.prods[0].toAll);
+  assert.equal(c.ads.map(r => r.s.id + (r.fromProd ? '*' : '')).join(), 's1*,s2*'); assert.ok(c.prods[0].toAll);   // 종합으로 보낸 상품은 우수 세트 전부가 종합 후보로 (2026-10-26 점검 커밋)
   localStorage.removeItem('adc_promo_toall');
   vm.runInContext("admgrAlert.h7 = null;", ctx);
 });
@@ -376,6 +376,22 @@ test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표
   assert.equal(out.map(x => x.key.split(':')[0] + ':' + x.lvl).join(), 'hy-copy:yellow,hy-name:yellow,hy-page:red');
   assert.ok(out[1].text.includes('1개') && out[1].text.includes('막이름 세트') && out[2].text.includes('엉뚱') && out[2].text.includes('Kustom'));
   assert.equal(H([], [{ page_id: 'A', name: 'x' }], '2026-10-23').length, 0);
+});
+
+test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 클릭 구매당÷마진 35~50%만 −25% (천원 반올림)', () => {
+  vm.runInContext(`admgr.products = [{ no: 1, name: '니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {}; admgr.demo = false;
+    admgr.data = { campaigns: [{ id: 'c1', name: '테스트2', status: 'ACTIVE', adsets: [
+      { id: 's1', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 50000 }, { id: 's2', name: '니트_R2_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's3', name: '니트_R3_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's4', name: '니트_R4_28_261001', status: 'PAUSED', budget: 30000 } ] },
+      { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '니트_R9', status: 'ACTIVE', budget: 0 }] }] };
+    admgrAlert.h7 = { campaigns: [{ name: '테스트2', adsets: [
+      { id: 's1', name: '니트_R1_28_261001', spend: 280000, purchases: 25, purchases_1dv: 5, value: 1000000 },   // 클릭 20 → 구매당 14,000 / 마진 28,000 = 50% → 대상
+      { id: 's2', name: '니트_R2_28_261001', spend: 100000, purchases: 12, purchases_1dv: 2, value: 600000 },    // 클릭 10 → 10,000 = 36% → 대상
+      { id: 's3', name: '니트_R3_28_261001', spend: 80000, purchases: 10, purchases_1dv: 0, value: 500000 },     // 8,000 = 29% → 좋은 세트, 제외
+      { id: 's4', name: '니트_R4_28_261001', spend: 100000, purchases: 10, purchases_1dv: 0, value: 500000 } ] }] };`, ctx);   // 꺼짐 → 제외
+  const T = g('admgrWeekendTargets')({ wkLo: 35, wkHi: 50, weekendPct: 25 });
+  assert.equal(T.map(x => x.id + ':' + x.from + '→' + x.to + ':' + x.ratio).join(), 's1:50000→38000:50,s2:30000→23000:36');   // 50,000×0.75=37,500→38,000 · 30,000×0.75=22,500→23,000
+  assert.equal(g('admgrWeekendFri')('2026-10-26') + ',' + g('admgrWeekendFri')('2026-10-30') + ',' + g('admgrWeekendFri')('2026-11-01'), '2026-10-30,2026-10-30,2026-10-30');   // 월·금·일 → 같은 주말의 금요일
+  vm.runInContext("admgrAlert.h7 = null; admgr.data = null;", ctx);
 });
 
 console.log('주간 리포트');
