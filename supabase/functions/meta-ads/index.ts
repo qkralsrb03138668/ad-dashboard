@@ -14,7 +14,8 @@
 //   ② 60초 캐시 = 호출 한도 방어선 (원본에서 "User request limit reached" 실사고)
 //   ③ 하향식 조립 — /ads 무필터 500 한도 잘림으로 캠페인 통째 누락 사고를 피하는 구조
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheGetAny, cacheSet, getAuth, dbRest, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheGetAny, cacheSet, getAuth, dbRest, handleOptions, json, maskTok } from "../_shared/util.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 
@@ -24,7 +25,10 @@ const GRAPH = "https://graph.facebook.com/v23.0";
 // ③ 오류가 나도 마지막 데이터가 있으면 stale 표시로 반환 → 화면이 비지 않는다
 type Usage = { pct: number; regain: number; at: string; detail: Record<string, unknown> };
 let lastUsage: Usage | null = null;
-let curKey = "";   // 현재 처리 중인 액션의 캐시 키 (오류 시 stale 반환용)
+const reqCtx = new AsyncLocalStorage<{ key: string }>();   // 요청별 저장소 (2026-10-26 점검: 모듈 전역이라 동시 요청끼리 키가 섞였다)
+let curKeyFallback = "";   // 요청 컨텍스트 밖(없을 일은 없지만)에서의 안전망
+const setCurKey = (k: string) => { const c = reqCtx.getStore(); if (c) c.key = k; else curKeyFallback = k; };   // 현재 처리 중인 액션의 캐시 키 (오류 시 stale 반환용)
+const curKey = () => reqCtx.getStore()?.key ?? curKeyFallback;
 function readUsage(res: Response) {
   let pct = 0, regain = 0; const detail: Record<string, unknown> = {};
   for (const h of ["x-business-use-case-usage", "x-ad-account-usage", "x-fb-ads-insights-throttle", "x-app-usage"]) {
@@ -44,10 +48,15 @@ function readUsage(res: Response) {
       walk(j);
     } catch { /* 헤더 형식이 바뀌어도 무해 */ }
   }
-  if (Object.keys(detail).length) { lastUsage = { pct, regain, at: new Date().toISOString(), detail }; cacheSet("meta:usage", lastUsage).catch(() => {}); }
+  if (Object.keys(detail).length) {
+    const prev = lastUsage; lastUsage = { pct, regain, at: new Date().toISOString(), detail };
+    // 저장은 60초에 1회, 또는 사용률이 5%p 넘게 움직였거나 회복 대기 시간이 생겼을 때만 — Meta 호출마다 DB 쓰기 2건이 붙던 것 (2026-10-26 점검)
+    if (!prev || Date.now() - usagePersistAt > 60_000 || Math.abs(prev.pct - pct) >= 5 || (regain > 0) !== (prev.regain > 0)) { usagePersistAt = Date.now(); cacheSet("meta:usage", lastUsage).catch(() => {}); }
+  }
 }
+let usagePersistAt = 0;
 async function metaFetch(url: string): Promise<Record<string, unknown>> {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });   // 2026-10-26 점검: 응답이 없으면 60초에 끊고 stale 폴백·오류로
   readUsage(res);
   const body = await res.json();
   if (!res.ok) {
@@ -74,7 +83,7 @@ async function setCooldown(e?: unknown): Promise<string> {
   const mins = Math.max(5, Math.min(60, lastUsage?.regain || 10));
   const until = new Date(Date.now() + mins * 60_000).toISOString();
   const err = e ? `${(e as { code?: number })?.code ?? ""} ${String((e as Error)?.message ?? e)}`.trim().slice(0, 300) : "";
-  await cacheSet("meta:cooldown", { until, set_at: new Date().toISOString(), error: err, key: curKey, usage_pct: lastUsage?.pct ?? null });
+  await cacheSet("meta:cooldown", { until, set_at: new Date().toISOString(), error: err, key: curKey(), usage_pct: lastUsage?.pct ?? null });
   return until;
 }
 function withMeta(body: unknown, meta: Record<string, unknown>): Response {
@@ -82,7 +91,7 @@ function withMeta(body: unknown, meta: Record<string, unknown>): Response {
 }
 // 액션 시작 시: 캐시가 살아 있으면 그것, 쿨다운 중이면 마지막 데이터(stale), 아니면 null(→ Meta 호출 진행)
 async function metaPre(key: string, ttlMs: number): Promise<Response | null> {
-  curKey = key;
+  setCurKey(key);
   if (!lastUsage) lastUsage = (await cacheGetAny("meta:usage")) as Usage | null;
   const ttl = (lastUsage?.pct ?? 0) >= 80 ? ttlMs * 3 : ttlMs;
   const fresh = await cacheGet(key, ttl);
@@ -728,7 +737,8 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
   return { fetched_at: new Date().toISOString(), scope: camps.map((x) => x.name || x.id), range: range ? { since: range.since, until: range.until, label: range.label } : null, ads: out };
 }
 
-Deno.serve(async (req) => {
+Deno.serve((req) => reqCtx.run({ key: "" }, () => handle(req)));
+async function handle(req: Request): Promise<Response> {
   const opt = handleOptions(req);
   if (opt) return opt;
 
@@ -774,14 +784,17 @@ Deno.serve(async (req) => {
       const until = await cooldownUntil();
       if (until) return json({ skipped: "cooldown", cooldown_until: until });
       const t = seoulToday();
-      curKey = `meta:hierarchy:today:${t}`;
+      setCurKey(`meta:hierarchy:today:${t}`);
       const h = await fetchHierarchy(c, "today");
-      await cacheSet(curKey, h);
-      curKey = `meta:budgethist:${t}:${t}`;
+      await cacheSet(curKey(), h);
+      setCurKey(`meta:budgethist:${t}:${t}`);
       const b = await fetchBudgetHistory(c, t, t);
-      await cacheSet(curKey, b);
+      await cacheSet(curKey(), b);
+      // 핵심 2종이 들어간 시점에 수집 시각을 먼저 기록 — 아래 부가 수집이 실패해도 화면이 '직접 Meta 호출' 모드로 떨어지지 않게 (2026-10-26 점검)
+      await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
+      try {
       const tk = `meta:testads:test:${t}`;   // 오늘 아직 아무도 테스트 소재를 안 봤으면 한 번 수집 → test_ad_day에 그날 행 보장 (주간 리포트 기준선)
-      if (!(await cacheGet(tk, 86400_000))) { curKey = tk; await cacheSet(tk, await fetchTestads(c, "test", t)); }
+      if (!(await cacheGet(tk, 86400_000))) { setCurKey(tk); await cacheSet(tk, await fetchTestads(c, "test", t)); }
       /* 내 소재 성과 미리 만들기 (2026-09-22): 최근 7·14·30일·어제는 오늘을 빼고 세서 하루 종일 숫자가 거의 같다 → 화면 요청은 3시간 보관본을 쓰고,
          여기서 2시간 반이 지난 것을 한 번에 하나씩 다시 만들어 늘 데워 둔다 (하루 ≈ 4기간 × 10번 × Meta 2~3호출). 하루 첫 회에는 일별 누적 스냅샷도 같이 */
       {
@@ -789,13 +802,13 @@ Deno.serve(async (req) => {
         for (const preset of ["last_7d", "last_14d", "last_30d", "yesterday"]) {
           const mrange = mycreRange(new URL("http://x/?preset=" + preset), t), mk = mycreKey(t, mcamps, mace, mrange);
           if (await cacheGet(mk, 150 * 60_000)) continue;
-          curKey = mk;
+          setCurKey(mk);
           if (preset === "last_7d" && mcamps.length && !(await cacheGet(`meta:mycre:snapday:${t}`, 86400_000))) { await snapshotCampAds(c, mcamps.map((x) => x.id), t); await cacheSet(`meta:mycre:snapday:${t}`, { at: new Date().toISOString() }); }
           await cacheSet(mk, await buildMycre(c, t, mcamps, mace, mrange));
           break;   // 한 번(5분)에 하나만 — 수집 함수가 길어지지 않게
         }
       }
-      await cacheSet("meta:sync:last", { at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count });
+      } catch (e) { if (isRateLimit(e)) throw e; console.error("sync 부가 수집 실패(핵심 수집은 완료):", String(e).slice(0, 300)); }
       return json({ ok: true, at: new Date().toISOString(), campaigns: h.campaigns.length, budget_events: b.count, usage_pct: lastUsage?.pct ?? null });
     }
 
@@ -834,7 +847,7 @@ Deno.serve(async (req) => {
     // ── 소재 기간 7종 성과 (미리보기 모달용) ──
     if (action === "adstats") {
       const adId = url.searchParams.get("ad_id");
-      if (!adId) return json({ error: "ad_id 필수" }, 400);
+      if (!adId || !/^\d{5,25}$/.test(adId)) return json({ error: "ad_id 필수" }, 400);   // 숫자 id만 — Graph 경로에 그대로 들어가므로 (2026-10-26 보안 점검)
       const cacheKey = `meta:adstats:${adId}:${seoulToday()}`;   // 미리보기 1회 = 7호출 → 10분 캐시
       const pre = await metaPre(cacheKey, 10 * 60 * 1000);
       if (pre) return pre;
@@ -883,7 +896,7 @@ Deno.serve(async (req) => {
     // INSTAGRAM_STANDARD가 안정적 (REELS는 모달에서 잘리고 재생 안 되는 실사례 — 가이드 §7-7)
     if (action === "preview") {
       const adId = url.searchParams.get("ad_id");
-      if (!adId) return json({ error: "ad_id 필수" }, 400);
+      if (!adId || !/^\d{5,25}$/.test(adId)) return json({ error: "ad_id 필수" }, 400);   // 숫자 id만 — Graph 경로에 그대로 들어가므로 (2026-10-26 보안 점검)
       // fmt: feed(기본) / reels / story — 모달의 형식 전환 버튼. 거부되면 표준 → 데스크톱 피드 순으로 폴백
       const fmtParam = url.searchParams.get("fmt") ?? "feed";
       const fmt = fmtParam === "reels" ? "INSTAGRAM_REELS" : fmtParam === "story" ? "INSTAGRAM_STORY" : "INSTAGRAM_STANDARD";
@@ -1307,10 +1320,10 @@ Deno.serve(async (req) => {
   } catch (e) {
     if (isRateLimit(e)) {
       const until = await setCooldown(e);
-      const stale = curKey ? await cacheGetAny(curKey) : null;
+      const stale = curKey() ? await cacheGetAny(curKey()) : null;
       if (stale) return withMeta(stale, { stale: true, cooldown_until: until, error: String((e as Error).message).slice(0, 200) });
       return json({ error: "Meta 조회 한도 초과 — 잠시 후 자동 재시도", rate_limited: true, cooldown_until: until }, 429);
     }
-    return json({ error: String(e).slice(0, 400) }, 500);
+    return json({ error: maskTok(String(e)).slice(0, 400) }, 500);
   }
-});
+}

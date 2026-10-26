@@ -62,8 +62,9 @@ async function sbCall(fn, params, payload, _retried) {
     : payload instanceof FormData ? { method: 'POST', headers, body: payload }
     : { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
   let res;
+  init.signal = AbortSignal.timeout(120_000);   // 2026-10-26 점검: 응답이 영영 안 오면 loading 플래그가 영구히 남던 것 — 2분이면 끊는다 (영상 4MB 조각 업로드도 충분)
   try { res = await fetch(url, init); }
-  catch (e) { throw new Error(`서버에 연결할 수 없어요 (${e.message}) — 인터넷 연결 또는 서버 상태를 확인하세요`); }
+  catch (e) { throw new Error(e && e.name === 'TimeoutError' ? '서버 응답이 2분 넘게 없어요 — 잠시 후 다시 시도하세요' : `서버에 연결할 수 없어요 (${e.message}) — 인터넷 연결 또는 서버 상태를 확인하세요`); }
   const text = await res.text();
   let body = null;
   try { body = text ? JSON.parse(text) : {}; } catch { /* JSON 아님 — 아래에서 처리 */ }
@@ -564,6 +565,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   let table;
   if (!vis.length) {
     table = `<div class="empty-state" style="padding:36px;"><p>조건에 맞는 행이 없어요.</p></div>`;
+  } else if (admgrMobile()) {
+    table = '';   // 폰은 카드만 보인다(CSS로 표 숨김) — 보이지 않는 표까지 만들어 파싱하던 것 (2026-10-26 점검). 창 크기 바뀌면 resize가 다시 그린다
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
       <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 구매(클릭 후 7일) 기준 — 0건(지출 있음)=감액 ÷10 · 1~2건=곧 도달 · 3건+=증액 검토. 아래 줄의 마진·지출%는 참고">판정</th>' + admgrTh('proj', '예상 마감', '', '지금 속도면 마감 때 마진의 몇 % — 오늘 지출 × 24 ÷ 지난 시간 ÷ 마진(판매가 − 공급가×1.1) · 구매 0인 세트만 · 100%↑ 빨강 = ÷10 후보, 50%↑ 노랑 = 지켜보기') : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:45 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:45에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:45 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}

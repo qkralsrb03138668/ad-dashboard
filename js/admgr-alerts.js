@@ -111,9 +111,9 @@ admgrAlert.checks.push(admgrCheckHog, admgrCheck2345);
    7일 계층 데이터는 패널이 열릴 때 한 번(30분 유지) 따로 받는다 — 서버 5분 캐시라 Meta 추가 호출은 거의 없음 */
 const ADMGR_PROMO = { pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 60, goodMin: 2 };
 async function admgrPromoEnsure() {
-  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000)) return;
+  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000) || Date.now() - (A.h7FailAt || 0) < 5 * 60000) return;
   A.h7Loading = true;
-  try { A.h7 = await metaGet({ action: 'hierarchy', preset: 'last_7d' }); A.h7At = Date.now(); renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; }
+  try { A.h7 = await metaGet({ action: 'hierarchy', preset: 'last_7d' }); A.h7At = Date.now(); A.h7FailAt = 0; renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; A.h7FailAt = Date.now(); }   // 실패하면 5분 쉼 — 렌더마다 재시도하던 것 (2026-10-26 점검)
   /* CBO 캠페인에서 이미 돌아가는 소재(영상·이미지·이름) — 세트 이름의 [→] 표시가 없어도(메타에서 직접 복사, 표시 정리 뒤) 후보에서 빼기 위해 (2026-10-26 사용자 지적) */
   try {
     const cboSets = []; for (const c of ((A.h7 || {}).campaigns || [])) if (c.budget > 0 && c.status === 'ACTIVE') for (const s of (c.adsets || [])) if (s.status === 'ACTIVE') cboSets.push(s.id);
@@ -162,7 +162,7 @@ function admgrPromoModal(mode) {
   let body;
   if (!c.ready) body = '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">최근 7일 성과를 불러오는 중…</div>';
   else if (M === 'all') body = c.ads.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">최근 7일(${(c.range || {}).start || ''}~${(c.range || {}).end || ''}) 구매 ${ADMGR_PROMO.pur}건↑ · ROAS ${ADMGR_PROMO.roas}↑ · 아직 CBO에 없는 세트 — 체크해서 종합 CBO 세트에 복사</div>${c.ads.map(r => row(r, true)).join('')}` : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">지금 기준을 넘는 소재가 없어요</div>';
-  else if (M !== 'all') body = c.prods.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">상품 CBO 후보로 잡힌 상품의 세트는 종합 후보에 안 올라가요 — 종합이 낫다고 보시면 [종합 CBO로]를 누르세요 (이 브라우저에 기억)</div>` + c.prods.map(x => `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;${x.toAll ? 'opacity:.6;' : ''}"><span style="flex:1;min-width:0;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · ROAS ${x.roas.toFixed(1)} · 우수 소재 ${x.goods.length}개</span>${x.toAll ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">종합으로 보냄</span>' : ''}</span><button class="ag-al-btn ${x.toAll ? 'ghost' : ''}" style="flex:none;" onclick="admgrPromoToAll(${JSON.stringify(x.name).replace(/"/g, '&quot;')}, ${x.toAll ? 'false' : 'true'})">${x.toAll ? '상품 CBO로 되돌리기' : '종합 CBO로'}</button></div>${x.toAll ? '' : x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">우수 소재 2개↑·7일 구매 60↑인 상품이 없어요</div>';
+  else if (M !== 'all') body = c.prods.length ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">상품 CBO 후보로 잡힌 상품의 세트는 종합 후보에 안 올라가요 — 종합이 낫다고 보시면 [종합 CBO로]를 누르세요 (이 브라우저에 기억)</div>` + c.prods.map(x => `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;${x.toAll ? 'opacity:.6;' : ''}"><span style="flex:1;min-width:0;font-weight:800;font-size:.82rem;color:#1e1b4b;">${esc(x.name)} <span style="font-weight:600;color:#6b7280;font-size:.72rem;">7일 구매 ${x.pur} · ROAS ${x.roas.toFixed(1)} · 우수 소재 ${x.goods.length}개</span>${x.toAll ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">종합으로 보냄</span>' : ''}</span><button class="ag-al-btn ${x.toAll ? 'ghost' : ''}" style="flex:none;" data-name="${esc(x.name)}" onclick="admgrPromoToAll(this.dataset.name, ${x.toAll ? 'false' : 'true'})">${x.toAll ? '상품 CBO로 되돌리기' : '종합 CBO로'}</button></div>${x.toAll ? '' : x.goods.map(r => row(r, true)).join('')}`).join('') : '<div style="color:#9ca3af;font-size:.8rem;padding:10px 0;">우수 소재 2개↑·7일 구매 60↑인 상품이 없어요</div>';
   $('abm-title').textContent = '승격 후보'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="display:flex;gap:6px;margin-bottom:8px;"><button class="filter-tab ${M === 'all' ? 'active' : ''}" onclick="admgrPromoModal('all')">종합 CBO 후보 (${c.ads.length})</button><button class="filter-tab ${M === 'prod' ? 'active' : ''}" onclick="admgrPromoModal('prod')">상품 CBO 후보 (${c.prods.length})</button></div>
     <div style="max-height:45vh;overflow:auto;">${body}</div>
@@ -206,14 +206,14 @@ function admgrFatigueCalc(hNow, hPrev, cfg) {   // 순수 계산 — [{ prod, cp
   return out.sort((x, y) => y.up - x.up);
 }
 async function admgrFatigueEnsure() {
-  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.fLoading || (A.hPrev && Date.now() - A.hPrevAt < 30 * 60000)) return;
+  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.fLoading || (A.hPrev && Date.now() - A.hPrevAt < 30 * 60000) || Date.now() - (A.fFailAt || 0) < 5 * 60000) return;
   A.fLoading = true;
   try {
     const d = todayStr(0), sh = (n) => admgrShiftDay(d, n);
     const [hp, log] = await Promise.all([metaGet({ action: 'hierarchy', preset: 'custom', since: sh(-14), until: sh(-8) }), sbCall('client-log', { action: 'state_get', key: 'fatigue_log' })]);
     A.hPrev = hp; A.hPrevAt = Date.now(); A.fLog = (log && log.data) || { prods: {} }; A.fLogVer = (log && log.ver) || null;
-    renderAdmgr(true); setTimeout(() => admgrFatigueAuto(), 0);
-  } catch (e) { A.hPrev = A.hPrev || null; }
+    renderAdmgr(true); setTimeout(() => admgrFatigueAuto(), 0); A.fFailAt = 0;
+  } catch (e) { A.hPrev = A.hPrev || null; A.fFailAt = Date.now(); }
   A.fLoading = false;
 }
 function admgrFatigueOpenReq(prod) {   // 그 상품에 열린 추가소재 요청(요청됨·제작완료 전)이 있나
@@ -275,11 +275,11 @@ function admgrSeasonCalc(h, curSets, today) {   // 순수 계산 → [{ name, ca
     .sort((x, y) => y.pur - x.pur).slice(0, ADMGR_SEASON.top);
 }
 async function admgrSeasonEnsure() {
-  const A = admgrAlert, today = todayStr(0); if (admgr.demo || !admgrCfg() || A.sLoading) return;
+  const A = admgrAlert, today = todayStr(0); if (admgr.demo || !admgrCfg() || A.sLoading || Date.now() - (A.sFailAt || 0) < 5 * 60000) return;
   const saved = lsGet('adc_admgr_season', null); if (saved && saved.day === today) { A.season = saved.h; return; }
   A.sLoading = true;
   try { const r = admgrSeasonRange(today); A.season = await metaGet({ action: 'hierarchy', preset: 'custom', since: r.since, until: r.until }); lsSet('adc_admgr_season', { day: today, h: A.season }); renderAdmgr(true); }
-  catch (e) { A.season = A.season || null; }
+  catch (e) { A.season = A.season || null; A.sFailAt = Date.now(); }
   A.sLoading = false;
 }
 function admgrSeasonCands() { const A = admgrAlert; if (!A.season) { if (admgr.data && !admgr.demo) setTimeout(() => admgrSeasonEnsure(), 0); return null; } return admgrSeasonCalc(A.season, admgrRows().sets, todayStr(0)); }

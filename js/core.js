@@ -71,6 +71,13 @@ const LS = { cre:'adc_creatives', rec:'adc_records', period:'adc_period', view:'
 const COPY_NOTE_RE = /권한|근거로 (썼|쓴|작성)|카피입니다|열지 못|확인하지 못|불러오지 못|불러올 수 없|접근할 수 없|작성했습니다|페이지를 열|확인해보니|다음과 같이/;
 function copyHasNote(t) { return COPY_NOTE_RE.test(String((t && t.message) || '')); }
 function copyStripNote(msg) { const p = String(msg || '').trim().split(/\n\s*\n/); while (p.length > 1 && COPY_NOTE_RE.test(p[0])) p.shift(); return p.join('\n\n').trim(); }
+/* 2026-10-26 점검: 입력마다 전체 표를 다시 그리던 검색창용 디바운스 · 쓸 때만 받는 외부 스크립트 로더 */
+const _debounces = {};
+function debounceCall(key, fn, ms) { clearTimeout(_debounces[key]); _debounces[key] = setTimeout(fn, ms); }
+const _scriptLoads = {};
+function loadScript(src) {
+  return _scriptLoads[src] || (_scriptLoads[src] = new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.crossOrigin = 'anonymous'; s.onload = ok; s.onerror = () => { delete _scriptLoads[src]; no(new Error('스크립트 로드 실패: ' + src)); }; document.head.appendChild(s); }));
+}
 function lsGet(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch(e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) { toast('저장 실패 — 저장 공간이 가득 찼을 수 있어요'); } }
 
@@ -224,7 +231,7 @@ function logError(message, stack) {
   } catch { /* 기록 실패는 무시 */ }
 }
 /* 백업 대상 = 사용자가 만든 데이터(adc_*) — PIN과 서버에서 받아둔 캐시는 제외 */
-const BACKUP_SKIP = /^adc_(admgr_(pin|last|test|off|best|products)|reg_pin|mycre_last)$/;
+const BACKUP_SKIP = /^adc_(admgr_(pin|last|test|off|best|products|products2|products2_at|season)|reg_pin|mycre_last|backup_day|backup_try)$/;   // products2·season = 서버에서 다시 받는 캐시 (2026-10-26 점검: 백업에 수백 KB씩 실리던 것)
 function backupPayload() {
   const out = {};
   for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('adc_') && !BACKUP_SKIP.test(k)) out[k] = localStorage.getItem(k); }
@@ -234,6 +241,7 @@ async function backupToServer(force) {
   const today = todayStr(0);
   if (!force && lsGet('adc_backup_day', '') === today) return null;   // 하루 1회
   if (!admgrCfg() || !AUTH.me) return null;
+  if (!force) { if (lsGet('adc_backup_try', '') === today) return null; lsSet('adc_backup_try', today); }   // 실패(한도 초과·오프라인)해도 그날은 다시 안 보낸다 — 접속마다 MB급 POST 반복 방지 (2026-10-26 점검)
   const d = await sbCall('client-log', { action: 'backup' }, { payload: backupPayload() });
   lsSet('adc_backup_day', today);
   return d;

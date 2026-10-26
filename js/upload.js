@@ -24,7 +24,9 @@ function renderUpload() {
 async function uplBadgeRefresh() {
   if (typeof admgrCfg !== 'function' || !admgrCfg() || (typeof authIsAdmin === 'function' && !authIsAdmin())) return;
   let n = 0;
-  try { n = (await uplCall({ action: 'creatives_list', status: 'registered', limit: 500 })).rows.length; } catch (e) { return; }
+  for (let i = 0; i < 50 && typeof reg === 'object' && reg.listLoading; i++) await new Promise(r => setTimeout(r, 200));   // 첫 화면이 같은 목록을 받는 중이면 기다렸다가 재사용 (2026-10-26 점검)
+  if (typeof reg === 'object' && Array.isArray(reg.list) && reg.list.length) n = reg.list.filter(r => r.status === 'registered').length;
+  else { try { n = (await uplCall({ action: 'creatives_list', status: 'registered', limit: 500 })).rows.length; } catch (e) { return; } }
   document.querySelectorAll('[data-menu="upload"]').forEach(btn => {
     let b = btn.querySelector('.upl-badge');
     if (!n) { if (b) b.remove(); return; }

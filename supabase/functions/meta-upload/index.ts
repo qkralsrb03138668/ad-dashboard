@@ -26,7 +26,7 @@
 // 보안: DASH_KEY + 매 쓰기 요청 PIN(WRITE_PIN, meta-budget과 동일 규칙: 15분 5회 잠금) + 일예산 상한 300,000원.
 // 필요 secrets: META_WRITE_TOKEN, WRITE_PIN, DASH_KEY, META_AD_ACCOUNT_ID
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, dbRest, getAuth, canAct, denyAct, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheSet, dbRest, getAuth, canAct, denyAct, handleOptions, json , maskTok } from "../_shared/util.ts";
 import { NOTE_RE, stripLeadNotes } from "../_shared/copy-check.ts";
 const makerKey = (v: unknown) => /^[a-z0-9_]{1,30}$/.test(String(v ?? "")) ? String(v) : null;   // creatives.maker — 목록은 shared_state maker_list(화면에서 관리), 서버는 키 형식만 검사 (0018)
 
@@ -229,6 +229,7 @@ Deno.serve(async (req) => {
     }
     if (action === "creatives_list") {
       const st = url.searchParams.get("status") ?? "registered";
+      if (!/^[a-z_]{1,30}$/.test(st)) return json({ error: "status 형식 오류" }, 400);   // PostgREST 필터에 그대로 들어가므로 (2026-10-26 보안 점검)
       const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 200));
       const q = st === "all" ? "" : `&status=eq.${st}`;
       const r = await dbRest(`creatives?select=*${q}&order=created_at.desc&limit=${limit}`);
@@ -301,6 +302,7 @@ Deno.serve(async (req) => {
     /* 인스타 게시물 목록 (2026-10-18) — 기존 게시물로 광고 만들기용. 페이지에 연결된 인스타 비즈니스 계정의 최근 게시물 */
     if (action === "ig_media") {
       let ig = url.searchParams.get("ig_user_id") ?? "";
+      if (ig && !/^\d{5,25}$/.test(ig)) return json({ error: "ig_user_id 형식 오류" }, 400);   // 숫자 id만 — Graph 경로에 그대로 들어가므로 (2026-10-26 보안 점검)
       const out: Rec = {};
       if (!ig) {
         const pages = await graph("me/accounts", { params: { fields: "id,name,instagram_business_account", limit: "50" } });
@@ -568,6 +570,6 @@ Deno.serve(async (req) => {
     }
     return json({ error: `알 수 없는 action: ${action}` }, 400);
   } catch (e) {
-    return json({ error: String((e as Error).message ?? e) }, 500);
+    return json({ error: maskTok(String((e as Error).message ?? e)).slice(0, 400) }, 500);
   }
 });

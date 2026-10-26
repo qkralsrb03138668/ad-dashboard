@@ -20,15 +20,9 @@ export function handleOptions(req: Request): Response | null {
   return null;
 }
 
-// ── 간단 인증: DASH_KEY secret이 설정돼 있으면 x-dash-key 헤더가 일치해야 한다 ──
-// 개인용 대시보드 전제. 키를 아예 안 만들면 anon key만으로 접근 가능하니
-// 광고 데이터를 남에게 보이고 싶지 않으면 DASH_KEY를 꼭 설정할 것.
-// (원본은 자체 로그인 verifyAuthToken + 역할(admin/staff) 검사 — 이식 가이드 §5의 어댑터 지점)
-export function checkDashKey(req: Request): boolean {
-  const key = Deno.env.get("DASH_KEY") ?? "";
-  if (!key) return true;
-  return req.headers.get("x-dash-key") === key;
-}
+// (checkDashKey는 2026-10-26 보안 점검에서 제거 — 어디서도 안 쓰였고, DASH_KEY가 비면 무조건 통과하는 함수라 남겨두면 위험)
+// 오류 메시지에 Meta 토큰이 섞여 나가지 않게 (네트워크 오류 문구에 요청 URL 전체가 들어갈 수 있다) — 2026-10-26 보안 점검
+export const maskTok = (s: unknown): string => String(s).replace(/access_token=[^&\s)"']+/g, "access_token=***");
 
 // ── 로그인 인증 (2026-09-07): DASH_KEY(로컬 파일용, admin 취급) 또는 Supabase Auth 사용자 JWT + profiles 역할 ──
 //   프로필이 없는 계정은 거부 — 계정은 관리자가 '데이터 관리 › 사용자 관리'에서 만든다 (auth-admin 함수).
@@ -74,16 +68,29 @@ export async function getAuth(req: Request): Promise<AuthUser | null> {
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   if (!token || token === anon) return null;
-  try {
-    const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` } });
-    if (!r.ok) return null;
-    const u = await r.json();
-    const pr = await rest(`profiles?user_id=eq.${u.id}&select=role,email,name`);
-    const row = (await pr.json())[0];
-    if (!row) return null;
-    return { id: u.id, email: row.email ?? u.email, name: row.name ?? "", role: row.role };
-  } catch { return null; }
+  const c = jwtCache.get(token);
+  if (c && Date.now() - c.at < 60_000) return c.u;
+  const inflight = jwtInflight.get(token);   // 화면 첫 로드처럼 같은 토큰으로 동시에 들어오면 한 번만 확인
+  if (inflight) return await inflight;
+  const p = (async (): Promise<AuthUser | null> => {
+    try {
+      const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return null;
+      const u = await r.json();
+      const pr = await rest(`profiles?user_id=eq.${u.id}&select=role,email,name`);
+      const row = (await pr.json())[0];
+      if (!row) return null;
+      const me: AuthUser = { id: u.id, email: row.email ?? u.email, name: row.name ?? "", role: row.role };
+      jwtCache.set(token, { at: Date.now(), u: me });   // 성공만 보관 — 역할 변경·삭제는 최대 60초 뒤 반영
+      if (jwtCache.size > 200) jwtCache.clear();
+      return me;
+    } catch { return null; } finally { jwtInflight.delete(token); }
+  })();
+  jwtInflight.set(token, p);
+  return await p;
 }
+const jwtCache = new Map<string, { at: number; u: AuthUser }>();   // 2026-10-26 점검: 요청마다 auth/v1/user + profiles 2왕복이던 것을 60초 캐시
+const jwtInflight = new Map<string, Promise<AuthUser | null>>();
 // 역할 검사 헬퍼 — 통과하면 사용자, 아니면 403 응답
 export async function requireRole(req: Request, roles: Array<"admin" | "marketer">): Promise<AuthUser | Response> {
   const me = await getAuth(req);
@@ -98,6 +105,7 @@ const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 export async function dbRest(path: string, init: RequestInit = {}): Promise<Response> {
   const go = () => fetch(`${SB_URL}/rest/v1/${path}`, {
+    signal: AbortSignal.timeout(30_000),   // PostgREST가 멈춰도 함수 전체가 같이 멈추지 않게 (2026-10-26 점검) — 호출부 signal이 있으면 그쪽 우선
     ...init,
     headers: {
       apikey: SB_KEY,
@@ -121,7 +129,7 @@ const rest = dbRest;   // (아래 캐시 코드가 쓰는 짧은 이름 — dbRe
 // Meta 호출 한도(rate limit)의 방어선 — 반복 조회 실사고가 있었으니 캐시 없이 돌리지 말 것 (이식 가이드 §7-1).
 export async function cacheGet(key: string, ttlMs: number): Promise<unknown | null> {
   try {
-    const res = await rest(`api_cache?cache_key=eq.${encodeURIComponent(key)}&select=payload,created_at`);
+    const res = await rest(`api_cache?cache_key=eq.${encodeURIComponent(key)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - ttlMs).toISOString())}&select=payload,created_at`);   // 만료분은 DB가 걸러 payload를 안 보낸다 (2026-10-26 점검)
     if (!res.ok) return null;
     const row = (await res.json())[0];
     if (!row) return null;
@@ -140,6 +148,7 @@ export async function cacheGetAny(key: string): Promise<unknown | null> {
   } catch { return null; }
 }
 
+let cacheSweepAt = 0;   // 정리 DELETE 마지막 실행 (isolate 메모리) — 2026-10-26 점검: 쓰기마다 돌던 전체 스캔을 10분에 1회로
 export async function cacheSet(key: string, payload: unknown): Promise<void> {
   try {
     await rest(`api_cache?on_conflict=cache_key`, {
@@ -147,8 +156,10 @@ export async function cacheSet(key: string, payload: unknown): Promise<void> {
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify({ cache_key: key, payload, created_at: new Date().toISOString() }),
     });
-    // 오래된 항목 정리 (실패해도 무해)
+    // 오래된 항목 정리 (실패해도 무해) — 10분에 1회
     // 24시간 지난 것만 정리 — 한도 초과 시 '마지막 데이터'(stale)로 돌려쓰려면 하루는 남아 있어야 한다 (2026-09-07)
+    if (Date.now() - cacheSweepAt < 10 * 60_000) return;
+    cacheSweepAt = Date.now();
     await rest(`api_cache?created_at=lt.${encodeURIComponent(new Date(Date.now() - 24 * 3600_000).toISOString())}`, {
       method: "DELETE", headers: { Prefer: "return=minimal" },
     });

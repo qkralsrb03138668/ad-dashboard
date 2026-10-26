@@ -67,6 +67,8 @@ Deno.serve(async (req) => {
       const row = await createUser(String(body.email ?? "").trim().toLowerCase(), String(body.password ?? ""), String(body.name ?? "").trim(), String(body.role ?? "marketer"));
       return json({ ok: true, user: row });
     }
+    const UUID = /^[0-9a-f-]{36}$/i;   // PostgREST 필터·Auth 경로에 그대로 들어가므로 (2026-10-26 보안 점검)
+    if ((action === "user_role" || action === "user_del") && !UUID.test(String(body.user_id ?? ""))) return json({ error: "user_id 형식 오류" }, 400);
     if (action === "user_role") {
       if (!["admin", "marketer"].includes(body.role)) return json({ error: "role 오류" }, 400);
       if (body.user_id === me.id) return json({ error: "자기 역할은 바꿀 수 없어요" }, 400);

@@ -394,7 +394,7 @@ async function regRefresh(force) {
   if (reg.list && !force) { regRenderList(); return; }
   reg.listLoading = true;
   try { reg.list = (await uplCall({ action: 'creatives_list', status: 'all', limit: 500 })).rows; }
-  catch (e) { reg.list = reg.list || []; toast('등록 목록 불러오기 실패: ' + e.message); }
+  catch (e) { if (/로그인/.test(e.message) && !reg.list) { reg.list = null; } else { reg.list = reg.list || []; toast('등록 목록 불러오기 실패: ' + e.message); } }   // 로그인 전 401은 토스트 없이 — 로그인 뒤 다시 받는다 (2026-10-26 점검: 빈 목록이 굳던 것)
   reg.listLoading = false; renderPTest();   // renderPTest가 등록 목록도 그린다
 }
 function regRenderList() {

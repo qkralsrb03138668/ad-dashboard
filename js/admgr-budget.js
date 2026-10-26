@@ -41,6 +41,7 @@ function admgrRunNotify(d, force) {   // force: 알림판 [자세히]에서 열 
 }
 setInterval(() => {   // 23:45 실행 창 동안 화면이 열려 있으면 결과를 바로 알림 (우리 서버만 조회)
   if (!admgr.data || admgr.demo || !admgrCfg()) return;
+  if (document.hidden || (typeof curMenu !== 'undefined' && curMenu !== 'admgr' && !ADMGR_SOLO[curMenu])) return;   // 숨은 탭·다른 메뉴에선 조회·재렌더 안 함 (2026-10-26 점검)
   const k = admgrKst(new Date().toISOString()); if (!k) return;
   const hm = k.getUTCHours() * 60 + k.getUTCMinutes();
   if (hm >= 23 * 60 + 46 || hm < 40) admgrWritePending();

@@ -105,6 +105,7 @@ async function authChangePw() {
 function authIsAdmin() { return !AUTH.me || AUTH.me.role === 'admin'; }   // me 없음 = 연동 없는 데모 → 제한 없음
 function authApplyRole() {
   makersLoad();   // 컨텐츠마케터 목록 — 로그인 직후 한 번
+  if (typeof curMenu !== 'undefined' && curMenu === 'ptest' && typeof reg === 'object' && !reg.list && typeof renderPTest === 'function') setTimeout(renderPTest, 0);   // 로그인 전 401로 못 받은 등록 목록 다시 (2026-10-26 점검)
   setTimeout(() => { if (typeof uplBadgeRefresh === 'function') uplBadgeRefresh(); }, 0);
   const admin = authIsAdmin();
   document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = admin ? '' : 'none');

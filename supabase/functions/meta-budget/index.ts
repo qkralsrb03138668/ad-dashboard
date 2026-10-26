@@ -22,7 +22,7 @@
 // 필요 secrets: META_WRITE_TOKEN(ads_management 시스템 사용자 토큰 — 사용자가 발급), WRITE_PIN, CRON_SECRET,
 //               DASH_KEY, META_ACCESS_TOKEN(읽기 — 현재값 조회용). secrets 변경 후에는 이 함수 재배포 필요.
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, getAuth, canAct, denyAct, dbRest, handleOptions, json } from "../_shared/util.ts";
+import { cacheGet, cacheSet, getAuth, canAct, denyAct, dbRest, handleOptions, json , maskTok } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const MAX_BUDGET = 300_000;   // 개당 일예산 상한
@@ -204,9 +204,10 @@ async function checkPin(pin: string): Promise<string | null> {
 }
 
 // 예약분 일괄 적용 — 23:45(run_reset 뒤) 및 00:00(run, 보조)에 호출. apply_date ≤ 오늘인 pending 전부
-async function runPending(): Promise<Record<string, unknown>> {
+async function runPending(includeToday = true): Promise<Record<string, unknown>> {
   const today = seoulToday();
-  const due = (await pg(`budget_writes?status=eq.pending&mode=neq.reset_approve&apply_date=lte.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];   // 승인 행(object_id "*")은 예산 적용 대상이 아님 — runReset이 끊긴 날 00:00 보조 실행이 "*"에 예산을 넣으려다 실패 기록을 남겼다 (2026-09-13)
+  // 00:00 보조 실행은 어제까지의 예약만 — 23:45 뒤에 '내일 23:45'로 잡은 예약이 날짜가 바뀌는 순간 적용되던 것 (2026-10-26 점검)
+  const due = (await pg(`budget_writes?status=eq.pending&mode=neq.reset_approve&apply_date=${includeToday ? "lte" : "lt"}.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];   // 승인 행(object_id "*")은 예산 적용 대상이 아님 — runReset이 끊긴 날 00:00 보조 실행이 "*"에 예산을 넣으려다 실패 기록을 남겼다 (2026-09-13)
   let ok = 0, fail = 0;
   for (let i = 0; i < due.length; i += 10) {   // runReset과 같은 이유로 10개씩 동시 (2026-09-13)
     await Promise.all(due.slice(i, i + 10).map(async (row) => {
@@ -263,12 +264,12 @@ Deno.serve(async (req) => {
         return json({ ok, failed });
       }
       if (action === "run_reset") { const r = await runReset(); return json({ ...r, pending: await runPending() }); }   // 원복 → 예약 순서 (같은 실행)
-      return json(await runPending());
+      return json(await runPending(false));   // 00:00 보조 실행: 어제 날짜까지의 예약만
     }
 
     const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (!me.perms && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);   // SSO 사용자는 아래 동작별 perms로
-    const NEED: Record<string, "budget" | "toggle"> = { apply: "budget", schedule: "budget", cancel: "budget", approve_reset: "budget", setstatus: "toggle" };
+    const NEED: Record<string, "budget" | "toggle"> = { apply: "budget", schedule: "budget", cancel: "budget", approve_reset: "budget", setstatus: "toggle", verify: "budget" };   // verify도 예산 권한자만 — 권한 없는 계정이 PIN 틀리기를 반복해 전원 잠그는 것 방지 (2026-10-26 보안 점검)
     if (NEED[action] && !canAct(me, NEED[action])) return denyAct(NEED[action]);
     // ⚠ DASH_KEY가 비어 있으면 누구나 예산을 바꿀 수 있으므로 쓰기 기능 자체를 잠근다
     if (!env("DASH_KEY")) return json({ error: "DASH_KEY가 설정되지 않아 예산 변경을 사용할 수 없습니다" }, 403);
@@ -298,7 +299,7 @@ Deno.serve(async (req) => {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const pinErr = await checkPin(String(body.pin ?? ""));
     if (pinErr) return json({ error: pinErr }, 403);
-    const who = "dashboard";
+    const who = (me.name || me.email || "dashboard").slice(0, 60);   // 누가 바꿨는지 budget_writes에 남긴다 (2026-10-26 보안 점검: 전부 "dashboard"로 찍히던 것)
 
     if (action === "verify") return json({ ok: true });
 
@@ -391,6 +392,6 @@ Deno.serve(async (req) => {
 
     return json({ error: "unknown action" }, 400);
   } catch (e) {
-    return json({ error: String(e).slice(0, 400) }, 500);
+    return json({ error: maskTok(String(e)).slice(0, 400) }, 500);
   }
 });

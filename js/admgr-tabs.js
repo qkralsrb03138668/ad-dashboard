@@ -165,7 +165,7 @@ function admgrTestRowSets() {
 /* 엑셀 추출 — 지금 화면에 보이는 표 그대로 */
 async function admgrTestXlsx() {
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해 주세요');
+    if (typeof XlsxPopulate === 'undefined') await loadScript('https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js');   // 190KB — 내보내기 때만 받는다 (2026-10-26 점검)
     const t = admgr.test;
     const { rows } = admgrTestRowSets();
     if (!rows.length) { toast('내려받을 소재가 없어요'); return; }

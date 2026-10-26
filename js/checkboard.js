@@ -148,7 +148,8 @@ let ptCreatedTried = false;
 async function ptBackfillCreated() {   // 세션당 1회: 등록일 없는 상품이 있으면 조용히 채움 (서버 10분 캐시)
   if (ptCreatedTried || !pt.products.some(p => !p.created) || typeof admgrCfg !== 'function' || !admgrCfg()) return;
   ptCreatedTried = true;
-  try { const rows = (await perfApi({ action: 'products', nocache: '1' })).rows; if (ptFillCreated(rows)) renderPTest(); } catch (e) { /* 미연동·오프라인은 무시 */ }   // nocache: 등록일 없는 옛 캐시를 피함
+  if (lsGet('adc_pt_created_try', '') === todayStr(0)) return; lsSet('adc_pt_created_try', todayStr(0));   // 하루 1회 — 카페24에 없는 상품(품절·직접 추가)은 영영 안 채워져 매 접속 전체 상품을 다시 받던 것 (2026-10-26 점검)
+  try { const rows = (await perfApi({ action: 'products' })).rows; if (ptFillCreated(rows)) renderPTest(); } catch (e) { /* 미연동·오프라인은 무시 */ }   // 서버 10분 캐시 그대로 (nocache 제거)
 }
 const fmtYMD = d => d ? String(d).slice(2, 10).replace(/-/g, '.') : '-';
 function ptDelProduct(id) {

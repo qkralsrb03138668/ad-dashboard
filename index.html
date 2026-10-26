@@ -8,9 +8,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- 광고관리자 테스트 소재 탭의 엑셀 추출용 -->
-  <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
   <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-  <script src="./config.js"></script>
+  <script>if (!/\.github\.io$/i.test(location.hostname)) document.write('<script src="./config.js"><\/script>');   // 로컬 파일 전용 — 배포본은 없어서 404를 기다리기만 했다 (2026-10-26 점검)</script>
   <script>
     // 배포판(GitHub Pages)엔 config.js가 없다 — 공개용 anon key만 기본값으로 넣고 로그인 계정으로 서버 인증. DASH_KEY는 로컬 파일 전용.
     window.DASH_CFG = Object.assign({
@@ -275,7 +274,7 @@
         <button class="btn-analyze" id="btn-api-perf" onclick="fetchPerfApi()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
         </button>
-        <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="renderPerfResult()"
+        <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="debounceCall('perfq', renderPerfResult, 150)"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.82rem;outline:none;min-width:170px;" />
         <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준</span>
       </div>
@@ -465,7 +464,7 @@
     <div class="modal-head"><b>카페24 상품 선택</b>
       <span id="pt-pick-count" style="font-size:.75rem;color:#6b7280;"></span>
       <button class="modal-x" onclick="closeModal('pt-pick-modal')">✕</button></div>
-    <input class="inp" id="pt-pick-q" placeholder="상품명 · 상품번호 검색" oninput="renderPtPick()" style="margin-bottom:10px;" />
+    <input class="inp" id="pt-pick-q" placeholder="상품명 · 상품번호 검색" oninput="debounceCall('ptpick', renderPtPick, 150)" style="margin-bottom:10px;" />
     <div id="pt-pick-list" style="flex:1;overflow:auto;min-height:200px;border:1px solid #e7e8ee;border-radius:10px;"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="btn-ghost" onclick="closeModal('pt-pick-modal')">취소</button>
@@ -603,17 +602,17 @@
   <button class="menu-item" data-menu="mycre" data-role="marketer" onclick="showMenu('mycre')"><i class="fa-solid fa-chart-simple"></i>내 소재</button>
   <button class="menu-item" onclick="menuDrawer(true)"><i class="fa-solid fa-bars"></i>더보기</button>
 </nav>
-<script src="./js/core.js?v=202610131800"></script>
-<script src="./js/auth.js?v=202610131800"></script>
+<script src="./js/core.js?v=202610261800"></script>
+<script src="./js/auth.js?v=202610261800"></script>
 <script src="./js/home.js?v=202610061613"></script>
 <script src="./js/creatives.js?v=202610061613"></script>
-<script src="./js/checkboard.js?v=202610061613"></script>
-<script src="./js/register.js?v=202610061613"></script>
-<script src="./js/upload.js?v=202610181500"></script>
-<script src="./js/admgr.js?v=202610261610"></script>
-<script src="./js/admgr-budget.js?v=202610261600"></script>
-<script src="./js/admgr-tabs.js?v=202610261000"></script>
-<script src="./js/admgr-alerts.js?v=202610261400"></script>
+<script src="./js/checkboard.js?v=202610261800"></script>
+<script src="./js/register.js?v=202610261800"></script>
+<script src="./js/upload.js?v=202610261800"></script>
+<script src="./js/admgr.js?v=202610261800"></script>
+<script src="./js/admgr-budget.js?v=202610261800"></script>
+<script src="./js/admgr-tabs.js?v=202610261800"></script>
+<script src="./js/admgr-alerts.js?v=202610261800"></script>
 <script src="./js/test-tab.js?v=202610231637"></script>
 <script src="./js/mycre.js?v=202610061613"></script>
 <script src="./js/brief.js?v=202610131800"></script>
