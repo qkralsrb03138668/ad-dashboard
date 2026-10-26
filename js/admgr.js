@@ -28,7 +28,7 @@ const admgr = {
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
   selAds: new Set(),
   customRange: lsGet('adc_admgr_range', null),   // 직접 지정 기간 {since, until} (2026-09-16)   // 광고 탭 선택 (복사용 — 2026-09-16)
-  judgeFilter: 'live', role: lsGet('adc_admgr_role', 'all'), margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
+  judgeFilter: 'all', role: 'ops', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
 const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
@@ -136,6 +136,7 @@ function admgrSolo(view) {
   admgrSetView(view);
 }
 function admgrOpen() {
+  admgr.role = 'ops'; admgr.judgeFilter = 'all';   // 메뉴로 들어오면 늘 운영 역할부터 (2026-10-01 '항상 운영중으로 열리게')
   if (admgr.solo) { admgr.view = admgr.prevView || 'camp'; admgr.solo = null; $('admgr-note').style.display = ''; $('admgr-title').innerHTML = '<i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)'; }
   if (!admgr.data && !admgr.demo && admgrCfg()) {
     const c = lsGet('adc_admgr_last', null);
@@ -489,51 +490,53 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const roleRow = `<div class="filter-tabs ag-role" style="margin-bottom:10px;"><span class="ag-lbl">역할</span>${ROLES.map(([k, l]) => { const L = vis.filter(r => admgrRolePass(r, k)); return `<button class="filter-tab ${roleCur === k ? 'active' : ''}" onclick="admgrRoleSet('${k}')" title="${k === 'test' ? '테스트 캠페인 안 _test 세트' : k === 'ops' ? (isCamp ? '캠페인 예산이 없는 캠페인' : '테스트 캠페인 안 test 없는 세트') : k === 'cbo' ? '캠페인 예산이 있는 캠페인 (리타겟팅 포함)' : '모든 역할'}">${l} <small class="ag-muted">${L.length} · ${roleSum(L)}</small></button>`; }).join('')}</div>`;
   if (admgr.role !== 'all') vis = vis.filter(r => admgrRolePass(r, admgr.role));
 
-  /* '최근 변경' 열 + '오늘 예산' 필터 칩 — 오늘 칩 + 캠페인/세트 탭에서만 (원본 규칙) */
+  /* '최근 변경' 열(오늘·캠페인/세트 탭) · '자정세팅' 열 · '판정' 열 표시 여부 (원본 규칙) */
   const bb = admgr.budget;
   const showChg = admgrJudgeView() && (isCamp || isSet) && !admgr.demo;
   const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo && dnrbCan('budget');   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
-  /* '판정' 열 — 광고세트 탭 + 오늘 칩: 지출 vs 마진(판매가−공급가×1.1)·구매로 1차/2차 후보 배지 (2026-09-05 사용자 운영 규칙) */
-  const showJudge = isSet && admgrJudgeView() && !admgr.demo;
-  let judgeChips = '';
+  const showJudge = isSet && admgrJudgeView() && !admgr.demo;   // '판정' 열 — 광고세트 탭 + 오늘
+  /* 오늘 할 일 줄 (2026-10-26 사용자 승인: 역할·오늘 예산·판정 세 줄 → 역할 + 할 일 두 줄). 역할마다 칩이 다르다.
+     운영: 마감 100%↑·구매 0 / 곧 도달 1~2 / 증액 검토 3+ / 감액 후 반등 / 오늘 예산 바뀜 · 테스트: 승격 후보 / 마감 100%↑·구매 0 · CBO: 광고 탭으로 넘겨 독식·지출 0 · 전체·캠페인 탭: 오늘 예산 바뀜
+     없앤 칩: 운영중(=역할 운영) · 테스트중(=역할 테스트) · 감액 ÷10 구매 0(옛 기준 — 마감 100%↑로 대체) · 마감 50%↑(예상 마감 열의 노랑으로) · 오늘 예산 줄 4개와 미변경(→ 오늘 예산 바뀜 하나) */
+  const campSp = new Map(); for (const x of R.ads) campSp.set(x._campId, (campSp.get(x._campId) || 0) + (x.spend || 0));   // CBO 광고의 캠페인 내 지출 비중용
+  const adShare = x => x._cbo && x.spend > 0 ? Math.round(x.spend / campSp.get(x._campId) * 100) : 0;
+  const changedOf = r => !!bb.byObj && (bb.byObj.get(r.id) || []).length > 0;
+  const todo = [];   // [key, label, predicate, onclick(선택)]
   if (showJudge) {
     if (!admgr.products && !admgr.productsLoading && admgrCfg()) admgrLoadProducts();
-    const all = vis.map(r => ({ r, j: admgrJudge(r) }));
-    const cnt = k => all.filter(x => x.j.key === k).length;
-    const projOf = r => admgrP7(r) > 0 || admgrIsTest(r) ? null : admgrProj(r);   // 구매 0인 운영 세트만 예상 마감 % (2026-10-26)
-    const cntP = n => all.filter(x => (projOf(x.r) || 0) >= n).length;
-    const chip = (k, label, n, on, fn) => `<button class="filter-tab ${on ? 'active' : ''}" onclick="${fn}">${label}${n == null ? '' : ' ' + n}</button>`;
-    /* 1차/2차 구분은 2026-09-07 사용자 요청으로 제거 — 칩은 필터: 누르면 그 판정에 해당하는 세트만 표시 */
-    judgeChips = `<div class="filter-tabs ag-judge" style="margin-bottom:12px;">
-      <span class="ag-lbl">판정</span>
-      ${chip('all', '전체', all.length, admgr.judgeFilter === 'all', "admgrJudgeSet('all')")}
-      ${chip('live', '운영중 <small class="ag-muted">test 제외</small>', all.filter(x => !admgrIsTest(x.r)).length, admgr.judgeFilter === 'live', "admgrJudgeSet('live')")}
-      ${chip('over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', cntP(100), admgr.judgeFilter === 'over', "admgrJudgeSet('over')")}${chip('warn50', '<span class="ag-dot amber"></span>마감 50%↑ <small class="ag-muted">구매 0</small>', cntP(50), admgr.judgeFilter === 'warn50', "admgrJudgeSet('warn50')")}${chip('cut', '<span class="ag-dot red"></span>감액 ÷10 <small class="ag-muted">구매 0</small>', cnt('cut'), admgr.judgeFilter === 'cut', "admgrJudgeSet('cut')")}${chip('warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', cnt('warn'), admgr.judgeFilter === 'warn', "admgrJudgeSet('warn')")}${chip('up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', cnt('up'), admgr.judgeFilter === 'up', "admgrJudgeSet('up')")}${cnt('rebound') ? chip('rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 5+</small>', cnt('rebound'), admgr.judgeFilter === 'rebound', "admgrJudgeSet('rebound')") : ''}${cnt('testing') ? chip('testing', '<span class="ag-dot gray"></span>테스트중 <small class="ag-muted">세트명 test</small>', cnt('testing'), admgr.judgeFilter === 'testing', "admgrJudgeSet('testing')") : ''}
-      ${bb.byObj ? `<span class="ag-vsep"></span>${chip('nochg', '<i class="fa-solid fa-pen-slash" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 미변경', vis.filter(r => !admgrIsTest(r) && !(bb.byObj.get(r.id) || []).length).length, admgr.judgeFilter === 'nochg', "admgrJudgeSet('nochg')")}` : ''}
-      <span style="flex:1;"></span>
-      ${(admgr.judgeFilter === 'over' || admgr.judgeFilter === 'warn50') && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutDisp()" title="지금 표시된 세트 중 오늘 아직 안 깎은 것(구매 0 · 예산 있음)을 ÷10으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요">표시된 세트 ÷10 임시 저장</button>`
-      : admgr.write.st && dnrbCan('budget') && all.filter(x => x.j.key === 'cut' && x.r.budget > 0).length ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutAll()" title="구매 0 + 지출 있는 세트 전체를 현재 예산 ÷10으로 임시 저장 (오늘 이미 감액한 세트 제외 · 캠페인 예산 세트 제외) — 상단 \'게시\'를 눌러야 Meta에 반영돼요">감액 후보 ÷10 임시 저장 (${all.filter(x => x.j.key === 'cut' && x.r.budget > 0).length})</button>` : ''}
-      ${admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
-    </div>`;
-    if (admgr.judgeFilter === 'nochg') vis = bb.byObj ? vis.filter(r => !admgrIsTest(r) && !(bb.byObj.get(r.id) || []).length) : vis;   // 오늘 예산 변경 이력 없는 세트 (Meta 활동 로그 기준)
-    else if (admgr.judgeFilter === 'live') vis = vis.filter(r => !admgrIsTest(r));   // 운영중 = 세트명에 test 없는 세트 전부 (기본값, 2026-10-01)
-    else if (admgr.judgeFilter === 'over' || admgr.judgeFilter === 'warn50') vis = vis.filter(r => (projOf(r) || 0) >= (admgr.judgeFilter === 'over' ? 100 : 50));
-    else if (admgr.judgeFilter !== 'all') vis = all.filter(x => x.j.key === admgr.judgeFilter).map(x => x.r);
-  }
-  let chgChips = '';
-  if (showChg && bb.byObj) {
-    const base = vis;
-    const changed = base.filter(r => (bb.byObj.get(r.id) || []).length);
-    const ups = changed.filter(r => admgrChgUp(bb.byObj.get(r.id))).length;
-    const chip = (k, label, n) => `<button class="filter-tab ${admgr.chgFilter === k ? 'active' : ''}" onclick="admgrChgSet('${k}')">${label} ${n}</button>`;
-    chgChips = `<div class="filter-tabs ag-chg" style="margin-bottom:12px;"><span class="ag-lbl">오늘 예산</span>
-      ${chip('all', '전체', base.length)}${chip('changed', '변경', changed.length)}${chip('up', '↑ 증액', ups)}${chip('down', '↓ 감액', changed.length - ups)}</div>`;
-    if (admgr.chgFilter !== 'all') {
-      vis = vis.filter(r => { const evs = bb.byObj.get(r.id); if (!evs || !evs.length) return false;
-        return admgr.chgFilter === 'changed' || ((admgr.chgFilter === 'up') === admgrChgUp(evs)); });
+    const jm = new Map(vis.map(r => [r.id, admgrJudge(r)]));
+    const jk = k => r => (jm.get(r.id) || {}).key === k;
+    const overOf = r => admgrP7(r) === 0 && (admgrProj(r) || 0) >= 100;
+    const promo = typeof admgrPromoCands === 'function' ? new Set(admgrPromoCands().ads.map(x => x.s.id)) : new Set();   // 승격 후보(7일 구매 30↑ 등) — 테스트 캠페인 세트라 운영·테스트 둘 다
+    if (admgr.role === 'test') {
+      todo.push(['promo', '<span class="ag-dot green"></span>승격 후보', r => promo.has(r.id)], ['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf]);
+    } else if (admgr.role === 'all') { /* 전체는 표 그대로 — 아래 '오늘 예산 바뀜'만 */ }
+    else if (admgr.role === 'cbo') {
+      const cboAds = R.ads.filter(x => x._cbo && x.status === 'ACTIVE');
+      const hog = new Set(cboAds.filter(x => adShare(x) >= 60).map(x => x._campId)).size, zero = cboAds.filter(x => !(x.spend > 0)).length;
+      todo.push(['hog', `<span class="ag-dot amber"></span>광고 하나가 60%↑ ${hog} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('hog')"], ['zero', `지출 0 광고 ${zero} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('zero')"]);
+    } else {
+      todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', jk('warn')], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
+      if (vis.some(jk('rebound'))) todo.push(['rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 5+</small>', jk('rebound')]);
+      if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
   }
-
+  if (admgr.view === 'ad' && admgr.role === 'cbo') todo.push(['hog', '<span class="ag-dot amber"></span>광고 하나가 60%↑', x => adShare(x) >= 60], ['zero', '지출 0 광고', x => x.status === 'ACTIVE' && !(x.spend > 0)]);
+  if (showChg && bb.byObj && admgr.role !== 'cbo') todo.push(['chg', '<i class="fa-solid fa-pen" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 바뀜', changedOf]);
+  if (admgr.judgeFilter !== 'all' && !todo.some(t => t[0] === admgr.judgeFilter)) admgr.judgeFilter = 'all';   // 역할·탭을 바꿔 그 칩이 없으면 전체로
+  let judgeChips = '';
+  if (todo.length) {
+    const chip = (k, label, n, fn) => `<button class="filter-tab ${admgr.judgeFilter === k ? 'active' : ''}" onclick="${fn || `admgrJudgeSet('${k}')`}">${label}${n == null ? '' : ' ' + n}</button>`;
+    judgeChips = `<div class="filter-tabs ag-judge" style="margin-bottom:12px;">
+      <span class="ag-lbl">오늘 할 일</span>
+      ${chip('all', '전체', vis.length)}${todo.map(([k, l, p, fn]) => chip(k, l, p ? vis.filter(p).length : null, fn)).join('')}
+      <span style="flex:1;"></span>
+      ${admgr.judgeFilter === 'over' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutDisp()" title="지금 표시된 세트 중 오늘 아직 안 깎은 것(구매 0 · 예산 있음)을 ÷10으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요">표시된 세트 ÷10 임시 저장</button>` : ''}
+      ${showJudge && admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
+    </div>`;
+    const t = todo.find(x => x[0] === admgr.judgeFilter);
+    if (t && t[2]) vis = vis.filter(t[2]);
+  }
   admgr._dispIds = vis.map(r => r.id);   // 헤더 전체선택용 (검색·활성만·판정 필터 반영된 표시 행)
   /* 요약 타일 (표시분 기준) */
   const tot = { spend: 0, purchases: 0, value: 0, clicks: 0, purchases_7d: 0, value_7d: 0 };   // 합계 줄의 클릭7일 열은 직접 누적 (admgrP7/V7 폴백이 tot엔 안 맞음)
@@ -551,7 +554,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     ${admgrTile('ROAS', tot.spend ? (tot.value / tot.spend).toFixed(2) : '—')}${admgrTile('표시 중 ' + VIEW_LABEL, vis.length + '개')}
   </div>`);
   const cpcTd = r => r.clicks ? won(r.spend / r.clicks) : '—';
-  const campSp = new Map(); for (const a of R.ads) campSp.set(a._campId, (campSp.get(a._campId) || 0) + (a.spend || 0));   // CBO 광고 지출 비중용 (2026-10-26)
   const shareTd = r => { if (!r._cbo || !(r.spend > 0)) return ''; const p = Math.round(r.spend / campSp.get(r._campId) * 100); return ` · <span title="이 캠페인 지출 중 이 광고 비중 — 60%↑면 한 광고 독식" style="${p >= 60 ? 'color:#b45309;font-weight:700;' : ''}">지출 ${p}%</span>`; };
   const totalRow = (lead, extraCols) => `<tfoot><tr>
     <td colspan="${lead}" style="text-align:left;">${vis.length}개 ${VIEW_LABEL}의 결과</td>
@@ -701,9 +703,9 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       else if (admgr.view === 'ad' && admgr.selCamps.size) fnotice = admgrFNoticeHtml(nm(R.camps, admgr.selCamps), admgr.selCamps.size);
     }
     const selTop = admgr.mSelect ? admgrSelBarHtml() : '', selPanel = admgr.mSelect ? admgrSelPanelHtml() : '';
-    return selTop + roleRow + chgChips + judgeChips + mkBan + fnotice + tiles + table + cards + selPanel;
+    return selTop + roleRow + judgeChips + mkBan + fnotice + tiles + table + cards + selPanel;
   }
-  return roleRow + chgChips + judgeChips + mkBan + tiles + table + cards + actbar;
+  return roleRow + judgeChips + mkBan + tiles + table + cards + actbar;
 }
 /* 행 여백 클릭 = 체크박스 토글 (2026-09-15 사용자 요청). 버튼·링크·입력칸·토글·연필 등 조작 요소 위 클릭은 제외 */
 /* ═══ 광고 복사 (2026-09-16 사용자 요청) — 고른 광고를 다른 캠페인·광고세트에 꺼진 상태로 복사하고,
@@ -1189,8 +1191,7 @@ function admgrRoleOf(r) {
 }
 function admgrRolePass(r, role) { if (role === 'all') return true; const k = admgrRoleOf(r); return r.adsets && role !== 'cbo' ? k !== 'cbo' : k === role; }
 function admgrRoleSet(k) {
-  admgr.role = k; lsSet('adc_admgr_role', k);   // 운영 역할의 기본 정렬(예상 마감 높은 순)은 admgrCmp가 열 정렬 없을 때 알아서
-  admgr.judgeFilter = k === 'test' ? 'all' : admgr.judgeFilter === 'testing' ? 'all' : admgr.judgeFilter;   // 테스트 역할에서 '운영중(test 제외)' 칩이 남아 빈 표가 되지 않게
+  admgr.role = k; admgr.judgeFilter = 'all';   // 운영 역할의 기본 정렬(예상 마감 높은 순)은 admgrCmp가 열 정렬 없을 때 알아서
   renderAdmgr(true);
 }
 function admgrProj(r) {   // 지금 속도면 마감 때 마진의 몇 % — 오늘 지출 × 24 ÷ 지난 시간 ÷ 마진 (받아온 시각 기준, 1시간 전엔 1시간으로)
@@ -1207,7 +1208,8 @@ function admgrProjCell(r) {
 }
 function admgrCutDisp() {   // 표시된 세트(예상 마감 칩) 중 오늘 안 깎은 구매 0 세트 ÷10 임시 저장
   const ids = new Set(admgr._dispIds || []);
-  admgrCutDraft(admgrRows().sets.filter(r => ids.has(r.id) && admgrJudge(r).key === 'cut'), '표시된 세트');
+  const cutToday = r => ((admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || []).some(e => e.new_value < e.old_value);
+  admgrCutDraft(admgrRows().sets.filter(r => ids.has(r.id) && admgrP7(r) === 0 && r.spend > 0 && !cutToday(r)), '표시된 세트');   // 구매 0 · 지출 있음 · 오늘 안 깎음 (테스트 세트 포함)
 }   // 세트명에 test — 테스트중이라 감액·증액 판정에서 뺀다 (2026-09-17 사용자 요청)
 function admgrJudge(r) {   // 2026-09-15 사용자 규칙: 구매 수로만 판정 (마진·지출%는 참고 표시). 지출 0원인 세트는 감액 후보에서 제외
   const { m, src } = admgrMarginOf(r);
@@ -1242,6 +1244,7 @@ function admgrJudgeCell(r) {
   return `${b ? `<span class="status-badge ${b.cls}" style="white-space:nowrap;">${b.t}</span>${act}` : '<span style="color:#d1d5db;">—</span>'}${sub}`;
 }
 function admgrJudgeSet(k) { admgr.judgeFilter = k; renderAdmgr(true); }
+function admgrAdFilter(k) { admgr.judgeFilter = k; admgr.view = 'ad'; renderAdmgr(); }   // CBO 할 일 칩: 광고 탭에서 그 광고만 (2026-10-26)
 function admgrMarginEdit(id) {   // 브라우저 prompt() 대신 모달 (2026-09-14)
   const r = admgrRows().sets.find(x => x.id === id); if (!r) return;
   const cur = admgrMarginOf(r);
