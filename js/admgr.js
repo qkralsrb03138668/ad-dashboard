@@ -23,7 +23,7 @@ const admgr = {
   budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
   chgFilter: 'all',          // 오늘 예산 변경 필터: all / changed / up / down
   /* 예산 쓰기(4단계): st = meta-budget status 응답, pin = 인증된 PIN(메모리만 — 저장 금지), pendingByObj = Map(대상 id → 자정 예약 행), midMode = idle/setting/done */
-  write: { st: null, pin: lsGet('adc_admgr_pin', null), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
+  write: { st: null, pin: pinGet(), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
   /* 오늘의 판정(광고세트 탭, 오늘 칩): round r1(11시경)/r2(14시경) 수동 전환, judgeFilter = all/cut/warn/up/manual/reup,
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
   selAds: new Set(),
@@ -40,6 +40,9 @@ const admgrJudgeView = () => admgr.preset === 'today' || admgr.preset === 'custo
    서버 캐시가 아직 옛 응답이면 purchases_7d가 없다 → 기본 창 − 조회 후 1일 (메타 실측: 기본 = 클릭7일 + 조회1일, 겹침 없음)로 계산 */
 const admgrP7 = r => r.purchases_7d != null ? r.purchases_7d : Math.max(0, (r.purchases || 0) - (r.purchases_1dv || 0));
 const admgrV7 = r => r.value_7d != null ? r.value_7d : (r.purchases > 0 ? (r.value || 0) * admgrP7(r) / r.purchases : (r.value || 0));   // 캐시 전 응답: 전환값을 구매 비율로 나눠 근사
+/* PIN은 이 탭에서만(sessionStorage) — 2026-10-26 보안 점검: localStorage 평문은 같은 주소의 다른 페이지 구멍으로 새나갈 수 있어서. 예전 localStorage 값은 지운다 */
+function pinGet() { try { localStorage.removeItem('adc_admgr_pin'); return sessionStorage.getItem('adc_admgr_pin') || null; } catch { return null; } }
+function pinSet(pin) { try { if (pin) sessionStorage.setItem('adc_admgr_pin', pin); else sessionStorage.removeItem('adc_admgr_pin'); } catch { /* 무시 */ } }
 function admgrCfg() {
   const c = window.DASH_CFG || {};
   return (c.SUPABASE_URL && c.SUPABASE_ANON_KEY) ? c : null;

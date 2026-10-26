@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CS 상황판 자동 실행 (다나로브)
 // @namespace    danarobe-cs
-// @version      17
+// @version      18
 // @description  CS 상황판 숫자·처리 기록 자동 수집(수집 PC 한 대) + 카카오 채팅창·네이버 고객문의 답변 후보 패널(상담원 PC)
 // @match        https://business.kakao.com/*
 // @match        https://admin.pay.naver.com/front/m/v2/customer/inquiry*
@@ -40,7 +40,7 @@ function qaPairs(logs,user,chatId,since){   /* logs = 카카오 채팅 기록(�
     var bot=x.type!==1||AUTO.test(t)||(x.send_at-lastC<3000&&!hb.length);if(!bot&&cb.length)hb.push(t)});
   if(hb.length)done();return out}
 
-var CS_VER=17;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
+var CS_VER=18;   /* @version과 같게 — 상황판 상태에 남아서 어느 버전이 수집 중인지 보임 */
 /* ── 네이버페이센터 고객문의 API (2026-10-01 diag로 확인) ──
    목록 GET /front-api/m/v2/inquiry/list?searchStartYmdt=…&searchEndYmdt=…(+페이지) → body.totalNewInquiry(미답변 수), body.pageResult.content[{inquiryNo, inquiryCategoryName, title, lastInquiryDate, lastInquiryCommentDate…}]
    상세 GET /front-api/m/v2/inquiry/{inquiryNo}/detail → body.comments[{inquiryCommentType, answererTypeCode, content, registrationDate}]
@@ -101,7 +101,7 @@ function tracker(C,F){
   function send(n,e,ids){
     var u=F+'?action=push&code='+encodeURIComponent(C)+'&src='+src+'&n='+(n==null?'':n)+'&err='+encodeURIComponent(e||'')+(ids?'&ids='+ids.join(','):'')+'&v='+CS_VER;
     tag.textContent='● CS 상황판 전송 중 · '+new Date().toTimeString().slice(0,5)+' · '+(n==null?e:n+'건')+rec;
-    fetch(u).then(function(r){if(r.status==401){timer.stop();tag.textContent='CS 상황판: 초대코드가 맞지 않아요 — 북마크를 다시 만드세요'}}).catch(function(){new Image().src=u});
+    fetch(u).then(function(r){if(r.status==401){timer.stop();try{localStorage.removeItem('cs_board_code')}catch(e){}tag.textContent='CS 상황판: 초대코드가 바뀌었어요 — 페이지를 새로고침하면 다시 물어요'}}).catch(function(){new Image().src=u});
   }
   function post(o){return fetch(F,{method:'POST',headers:{'Content-Type':'application/json','x-cs-code':C},body:JSON.stringify(o)}).then(function(r){return r.json()})}
   function docs(){var d=[document];for(var i=0;i<frames.length;i++){try{if(frames[i].document.body)d.push(frames[i].document)}catch(e){}}return d}
@@ -271,7 +271,7 @@ function ansCard(title,text,onInsert,tag){var c=el('div','border:1px solid #DFE2
 var aiCache={};
 function aiType(text,ctx){var k=ctx+'\n'+text;if(aiCache[k])return aiCache[k];
   return aiCache[k]=new Promise(function(res){if(typeof GM_xmlhttpRequest==='undefined')return res(null);
-    GM_xmlhttpRequest({method:'POST',url:'http://127.0.0.1:8787/classify',headers:{'Content-Type':'application/json','x-cs-code':'4471'},data:JSON.stringify({text:text,ctx:ctx}),timeout:60000,
+    GM_xmlhttpRequest({method:'POST',url:'http://127.0.0.1:8787/classify',headers:{'Content-Type':'application/json','x-cs-code':'local'},data:JSON.stringify({text:text,ctx:ctx}),timeout:60000,
       onload:function(r){try{var j=JSON.parse(r.responseText);res(j&&j.t?j:null)}catch(e){res(null)}},onerror:function(){res(null)},ontimeout:function(){res(null)}})}).then(function(r){if(!r)delete aiCache[k];return r})}
 function renderWithAi(box,o){var st=el('div','font:11.5px sans-serif;color:#7A4BD6;margin:0 0 4px','🤖 AI가 문의 읽는 중…'),area=el('div');box.appendChild(st);box.appendChild(area);renderAnswers(area,o);
   aiType(o.text,o.ctx).then(function(ai){if(area.parentNode!==box)return;if(!ai){st.textContent='AI 꺼짐 — 단어 규칙으로 추천 중 (바탕화면 CS-AI-켜기를 실행하면 켜져요)';st.style.color='#9AA0AD';return}

@@ -15,7 +15,7 @@ const uplPin = () => ($('upl-pin').value || '').trim();
 
 function renderUpload() {
   if (!admgrCfg()) { $('upl-model').innerHTML = `<div class="empty-state" style="padding:24px;"><p>config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP-광고관리자.md)</p></div>`; return; }
-  if (!$('upl-pin').value) $('upl-pin').value = lsGet('adc_admgr_pin', '') || '';
+  if (!$('upl-pin').value) $('upl-pin').value = pinGet() || '';
   if (!upl.data) { upl.data = admgr.data; }   // 광고관리자에서 이미 불러왔으면 재사용
   uplRenderModel(); uplRenderFiles(); uplLoadRegistered();
 }
@@ -383,7 +383,7 @@ async function uplRun() {
   if (!confirm(`${picked.length ? `체크한 ${pending.length}개만` : `광고 ${pending.length}개를`} ${mode === 'ACTIVE' ? '⚠ 바로 활성 상태로' : '세트 일시중지(광고는 활성) 상태로'} 생성할까요?\n캠페인: ${upl.model.campaign.name}\n${upl.model.cbo ? '캠페인 예산(CBO)' : `세트당 일예산 기본 ${budget.toLocaleString()}원${custom ? ` (개별 지정 ${custom}개)` : ''}`}\n\n${mode === 'ACTIVE' ? '활성 생성은 즉시 지출이 시작돼요.' : '광고관리자에서 세트를 켜기 전까지 지출 없음.'}`)) return;
 
   upl.running = true; $('upl-run').disabled = true; uplRenderFiles();
-  lsSet('adc_admgr_pin', pin);
+  pinSet(pin);
   uplLog(`시작 — ${pending.length}개, ${mode}, 모델 ${upl.model.ad.name} · 미디어 ${UPL_PARALLEL}개씩 동시 전송`);
   const t0 = Date.now();
   // 1단계: 미디어 병렬 업로드 (이미 올라간 파일은 건너뜀 — 재시도 시 재전송 없음)

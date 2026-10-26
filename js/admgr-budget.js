@@ -361,7 +361,7 @@ async function admgrPinVerify() {
   try {
     await metaBudgetCall({ action: 'verify' }, { pin });
     admgr.write.pin = pin;
-    lsSet('adc_admgr_pin', pin);   // 잠그기 버튼을 누르기 전까지 유지
+    pinSet(pin);   // 잠그기 버튼을 누르기 전까지, 이 탭에서만 유지 (2026-10-26)
     $('admgr-bpop').style.display = 'none';
     toast('PIN 인증 완료 — 잠그기를 누르기 전까지 계속 풀려 있어요');
     const after = admgrBP.after; admgrBP.after = null;
@@ -371,11 +371,11 @@ async function admgrPinVerify() {
 }
 function admgrPinClear() {
   admgr.write.pin = null;
-  try { localStorage.removeItem('adc_admgr_pin'); } catch { /* 무시 */ }
+  pinSet(null);
   toast('잠갔어요 — 다음 예산 변경부터 PIN을 다시 물어요'); renderAdmgr(true);
 }
 /* 서버가 PIN을 거부하면(PIN 변경·잠금) 저장된 것도 지운다 */
-function admgrPinInvalidate() { admgr.write.pin = null; try { localStorage.removeItem('adc_admgr_pin'); } catch { /* 무시 */ } renderAdmgr(true); }
+function admgrPinInvalidate() { admgr.write.pin = null; pinSet(null); renderAdmgr(true); }
 function admgrMidBtn() {
   const w = admgr.write;
   if (w.midMode === 'setting') { w.midMode = 'done'; toast('23:45 반영 세팅 완료 — 버튼을 누르면 예약 목록이 열려요'); renderAdmgr(true); }
