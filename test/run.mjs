@@ -379,15 +379,15 @@ test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표
 });
 
 test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 클릭 구매당÷마진 35~50%만 −25% (천원 반올림)', () => {
-  vm.runInContext(`admgr.products = [{ no: 1, name: '니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {}; admgr.demo = false;
+  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {}; admgr.demo = false;
     admgr.data = { campaigns: [{ id: 'c1', name: '테스트2', status: 'ACTIVE', adsets: [
-      { id: 's1', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 50000 }, { id: 's2', name: '니트_R2_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's3', name: '니트_R3_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's4', name: '니트_R4_28_261001', status: 'PAUSED', budget: 30000 } ] },
-      { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '니트_R9', status: 'ACTIVE', budget: 0 }] }] };
+      { id: 's1', name: '루즈핏 니트_R1_28_261001', status: 'ACTIVE', budget: 50000 }, { id: 's2', name: '루즈핏 니트_R2_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's3', name: '루즈핏 니트_R3_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's4', name: '루즈핏 니트_R4_28_261001', status: 'PAUSED', budget: 30000 } ] },
+      { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '루즈핏 니트_R9', status: 'ACTIVE', budget: 0 }] }] };
     admgrAlert.h7 = { campaigns: [{ name: '테스트2', adsets: [
-      { id: 's1', name: '니트_R1_28_261001', spend: 280000, purchases: 25, purchases_1dv: 5, value: 1000000 },   // 클릭 20 → 구매당 14,000 / 마진 28,000 = 50% → 대상
-      { id: 's2', name: '니트_R2_28_261001', spend: 100000, purchases: 12, purchases_1dv: 2, value: 600000 },    // 클릭 10 → 10,000 = 36% → 대상
-      { id: 's3', name: '니트_R3_28_261001', spend: 80000, purchases: 10, purchases_1dv: 0, value: 500000 },     // 8,000 = 29% → 좋은 세트, 제외
-      { id: 's4', name: '니트_R4_28_261001', spend: 100000, purchases: 10, purchases_1dv: 0, value: 500000 } ] }] };`, ctx);   // 꺼짐 → 제외
+      { id: 's1', name: '루즈핏 니트_R1_28_261001', spend: 280000, purchases: 25, purchases_1dv: 5, value: 1000000 },   // 클릭 20 → 구매당 14,000 / 마진 28,000 = 50% → 대상
+      { id: 's2', name: '루즈핏 니트_R2_28_261001', spend: 100000, purchases: 12, purchases_1dv: 2, value: 600000 },    // 클릭 10 → 10,000 = 36% → 대상
+      { id: 's3', name: '루즈핏 니트_R3_28_261001', spend: 80000, purchases: 10, purchases_1dv: 0, value: 500000 },     // 8,000 = 29% → 좋은 세트, 제외
+      { id: 's4', name: '루즈핏 니트_R4_28_261001', spend: 100000, purchases: 10, purchases_1dv: 0, value: 500000 } ] }] };`, ctx);   // 꺼짐 → 제외
   const T = g('admgrWeekendTargets')({ wkLo: 35, wkHi: 50, weekendPct: 25 });
   assert.equal(T.map(x => x.id + ':' + x.from + '→' + x.to + ':' + x.ratio).join(), 's1:50000→38000:50,s2:30000→23000:36');   // 50,000×0.75=37,500→38,000 · 30,000×0.75=22,500→23,000
   assert.equal(g('admgrWeekendFri')('2026-10-26') + ',' + g('admgrWeekendFri')('2026-10-30') + ',' + g('admgrWeekendFri')('2026-11-01'), '2026-10-30,2026-10-30,2026-10-30');   // 월·금·일 → 같은 주말의 금요일
