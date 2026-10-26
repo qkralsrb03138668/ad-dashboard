@@ -114,8 +114,21 @@ async function admgrPromoEnsure() {
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000)) return;
   A.h7Loading = true;
   try { A.h7 = await metaGet({ action: 'hierarchy', preset: 'last_7d' }); A.h7At = Date.now(); renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; }
+  /* CBO 캠페인에서 이미 돌아가는 소재(영상·이미지·이름) — 세트 이름의 [→] 표시가 없어도(메타에서 직접 복사, 표시 정리 뒤) 후보에서 빼기 위해 (2026-10-26 사용자 지적) */
+  try {
+    const cboSets = []; for (const c of ((A.h7 || {}).campaigns || [])) if (c.budget > 0 && c.status === 'ACTIVE') for (const s of (c.adsets || [])) if (s.status === 'ACTIVE') cboSets.push(s.id);
+    const keys = new Set(), names = new Set();
+    for (let i = 0; i < cboSets.length; i += 100) { const d = await metaGet({ action: 'creatives', set_ids: cboSets.slice(i, i + 100).join(',') }); for (const a of (d.ads || [])) { if (a.effective_status !== 'ACTIVE') continue; if (a.video_id) keys.add('v:' + a.video_id); if (a.image_hash) keys.add('i:' + a.image_hash); names.add(admgrPromoBase(a.name)); } }
+    A.cboKeys = keys; A.cboNames = names;
+    const testSets = []; for (const c of ((A.h7 || {}).campaigns || [])) if (/테스트/.test(c.name) && c.status === 'ACTIVE') for (const s of (c.adsets || [])) if (s.status === 'ACTIVE' && (s.spend || 0) > 0) testSets.push(s.id);
+    const setKeys = new Map();
+    for (let i = 0; i < testSets.length; i += 100) { const d = await metaGet({ action: 'creatives', set_ids: testSets.slice(i, i + 100).join(',') }); for (const a of (d.ads || [])) { const L = setKeys.get(String(a.adset_id)) || setKeys.set(String(a.adset_id), []).get(String(a.adset_id)); if (a.video_id) L.push('v:' + a.video_id); if (a.image_hash) L.push('i:' + a.image_hash); L.push('n:' + admgrPromoBase(a.name)); } }
+    A.setKeys = setKeys; renderAdmgr(true);
+  } catch (e) { /* 소재 비교 실패 — 이름 표시 기준만으로 */ }
   A.h7Loading = false;
 }
+const admgrPromoBase = n => String(n || '').normalize('NFC').replace(/\s*-\s*사본\s*\d*$/g, '').replace(/\s*\/\s*CBO\d*/gi, '').replace(/\s*\[→[^\]]+\]/g, '').replace(/[_\s-]*재?test\s*$/i, '').replace(/\s+/g, ' ').trim();
+const admgrPromoInCbo = s => { const A = admgrAlert; if (!A.setKeys) return false; const L = A.setKeys.get(String(s.id)) || []; return L.some(k => k.startsWith('n:') ? (A.cboNames || new Set()).has(k.slice(2)) : (A.cboKeys || new Set()).has(k)); };   // 같은 영상·이미지·이름의 광고가 CBO 캠페인에서 켜져 있음
 function admgrPromoCands() {
   const h = admgrAlert.h7; if (!h || !h.campaigns) { if (!admgr.demo && admgrCfg()) setTimeout(() => admgrPromoEnsure(), 0); return { ads: [], prods: [], ready: false }; }   // 테스트 소재 메뉴로 바로 들어와 광고관리자 데이터가 없어도 7일 성과는 따로 받는다
   const prodCbo = new Set(h.campaigns.filter(c => /^상품CBO_/.test(admgrBase(c.name)) && c.status === 'ACTIVE').map(c => admgrNorm(admgrBase(c.name).replace(/^상품CBO_/, '').replace(/_\d{6}$/, ''))));
@@ -124,11 +137,12 @@ function admgrPromoCands() {
     for (const s of (c.adsets || [])) { if (s.status !== 'ACTIVE' || !(s.spend > 0)) continue;
       const p = admgrP7(s), roas = admgrV7(s) / s.spend, prod = admgrProductOf(s), pc = prodCbo.has(admgrNorm(prod));   // 클릭 후 7일 기준 (2026-10-25) — 조회 기여 제외
       const be = (typeof admgrBreakEven === 'function' && admgrBreakEven({ adset_id: s.id, adset_name: s.name, name: s.name }) || {}).be || null;
-      rows.push({ s, a: { id: s.id, adset_id: s.id, adset_name: s.name, name: s.name }, p, roas, spend: s.spend, be, prod, prodCbo: pc, inCbo: /\[→/.test(s.name) || pc, adIds: (s.ads || []).map(a => a.id), good: p >= ADMGR_PROMO.goodPur && roas >= (be ? be * ADMGR_PROMO.goodMul : ADMGR_PROMO.roas) }); } }
+      rows.push({ s, a: { id: s.id, adset_id: s.id, adset_name: s.name, name: s.name }, p, roas, spend: s.spend, be, prod, prodCbo: pc, inCbo: /\[→/.test(s.name) || pc || admgrPromoInCbo(s), adIds: (s.ads || []).map(a => a.id), good: p >= ADMGR_PROMO.goodPur && roas >= (be ? be * ADMGR_PROMO.goodMul : ADMGR_PROMO.roas) }); } }
   const byProd = new Map(); rows.forEach(r => (byProd.get(r.prod) || byProd.set(r.prod, []).get(r.prod)).push(r));
   const toAll = new Set(lsGet('adc_promo_toall', []));   // 상품 CBO 후보지만 사용자가 "종합으로"라고 정한 상품 (2026-10-23 사용자 요청)
-  const prods = [...byProd.entries()].map(([name, L]) => ({ name, n: L.length, pur: L.reduce((t, r) => t + r.p, 0), goods: L.filter(r => r.good).sort((x, y) => y.roas - x.roas), inCbo: L.some(r => r.prodCbo),
-      roas: L.reduce((t, r) => t + r.roas * r.spend, 0) / Math.max(1, L.reduce((t, r) => t + r.spend, 0)), toAll: toAll.has(name) }))
+  // 이미 CBO(종합·상품)에서 도는 세트는 상품 후보 계산에서 뺀다 — 아직 승격 안 된 세트만으로 판단 (2026-10-26)
+  const prods = [...byProd.entries()].map(([name, L0]) => { const L = L0.filter(r => !r.inCbo); return ({ name, n: L.length, pur: L.reduce((t, r) => t + r.p, 0), goods: L.filter(r => r.good).sort((x, y) => y.roas - x.roas), inCbo: L0.some(r => r.prodCbo),
+      roas: L.reduce((t, r) => t + r.roas * r.spend, 0) / Math.max(1, L.reduce((t, r) => t + r.spend, 0)), toAll: toAll.has(name) }); })
     .filter(x => !x.inCbo && x.pur >= ADMGR_PROMO.prodPur && x.goods.length >= ADMGR_PROMO.goodMin).sort((x, y) => y.pur - x.pur);
   // 상품 CBO 후보로 분류된 상품의 세트는 종합 후보에 안 넣는다 — 사용자가 '종합으로' 돌린 상품만 예외 (2026-10-23 사용자 요청: 양쪽에 겹치지 않게)
   const prodOnly = new Set(prods.filter(x => !x.toAll).map(x => x.name));
