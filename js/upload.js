@@ -413,7 +413,7 @@ async function uplRun() {
       const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget: budgetOf(f), status: mode, media: f.media, text: effText(f), creative_id: f.creative_id || null });
       f.result = r; ok++;
       uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id}${upl.model.cbo ? '' : ` · ${budgetOf(f).toLocaleString()}원`})`);
-      uplLog(`${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
+      uplLog(r.already ? `${f.name}: 이미 생성돼 있던 광고라 새로 만들지 않았어요 → ${r.ad_id}` : `${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
       if (r.note_stripped) uplLog(`${f.name}: 문구 앞의 AI 안내문을 서버가 지우고 만들었어요 — 저장된 문구를 확인하세요`, 'err');
     } catch (e) {
       uplSetStatus(f, '실패: ' + e.message);

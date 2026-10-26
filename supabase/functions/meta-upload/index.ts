@@ -546,6 +546,14 @@ Deno.serve(async (req) => {
       const note_stripped = text.message !== rawMsg.trim();
       if (NOTE_RE.test(String(text.message))) return json({ error: "문구에 AI 안내문이 섞여 있어 광고를 만들지 않았어요 — 문구를 열어 '권한·근거로 썼습니다' 같은 문장을 지우고 다시 시도하세요" }, 400);
       if (!(model.creative as Rec).page_id) return json({ error: "모델 광고에서 페이지 ID를 읽지 못했습니다" }, 400);
+      /* 중복 차단(2026-10-27 실사례: 58개 중 1개가 서버에선 생성됐는데 응답만 끊겨 화면엔 '실패' — 다시 누르면 같은 광고가 하나 더 생김).
+         등록 소재가 이미 광고로 만들어졌으면 새로 만들지 않고 그때 결과를 돌려준다 */
+      const cid0 = String(body.creative_id ?? "");
+      if (/^[0-9a-f-]{36}$/.test(cid0)) {
+        const r = await dbRest(`creatives?id=eq.${cid0}&select=status,ad_id,adset_id`);
+        const row = r.ok ? ((await r.json()) as Rec[])[0] : null;
+        if (row?.status === "ad_created" && row.ad_id) return json({ adset_id: row.adset_id, creative_id: null, ad_id: row.ad_id, already: true });
+      }
 
       /* 영상 썸네일은 Meta CDN의 서명 URL이라 며칠 지나면 만료된다 — 등록해 둔 소재를 나중에 광고로 만들 때 '읽어들일 수 없는 이미지' 오류(2026-09-28 실사례, 9/22 등록분).
          생성 직전에 영상의 썸네일 목록을 다시 받아 새 URL로 바꾼다. 못 받으면 저장된 것으로 시도 */
