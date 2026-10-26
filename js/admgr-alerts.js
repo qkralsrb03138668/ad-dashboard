@@ -33,6 +33,7 @@ function admgrAlertItems() {
 }
 function admgrAlertPanel() {
   if (!admgr.data || admgr.demo) return '';
+  if (!admgr.products && !admgr.productsLoading && admgrCfg()) setTimeout(() => admgrLoadProducts(), 0);   // 마진(판매가·공급가)이 있어야 주말 모드·승격 후보·플랜 비율이 나온다 — 광고관리자 첫 화면에선 안 불러오던 경우가 있었다 (2026-10-26)
   const cfg = admgrAlertCfg(), B = admgrBudgetTotal(false), over = cfg.cap > 0 && B.total > cfg.cap;
   const items = admgrAlertItems(), hide = lsGet('adc_admgr_alert_hide', {}), today = todayStr(0);
   const shown = items.filter(i => hide[i.key] !== today);
