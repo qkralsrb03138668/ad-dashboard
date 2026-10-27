@@ -526,7 +526,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', jk('warn')], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
       admgrFastEnsure();
       if (admgr.fast.days) {
-        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑ · 30%↓</small>', r => !!admgrFastOf(r)]);
+        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑(3만↓ 4건↑) · 30%↓</small>', r => !!admgrFastOf(r)]);
         if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>빠른 증액 되돌리기 <small class="ag-muted">이틀 40%↑</small>', r => !!admgrFastRevertOf(r)]);
       }
       if (vis.some(jk('rebound'))) todo.push(['rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 5+</small>', jk('rebound')]);
@@ -1273,10 +1273,10 @@ function admgrMarginEdit(id) {   // 브라우저 prompt() 대신 모달 (2026-09
 }
 /* ÷10 감액은 모두 '임시 저장'까지만 — Meta 반영은 상단 '게시'에서 (2026-09-16 사용자 요청: 행별·감액 후보 전체도 즉시 적용 금지) */
 /* ═══ 빠른 증액 (2026-10-26 사용자 확정) ═══
-   운영 세트 · 일예산 5만 이하 · 최근 3일(어제까지) 구매(클릭 7일) 6건 이상 · 3일 구매당 비용 ≤ 마진의 30% → 요일 상관없이 2배.
+   운영 세트 · 일예산 5만 이하 · 최근 3일(어제까지) 구매(클릭 7일) 6건 이상(일예산 3만 미만은 4건, 10/27) · 3일 구매당 비용 ≤ 마진의 30% → 요일 상관없이 2배.
    근거: 10/17~25 백테스트 — 이 조건(작은 예산·6건↑·30%↓)을 2배 가까이 키운 5건은 구매당 비용 13%→28%, (마진−광고비) 144만→298만. 3~5건짜리는 17%→55%로 무너짐.
    올린 뒤 이틀 구매당 비용이 마진 40%를 넘으면 '되돌리기' 칩. 기록: shared_state 'fast_boost' {items:{adset_id:{from,to,day,name}}} — 게시 안 했거나 그 뒤 손으로 바꾼 세트는 지금 예산≠to라 제외 */
-const ADMGR_FAST = { maxBudget: 50000, minPur: 6, pct: 30, mul: 2, revertPct: 40 };
+const ADMGR_FAST = { maxBudget: 50000, minPur: 6, smallBudget: 30000, smallMinPur: 4, pct: 30, mul: 2, revertPct: 40 };   // 일예산 3만 미만은 3일 4건 (2026-10-27 사용자 확정 — 9/8~10/26 하루 지출 3만↓ 세트 2배: 4건도 구매 2.6→5.9/일·이익 유지, 하루·이틀 신호는 이익 반 토막)
 admgr.fast = { days: null, at: 0, loading: false, failAt: 0, boost: null, ver: null };
 async function admgrFastEnsure() {
   const F = admgr.fast;
@@ -1297,7 +1297,7 @@ function admgrFastOf(r) {   // 빠른 증액 후보면 {sp, p, pct} — 3일 합
   const F = admgr.fast;
   if (!F.days || r._cbo || admgrIsTest(r) || r.status !== 'ACTIVE' || !(r.budget > 0) || r.budget > ADMGR_FAST.maxBudget) return null;
   const m = admgrMarginOf(r).m; if (!(m > 0)) return null;
-  const s = admgrFastSum(r.id, [0, 1, 2]); if (s.p < ADMGR_FAST.minPur) return null;
+  const s = admgrFastSum(r.id, [0, 1, 2]); if (s.p < (r.budget < ADMGR_FAST.smallBudget ? ADMGR_FAST.smallMinPur : ADMGR_FAST.minPur)) return null;
   const pct = Math.round(s.sp / s.p / m * 100);
   return pct <= ADMGR_FAST.pct ? { ...s, pct } : null;
 }
