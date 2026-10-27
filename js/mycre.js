@@ -341,7 +341,8 @@ async function mycreMakerSet(id, key) {
 }
 
 /* ⑧ 날짜별 소재 (2026-10-27 사용자 요청) — 컨텐츠마케터·MD 회의용. 메뉴 4개(내 소재 성과·테스트·베스트·보고서)가 헷갈려서, 올린 날짜 순으로만 보는 화면.
-   데이터는 mycre를 since=업로드 기간 시작일 · until=오늘로 받아 업로드 기간 안의 광고만 남긴다 → 숫자 = 업로드한 날부터 오늘까지 누적.
+   데이터는 mycre preset=upload60(최근 60일 업로드 · 오늘까지 누적) 한 벌 — 서버 5분 수집이 데워 둬서 바로 오고, 기간을 바꿔도 다시 안 받고 화면에서 거른다.
+   60일보다 앞을 고르면 그때만 since=시작일로 따로 받는다 (느림). 숫자 = 업로드한 날부터 오늘까지 누적.
    같은 소재가 여러 세트에 묶여 온 것(sets)은 광고마다 한 줄로 푼다. 서버 규칙상 60일 넘게 지나고 꺼진 광고는 오지 않는다 */
 const bydate = { data: null, loading: false, err: '', thumbs: {}, asked: new Set(), customOpen: false,
   sort: lsGet('adc_bydate_sort', 'purchases'), range: lsGet('adc_bydate_range', null) || { preset: 'last_7d' } };
@@ -357,20 +358,21 @@ async function bydateFetch(fresh) {
   if (typeof admgr === 'object' && admgr.mk && !admgr.mk.tried) { admgr.mk.tried = true; admgrMakerLoad(); }   // 만든 사람 수동 지정분
   if (!admgrCfg()) { bydate.err = '연동 정보가 없어요'; renderBydate(); return; }
   bydate.loading = true; bydate.err = ''; renderBydate();
-  const q = { action: 'mycre', preset: 'custom', since: bydateSpan()[0], until: todayStr(0) };
+  const since = bydateSpan()[0], q = since < todayStr(-59) ? { action: 'mycre', preset: 'custom', since, until: todayStr(0) } : { action: 'mycre', preset: 'upload60' };
   if (fresh) q.fresh = '1';
   try { bydate.data = await metaGet(q); } catch (e) { bydate.err = e.message; }   // 실패해도 받아둔 데이터는 그대로
   bydate.loading = false; renderBydate();
 }
+function bydateHas() { const d = bydate.data, r = d && d.range; return !!(r && r.until === todayStr(0) && r.since <= bydateSpan()[0]); }   // 받아둔 것이 고른 기간을 덮으면 다시 안 받는다
 function bydateRangeSet(preset) {
   if (preset === 'custom') { bydate.customOpen = !bydate.customOpen; renderBydate(); return; }
-  bydate.range = { preset }; bydate.customOpen = false; lsSet('adc_bydate_range', bydate.range); bydateFetch();
+  bydate.range = { preset }; bydate.customOpen = false; lsSet('adc_bydate_range', bydate.range); bydateHas() ? renderBydate() : bydateFetch();
 }
 function bydateRangeApply() {
   let a = $('bd-since').value, b = $('bd-until').value;
   if (!a || !b) { toast('시작일과 종료일을 골라주세요'); return; }
   if (a > b) [a, b] = [b, a];
-  bydate.range = { preset: 'custom', since: a, until: b }; bydate.customOpen = false; lsSet('adc_bydate_range', bydate.range); bydateFetch();
+  bydate.range = { preset: 'custom', since: a, until: b }; bydate.customOpen = false; lsSet('adc_bydate_range', bydate.range); bydateHas() ? renderBydate() : bydateFetch();
 }
 function bydateSort(k) { bydate.sort = k; lsSet('adc_bydate_sort', k); renderBydate(); }
 async function bydateThumbs(rows) {   // 썸네일 — 세트 100개씩 차례로 (다 받을 때까지 그릴 때마다 다음 묶음)
