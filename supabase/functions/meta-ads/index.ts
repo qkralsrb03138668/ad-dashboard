@@ -271,9 +271,11 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
   if (preset === "today") {
     try {
       const since = Date.now() - 3600_000;
+      // 예외 (2026-10-27 사용자 요청): 10/26에 꺼진 채 복사한 (기모ver.) 클레르 블라우스 사본 5개 — 1시간이 지났어도 정리할 수 있게. 11/3까지만
+      const COPY_EXTRA = seoulToday() <= "2026-11-03" ? new Set(["120249272638370775", "120249272638350775", "120249272638310775", "120249272638300775", "120249272638290775"]) : new Set<string>();
       const rs = ((await graphGet(`${c.account}/adsets`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
         filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: "사본" }]), limit: "200" }, c.token)).data ?? []) as Node[];
-      const fresh = rs.filter((r) => !sMap.has(String(r.id)) && new Date(String(r.created_time ?? "")).getTime() >= since && !["DELETED", "ARCHIVED"].includes(String(r.effective_status ?? "")));
+      const fresh = rs.filter((r) => !sMap.has(String(r.id)) && (new Date(String(r.created_time ?? "")).getTime() >= since || COPY_EXTRA.has(String(r.id))) && !["DELETED", "ARCHIVED"].includes(String(r.effective_status ?? "")));
       for (const r of fresh) ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
         num(r.daily_budget), num(r.lifetime_budget), String(r.created_time ?? ""), String(r.updated_time ?? ""));
       if (fresh.length) {
