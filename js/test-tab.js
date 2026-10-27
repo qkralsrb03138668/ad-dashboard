@@ -289,5 +289,5 @@ function admgrTtTable(rows, stage) {
       + (open ? L.map(row).join('') : '');
   }).join('');
   return `<div class="tt-table"><table><colgroup>${cols}</colgroup><thead>${head}</thead><tbody>${body}</tbody></table></div>
-    <p style="font-size:.72rem;color:#9ca3af;margin-top:6px;">썸네일 = 미리보기 · 이름 = 상세 패널 · 구매당비용에 마우스 = 하루별 그래프 · 열 제목 = 정렬 · 상품 줄 = 접기 · 퍼널 진단에 마우스 = 숫자</p>`;
+    <p style="font-size:.72rem;color:#9ca3af;margin-top:6px;">구매·구매당비용·ROAS = 클릭 후 7일 (조회 제외) · 썸네일 = 미리보기 · 이름 = 상세 패널 · 구매당비용에 마우스 = 하루별 그래프 · 열 제목 = 정렬 · 상품 줄 = 접기 · 퍼널 진단에 마우스 = 숫자</p>`;
 }

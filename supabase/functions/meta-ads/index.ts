@@ -442,6 +442,7 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
     time_range: JSON.stringify({ since: "2024-01-01", until: today }),
     level: "ad",
     fields: "ad_id,adset_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions",   // 퍼널 진단(2026-09-12): 노출·도달·빈도·링크 클릭·ThruPlay (+actions 안의 3초 재생·랜딩 도착·장바구니)
+    action_attribution_windows: JSON.stringify(["7d_click", "default"]),   // 구매·전환값 = 클릭 후 7일 (2026-10-27 사용자: 테스트 소재는 조회 기여 제외)
     limit: "500",
   };
   // 청크마다 동시 3개까지만 실행 (2026-09-17)
@@ -484,8 +485,8 @@ async function fetchTestads(c: Creds, kw: string, today: string) {
       created_time: String(a.created_time ?? ""),
       reg_date: regDate(String(a.created_time ?? "")),
       spend: m ? num(m.spend) : 0,
-      purchases: m ? pickPurchase(m.actions) : 0,
-      value: m ? pickPurchase(m.action_values) : 0,
+      purchases: m ? pickPurchase(m.actions, "7d_click") : 0,
+      value: m ? pickPurchase(m.action_values, "7d_click") : 0,
       // 퍼널: imp 노출 · clicks 링크 클릭 · v3 3초 재생(영상만 값이 있음) · thru ThruPlay(15초 또는 끝) · lpv 랜딩 도착 · atc 장바구니 · freq 빈도
       imp: m ? num(m.impressions) : 0, reach: m ? num(m.reach) : 0, freq: m ? num(m.frequency) : 0,
       clicks: m ? num(m.inline_link_clicks) : 0,
@@ -978,7 +979,8 @@ async function handle(req: Request): Promise<Response> {
       const d1 = day("d1"), d0 = day("d0"), since = day("since");   // since=YYYY-MM-DD → 그날 이후 전부 (추세·피로도용, 최근 8일 정도)
       if (!since && (!d1 || !d0)) return json({ error: "d0·d1 또는 since 날짜 필요" }, 400);
       const back = (d: string) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() - 3); return x.toISOString().slice(0, 10); };
-      const where = since ? `day=gte.${since}` : `or=(and(day.gte.${back(d1!)},day.lte.${d1}),and(day.gte.${back(d0!)},day.lte.${d0}))`;
+      const where = (since ? `day=gte.${since}` : `or=(and(day.gte.${back(d1!)},day.lte.${d1}),and(day.gte.${back(d0!)},day.lte.${d0}))`)
+        + `&day=gte.2026-10-27`;   // 그 전 스냅샷은 기본 창(클릭7일+조회1일) 기준이라 클릭7일 누적과 빼면 틀린다 → 없는 셈 치고 새로 쌓음
       const rows: unknown[] = [];
       for (let off = 0; off < 20000; off += 1000) {   // 소재 300개 × 8일 > PostgREST 기본 1,000행 한도 → 페이지로
         const r = await dbRest(`test_ad_day?select=ad_id,day,spend,purchases,value&${where}&order=day.asc,ad_id.asc&limit=1000&offset=${off}`);
