@@ -1261,6 +1261,66 @@ async function handle(req: Request): Promise<Response> {
       await cacheSet(cacheKey, body);
       return json(body);
     }
+    /* 지난 소재 찾기 (2026-10-27 사용자 요청) — 끌올할 상품명으로 작년 1월부터 돌았던 광고를 모아 같은 소재(영상 id·이미지 해시·인스타 게시물)끼리 묶는다.
+       성과는 클릭 7일 구매. 꺼지거나 지운 광고까지 (ad.effective_status 전부). 지난 기간은 6시간 캐시 */
+    if (action === "pastcre") {
+      const q = (url.searchParams.get("q") ?? "").normalize("NFC").trim();
+      const since = url.searchParams.get("since") ?? "", until = url.searchParams.get("until") ?? "";
+      if (!q || q.length > 40 || !DAY_RE.test(since) || !DAY_RE.test(until) || since > until) return json({ error: "q·since·until 형식 오류" }, 400);
+      const cacheKey = `meta:pastcre:v2:${q}:${since}:${until}`;
+      const pre = await metaPre(cacheKey, 6 * 3600_000);
+      if (pre) return pre;
+      const ALL_ST = ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "DISAPPROVED", "WITH_ISSUES", "IN_PROCESS", "PENDING_REVIEW", "PREAPPROVED"];
+      // 넓은 검색어('니트')는 한 번에 요청하면 Meta가 400 Invalid parameter (2026-10-27 실측) → 6개월씩, 그래도 실패하면 그 구간을 한 달씩
+      const insQ = (a: string, b: string) => graphGetAll(`${c.account}/insights`, { level: "ad", time_range: JSON.stringify({ since: a, until: b }), time_increment: "monthly",
+        filtering: JSON.stringify([{ field: "ad.name", operator: "CONTAIN", value: q }, { field: "ad.effective_status", operator: "IN", value: ALL_ST }]),
+        action_attribution_windows: JSON.stringify(["7d_click", "default"]),
+        fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values", limit: "500" }, c.token, 10);
+      const monthEnd = (d: string) => { const x = new Date(d.slice(0, 7) + "-01T00:00:00Z"); x.setUTCMonth(x.getUTCMonth() + 1); x.setUTCDate(0); return x.toISOString().slice(0, 10); };
+      const ins: Record<string, unknown>[] = [];
+      for (let a = since; a <= until;) {
+        let b = monthEnd(a); for (let k = 0; k < 5; k++) b = monthEnd(addDays(b, 1)); if (b > until) b = until;
+        try { ins.push(...await insQ(a, b)); }
+        catch { for (let m = a; m <= b; m = addDays(monthEnd(m), 1)) ins.push(...await insQ(m, monthEnd(m) > b ? b : monthEnd(m))); }
+        a = addDays(b, 1);
+      }
+      type Ad = { ad_id: string; ad: string; set_id: string; set: string; camp_id: string; camp: string; sp: number; p: number; v: number; first: string; last: string };
+      const byAd = new Map<string, Ad>();
+      for (const r of ins) {
+        const id = String(r.ad_id ?? ""); if (!id) continue;
+        const d = String(r.date_start ?? ""), e = String(r.date_stop ?? d), sp = num(r.spend), p = pickPurchase(r.actions, "7d_click"), v = pickPurchase(r.action_values, "7d_click");
+        const a = byAd.get(id) ?? { ad_id: id, ad: String(r.ad_name ?? ""), set_id: String(r.adset_id ?? ""), set: String(r.adset_name ?? ""), camp_id: String(r.campaign_id ?? ""), camp: String(r.campaign_name ?? ""), sp: 0, p: 0, v: 0, first: d, last: e };
+        a.sp += sp; a.p += p; a.v += v; if (d < a.first) a.first = d; if (e > a.last) a.last = e; byAd.set(id, a);
+      }
+      const ads = [...byAd.values()].filter((a) => a.sp > 0).sort((x, y) => y.sp - x.sp).slice(0, 400);
+      // 소재 키 — 계정 광고 목록을 id로 걸러 50개씩 (?ids=는 v26부터 막힘, 2026-10-27 실측). 인스타 게시물 광고는 영상·이미지 값이 비어 effective_instagram_media_id로 묶는다
+      const meta = new Map<string, Record<string, unknown>>(); let metaErr = "";
+      const F1 = "id,effective_status,adset{effective_status},creative.thumbnail_width(200).thumbnail_height(200){id,thumbnail_url,object_type,video_id,image_hash,effective_instagram_media_id}";
+      const F2 = "id,effective_status,adset{effective_status},creative{id,thumbnail_url,object_type,video_id,image_hash}";
+      for (let i = 0; i < ads.length; i += 50) {
+        const filtering = JSON.stringify([{ field: "id", operator: "IN", value: ads.slice(i, i + 50).map((a) => a.ad_id) }, { field: "effective_status", operator: "IN", value: ALL_ST }]);
+        let r: Record<string, unknown>[] = [];
+        try { r = await graphGetAll(`${c.account}/ads`, { filtering, fields: F1, limit: "50" }, c.token, 2); } catch (e1) { metaErr = String(e1).slice(0, 200); try { r = await graphGetAll(`${c.account}/ads`, { filtering, fields: F2, limit: "50" }, c.token, 2); metaErr = ""; } catch (e2) { metaErr += " | " + String(e2).slice(0, 200); } }
+        for (const x of r) meta.set(String(x.id), x);
+      }
+      const camps = await graphGetAll(`${c.account}/campaigns`, { fields: "id,daily_budget,lifetime_budget", limit: "500" }, c.token, 4).catch(() => []);
+      const cbo = new Set(camps.filter((x) => num(x.daily_budget) > 0 || num(x.lifetime_budget) > 0).map((x) => String(x.id)));
+      type G = { key: string; thumb: string; is_video: boolean; sp: number; p: number; v: number; first: string; last: string; live: boolean; ads: (Ad & { st: string; set_st: string; cbo: boolean; creative_id: string })[] };
+      const groups = new Map<string, G>();
+      for (const a of ads) {
+        const m = meta.get(a.ad_id) ?? {}, cr = (m.creative ?? {}) as Record<string, unknown>, st = String(m.effective_status ?? "DELETED"), setSt = String(((m.adset ?? {}) as Record<string, unknown>).effective_status ?? "");
+        const key = cr.video_id ? "v:" + cr.video_id : cr.image_hash ? "i:" + cr.image_hash : cr.effective_instagram_media_id ? "g:" + cr.effective_instagram_media_id : cr.id ? "c:" + cr.id : "a:" + a.ad_id;
+        const g = groups.get(key) ?? { key, thumb: String(cr.thumbnail_url ?? ""), is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO", sp: 0, p: 0, v: 0, first: a.first, last: a.last, live: false, ads: [] };
+        g.sp += a.sp; g.p += a.p; g.v += a.v; if (a.first < g.first) g.first = a.first; if (a.last > g.last) g.last = a.last;
+        if (st === "ACTIVE" && setSt === "ACTIVE") g.live = true;
+        if (!g.thumb && cr.thumbnail_url) g.thumb = String(cr.thumbnail_url);
+        g.ads.push({ ...a, st, set_st: setSt, cbo: cbo.has(a.camp_id), creative_id: String(cr.id ?? "") });
+        groups.set(key, g);
+      }
+      const body = { q, since, until, groups: [...groups.values()].sort((x, y) => y.p - x.p), ads_capped: byAd.size > 400, pages_capped: ins.length >= 10000, ...(metaErr ? { meta_err: maskTok(metaErr) } : {}) };
+      if (!metaErr) await cacheSet(cacheKey, body);
+      return json(body);
+    }
     if (action === "hourlystats") {
       const objId = url.searchParams.get("object_id") ?? "";
       if (!/^\d{5,25}$/.test(objId)) return json({ error: "object_id 필수 (광고세트/캠페인 id)" }, 400);

@@ -191,10 +191,10 @@ Deno.serve(async (req) => {
     const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (me.perms) {   // SSO 사용자: 워크스페이스 세부 권한. 미디어 업로드(image/video_*)는 소재 등록에도 필요하므로 creative 권한으로도 허용
       const media = ["image", "video_start", "video_chunk", "video_finish"].includes(action);
-      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", campaign_copy: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
+      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", campaign_copy: "upload", adset_repost: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
       if (media && !canAct(me, "upload") && !canAct(me, "creative")) return denyAct("upload");
       if (need && !canAct(me, need)) return denyAct(need);
-    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "campaign_copy", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
+    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "campaign_copy", "adset_repost", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
 
     if (action === "status") return json({ token_set: !!env("META_WRITE_TOKEN"), pin_set: !!env("WRITE_PIN"), account: ACCOUNT });
     if (action === "model") return json(await readModel(url.searchParams.get("ad_id") ?? ""));
@@ -292,7 +292,8 @@ Deno.serve(async (req) => {
     const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
     const COPY_ACTIONS = ["ad_copy", "adset_rename", "marker_sync", "ig_media"];   // ig_media = 인스타 게시물 목록 읽기(쓰기 아님)   // 광고 복사·세트 이름 표시 (2026-09-16) — 예산 변경이 아니라 PIN 없이 로그인 역할로
     // 미디어 업로드·소재 기록은 로그인 역할(마케터/관리자)만으로 허용 — 등록 PIN 폐지(2026-09-11 사용자 요청). PIN은 광고 생성(create/verify)에만.
-    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action) && action !== "media_urls") {   // media_urls = 미리보기 주소 읽기(쓰기 아님) — PIN 없이
+    const dryRepost = action === "adset_repost" && body.validate === true;   // 지난 소재: Meta validate_only로 세트 설정만 검사 — 아무것도 안 만들어서 PIN 없이 (2026-10-27)
+    if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action) && action !== "media_urls" && !dryRepost) {   // media_urls = 미리보기 주소 읽기(쓰기 아님) — PIN 없이
       const pinErr = await checkPin(body.pin);
       if (pinErr) return json({ error: pinErr }, 403);
     }
@@ -389,6 +390,48 @@ Deno.serve(async (req) => {
       }
       await clearMetaCaches();
       return json({ campaign_id, adset_id, name, created, failed });
+    }
+    /* 지난 소재 다시 테스트 (2026-10-27 사용자 요청) — 고른 지난 광고마다: 그 광고가 돌던 세트의 타겟 + 고른 캠페인 지금 세트의 입찰·최적화·전환 이벤트로 새 세트 1개 +
+       같은 소재로 광고 1개. 이름은 화면이 끌올 규칙으로 지어 보낸다. 세트·광고 모두 켜진 상태(사용자 지정) — 바로 돈이 나가므로 PIN */
+    if (action === "adset_repost") {
+      const campId = String(body.campaign_id ?? "");
+      if (!/^\d{5,25}$/.test(campId)) return json({ error: "캠페인을 골라주세요" }, 400);
+      const items = (body.items ?? []) as { ad_id?: unknown; name?: unknown }[];
+      if (!Array.isArray(items) || !items.length || items.length > 20) return json({ error: "소재를 1~20개 고르세요" }, 400);
+      const tc = await graph(campId, { params: { fields: "name,daily_budget,lifetime_budget,bid_strategy" } });
+      const cbo = Number(tc.daily_budget ?? 0) > 0 || Number(tc.lifetime_budget ?? 0) > 0;
+      const budget = Math.round(Number(body.daily_budget ?? 0));
+      if (!cbo && (budget < MIN_BUDGET || budget > MAX_BUDGET)) return json({ error: `세트 일예산은 ${MIN_BUDGET.toLocaleString()}~${MAX_BUDGET.toLocaleString()}원 사이여야 합니다` }, 400);
+      /* 입찰·최적화·전환 이벤트는 넣을 캠페인의 지금 세트를 따르고, 타겟만 옛 세트에서 (2026-10-27 validate 실측: 옛 CBO 세트의 입찰 상한 설정·
+         어드밴티지 타겟 플래그 없음으로 절반이 거절됨) */
+      const ms = ((await graph(`${campId}/adsets`, { params: { fields: ADSET_FIELDS + ",effective_status", limit: "50" } })).data ?? []) as Rec[];
+      const model = ms.find((x) => String(x.effective_status ?? "") === "ACTIVE") ?? ms[0] ?? null;
+      const created: Rec[] = [], failed: Rec[] = [];
+      for (const it of items) {
+        const adId = String(it.ad_id ?? ""), name = String(it.name ?? "").normalize("NFC").trim().slice(0, 200);
+        if (!/^\d{5,25}$/.test(adId) || !name) { failed.push({ ad_id: adId, error: "항목 오류" }); continue; }
+        try {
+          const src = await graph(adId, { params: { fields: "adset_id,creative{id}" } });
+          const cid = String((src.creative as Rec)?.id ?? ""); if (!cid) throw new Error("이 광고의 소재를 찾지 못했어요");
+          const old = await graph(String(src.adset_id), { params: { fields: ADSET_FIELDS } });
+          const a: Rec = model ? { ...model, targeting: old.targeting, campaign_id: campId } : { ...old, campaign_id: campId };
+          const tg = { ...((a.targeting ?? {}) as Rec) }, ta = (tg.targeting_automation ?? {}) as Rec;
+          if (ta.advantage_audience === undefined) tg.targeting_automation = { ...ta, advantage_audience: 0 };   // 옛 세트엔 이 값이 없다 — 예전처럼 끈 상태로 명시해야 생성됨
+          a.targeting = tg;
+          if (cbo) { a.bid_strategy = tc.bid_strategy ?? a.bid_strategy; if (!/CAP|BID/.test(String(a.bid_strategy ?? ""))) delete a.bid_amount; }   // CBO는 입찰 방식이 캠페인에 — 세트는 같은 값만
+          if (dryRepost) { await createAdset({ adset: a, cbo }, name, budget, "ACTIVE", true); created.push({ ad_id: adId, name, validated: true }); continue; }
+          const adset_id = await createAdset({ adset: a, cbo }, name, budget, "ACTIVE");
+          try {
+            const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id, creative: JSON.stringify({ creative_id: cid }), status: "ACTIVE" } });
+            created.push({ ad_id: adId, name, adset_id, new_ad_id: String(ad.id) });
+          } catch (e) {   // 광고를 못 만들면 빈 세트가 켜진 채 남지 않게 끈다
+            await graph(adset_id, { method: "POST", params: { status: "PAUSED" } }).catch(() => {});
+            throw new Error("세트는 만들었지만 광고 생성 실패(세트 꺼둠): " + (e as Error).message);
+          }
+        } catch (e) { failed.push({ ad_id: adId, name, error: maskTok(String((e as Error).message)).slice(0, 300) }); }
+      }
+      if (created.length && !dryRepost) await clearMetaCaches();
+      return json({ campaign: String(tc.name ?? ""), cbo, created, failed, ...(dryRepost ? { validate_only: true } : {}) });
     }
     /* 표시 정리 (2026-09-16) — 세트 이름의 " [→캠페인명]" 표시를 점검해서, 그 캠페인의 복사본이 꺼져 있거나 사라졌으면 표시를 뗀다.
        복사 직후(48시간 안)에 아직 켜지 않은 것은 남겨 둔다 — 복사본은 항상 꺼진 상태로 만들기 때문 */
