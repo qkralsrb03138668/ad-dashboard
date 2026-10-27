@@ -956,3 +956,19 @@ summary::-webkit-details-marker { display: none; }
 #sec-admgr .ag-al-x { flex: none; border: 0; background: none; color: #9ca3af; font-size: 1rem; cursor: pointer; padding: 0 2px; }
 #sec-admgr .ag-al-muted { font-size: .72rem; color: #9ca3af; padding: 0 4px; }
 @media (max-width: 768px) { #sec-admgr .ag-al { flex-wrap: wrap; } #sec-admgr .ag-al-txt { flex-basis: calc(100% - 40px); } }
+
+/* 날짜별 소재 (2026-10-27) — 내 소재 성과(#sec-mycre) 규칙 중 쓰는 것만 */
+#sec-bydate .my-period { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+#sec-bydate .bd-lbl { font-size: .78rem; color: #374151; min-width: 64px; }
+#sec-bydate .ag-seg { display: inline-flex; background: #eef0f5; border-radius: 8px; padding: 3px; gap: 2px; }
+#sec-bydate .ag-seg button { border: none; background: transparent; padding: 6px 12px; border-radius: 6px; font-family: inherit; font-size: .8rem; font-weight: 600; color: #4b5563; cursor: pointer; white-space: nowrap; }
+#sec-bydate .ag-seg button.on { background: #fff; color: #1e1b4b; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+#sec-bydate .ag-seg button:disabled { opacity: .6; cursor: default; }
+#sec-bydate .my-custom { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: #6b7280; } #sec-bydate .my-custom .inp { padding: 4px 8px; background: #fff; }
+#sec-bydate .my-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 18px 0 10px; } #sec-bydate .my-h b { font-size: .95rem; color: #1e1b4b; } #sec-bydate .my-h span { font-size: .74rem; color: #6b7280; }
+#sec-bydate .my-sub { font-size: .68rem; color: #6b7280; }
+#sec-bydate .my-table td { vertical-align: middle; }
+#sec-bydate .bd-ad { display: flex; align-items: center; gap: 10px; } #sec-bydate .bd-ad b { word-break: break-all; font-size: .8rem; }
+#sec-bydate .bd-day td { background: #f5f6fb; text-align: left; } #sec-bydate .bd-day span { font-size: .74rem; color: #6b7280; margin-left: 6px; }
+#sec-bydate .bd-on { background: #eef2ff; }
+@media (max-width: 768px) { #sec-bydate .ag-seg { overflow-x: auto; max-width: 100%; scrollbar-width: none; } #sec-bydate .ag-seg button { min-height: 36px; } }

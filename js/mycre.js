@@ -339,3 +339,78 @@ async function mycreMakerSet(id, key) {
   }
   toast('저장 실패 — 잠시 후 다시 시도해 주세요'); mycreDetail(id);
 }
+
+/* ⑧ 날짜별 소재 (2026-10-27 사용자 요청) — 컨텐츠마케터·MD 회의용. 메뉴 4개(내 소재 성과·테스트·베스트·보고서)가 헷갈려서, 올린 날짜 순으로만 보는 화면.
+   데이터는 mycre를 since=업로드 기간 시작일 · until=오늘로 받아 업로드 기간 안의 광고만 남긴다 → 숫자 = 업로드한 날부터 오늘까지 누적.
+   같은 소재가 여러 세트에 묶여 온 것(sets)은 광고마다 한 줄로 푼다. 서버 규칙상 60일 넘게 지나고 꺼진 광고는 오지 않는다 */
+const bydate = { data: null, loading: false, err: '', thumbs: {}, asked: new Set(), customOpen: false,
+  sort: lsGet('adc_bydate_sort', 'purchases'), range: lsGet('adc_bydate_range', null) || { preset: 'last_7d' } };
+const BD_PRESETS = { today: ['오늘', 0], yesterday: ['어제', 1], last_7d: ['최근 7일', 6], last_14d: ['최근 14일', 13], last_30d: ['최근 30일', 29] };   // 업로드 날짜라 오늘도 포함
+const BD_SORTS = { purchases: '구매 많은 순', roas: 'ROAS 높은 순', spend: '지출 많은 순' };
+function bydateSpan() {
+  const r = bydate.range;
+  if (r.preset === 'custom') return [r.since, r.until];
+  return r.preset === 'yesterday' ? [todayStr(-1), todayStr(-1)] : [todayStr(-BD_PRESETS[r.preset][1]), todayStr(0)];
+}
+async function bydateFetch(fresh) {
+  if (bydate.loading) return;
+  if (typeof admgr === 'object' && admgr.mk && !admgr.mk.tried) { admgr.mk.tried = true; admgrMakerLoad(); }   // 만든 사람 수동 지정분
+  if (!admgrCfg()) { bydate.err = '연동 정보가 없어요'; renderBydate(); return; }
+  bydate.loading = true; bydate.err = ''; renderBydate();
+  const q = { action: 'mycre', preset: 'custom', since: bydateSpan()[0], until: todayStr(0) };
+  if (fresh) q.fresh = '1';
+  try { bydate.data = await metaGet(q); } catch (e) { bydate.err = e.message; }   // 실패해도 받아둔 데이터는 그대로
+  bydate.loading = false; renderBydate();
+}
+function bydateRangeSet(preset) {
+  if (preset === 'custom') { bydate.customOpen = !bydate.customOpen; renderBydate(); return; }
+  bydate.range = { preset }; bydate.customOpen = false; lsSet('adc_bydate_range', bydate.range); bydateFetch();
+}
+function bydateRangeApply() {
+  let a = $('bd-since').value, b = $('bd-until').value;
+  if (!a || !b) { toast('시작일과 종료일을 골라주세요'); return; }
+  if (a > b) [a, b] = [b, a];
+  bydate.range = { preset: 'custom', since: a, until: b }; bydate.customOpen = false; lsSet('adc_bydate_range', bydate.range); bydateFetch();
+}
+function bydateSort(k) { bydate.sort = k; lsSet('adc_bydate_sort', k); renderBydate(); }
+async function bydateThumbs(rows) {   // 썸네일 — 세트 100개씩 차례로 (다 받을 때까지 그릴 때마다 다음 묶음)
+  const ids = [...new Set(rows.filter(r => !bydate.asked.has(r.adset_id)).map(r => r.adset_id))].slice(0, 100);
+  if (!ids.length) return;
+  ids.forEach(id => bydate.asked.add(id));
+  try { const r = await metaGet({ action: 'creatives', set_ids: ids.join(',') }); (r.ads || []).forEach(x => { bydate.thumbs[x.id] = x.image || x.thumb || ''; }); }
+  catch (e) { /* 썸네일은 없어도 화면은 돈다 */ }
+  renderBydate();
+}
+function renderBydate() {
+  const box = $('bydate-body'); if (!box) return;
+  if (!bydate.data && !bydate.loading && !bydate.err) { bydateFetch(); return; }
+  const rg = bydate.range, [from, to] = bydateSpan();
+  const pbtn = (k, label) => `<button class="${rg.preset === k ? 'on' : ''}" onclick="bydateRangeSet('${k}')" ${bydate.loading ? 'disabled' : ''}>${label}</button>`;
+  const head = `<div class="my-period"><b class="bd-lbl">업로드 날짜</b><span class="ag-seg">${Object.entries(BD_PRESETS).map(([k, [l]]) => pbtn(k, l)).join('')}${pbtn('custom', rg.preset === 'custom' ? `<i class="fa-regular fa-calendar"></i> ${esc(rg.since)} ~ ${esc(rg.until)}` : '<i class="fa-regular fa-calendar"></i> 직접 설정')}</span>
+      <button class="filter-tab" onclick="bydateFetch(true)" ${bydate.loading ? 'disabled' : ''} title="지금 Meta에서 새로 받아와요"><i class="fa-solid ${bydate.loading ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> 새로고침</button>
+      ${bydate.customOpen ? `<span class="my-custom"><input type="date" class="inp" id="bd-since" value="${esc(rg.since || todayStr(-6))}" max="${todayStr(0)}" /> ~ <input type="date" class="inp" id="bd-until" value="${esc(rg.until || todayStr(0))}" max="${todayStr(0)}" /><button class="btn-analyze" style="padding:5px 12px;" onclick="bydateRangeApply()">적용</button></span>` : ''}</div>
+    <div class="my-period"><b class="bd-lbl">정렬</b><span class="ag-seg">${Object.entries(BD_SORTS).map(([k, l]) => `<button class="${bydate.sort === k ? 'on' : ''}" onclick="bydateSort('${k}')">${l}</button>`).join('')}</span></div>
+    ${bydate.err ? `<div class="info-bar" style="color:#b91c1c;margin-bottom:12px;"><i class="fa-solid fa-triangle-exclamation"></i> 불러오기 실패: ${esc(bydate.err)}${bydate.data ? ' — 마지막으로 받아둔 것을 보여줘요' : ''}</div>` : ''}`;
+  if (!bydate.data) { box.innerHTML = head + `<div class="empty-state"><p>${bydate.loading ? '소재를 불러오는 중… (처음엔 10초쯤 걸려요)' : ''}</p></div>`; return; }
+
+  const rows = (bydate.data.ads || []).flatMap(a => (a.sets && a.sets.length ? a.sets : [a]).map(s => ({ ...s, kind: a.kind, st: a.st, maker: myMaker(a) })))
+    .filter(r => r.reg_date >= from && r.reg_date <= to);
+  const key = bydate.sort, val = r => key === 'roas' ? (r.roas ?? -1) : (r[key] || 0);
+  rows.sort((x, y) => val(y) - val(x) || (y.spend || 0) - (x.spend || 0));
+  const days = new Map(); rows.forEach(r => (days.get(r.reg_date) || days.set(r.reg_date, []).get(r.reg_date)).push(r));
+  const sum = L => { const sp = L.reduce((s, r) => s + (r.spend || 0), 0), pu = L.reduce((s, r) => s + (r.purchases || 0), 0), va = L.reduce((s, r) => s + (r.roas || 0) * (r.spend || 0), 0);
+    return `지출 ${won(sp)} · 구매 ${comma(pu)}건 · ROAS ${sp ? (va / sp).toFixed(2) : '—'}`; };
+  const dow = d => '일월화수목금토'[new Date(d + 'T00:00:00').getDay()];
+  const tr = r => { const st = MY_ST[r.st] || ['badge-gray', r.st || ''], src = bydate.thumbs[r.id];
+    return `<tr><td style="text-align:left;"><div class="bd-ad"><span class="tt-th" onclick="showMetaPreview('${r.id}')" title="미리보기">${src ? `<img src="${esc(src)}" loading="lazy" alt="">` : ''}</span>
+        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.active ? '켜짐' : '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
+      <td class="ctr">${st[1] ? `<span class="status-badge ${st[0]}">${st[1]}</span>` : ''}</td>
+      <td class="num ${key === 'spend' ? 'bd-on' : ''}">${won(r.spend || 0)}</td><td class="num ${key === 'purchases' ? 'bd-on' : ''}">${comma(r.purchases || 0)}</td>
+      <td class="num ${key === 'roas' ? 'bd-on' : ''}"><b style="color:${myRoasColor(r.roas)};">${r.roas == null ? '—' : r.roas.toFixed(2)}</b></td></tr>`; };
+  const body = [...days.keys()].sort().reverse().map(d => `<tr class="bd-day"><td colspan="5"><b>${fmtMD(d)} (${dow(d)}) 업로드</b> <span>${days.get(d).length}개 · ${sum(days.get(d))}</span></td></tr>${days.get(d).map(tr).join('')}`).join('');
+  setTimeout(() => bydateThumbs(rows), 0);
+  box.innerHTML = head + `<div class="my-h"><b>${fmtMD(from)}${from !== to ? ' ~ ' + fmtMD(to) : ''} 업로드 ${rows.length}개</b><span>${rows.length ? sum(rows) : ''}${bydate.loading ? ' · <i class="fa-solid fa-spinner fa-spin"></i> 새로 받는 중…' : ''}</span></div>
+    ${rows.length ? `<div class="table-wrap"><table class="my-table"><thead><tr><th style="text-align:left;">소재</th><th>상태</th><th class="num">지출</th><th class="num">구매</th><th class="num">ROAS</th></tr></thead><tbody>${body}</tbody></table></div>`
+      : `<div class="empty-state" style="padding:24px;"><p>${bydate.loading ? '불러오는 중…' : '이 기간에 올라간 소재가 없어요.'}</p></div>`}
+    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(bydate.data.fetched_at)} 기준 · 숫자는 <b>업로드한 날부터 오늘까지 누적</b> · 썸네일을 누르면 미리보기 · 60일 넘게 지나고 꺼진 소재는 나오지 않아요${(bydate.data.scope || []).length ? ` · 보는 범위: ${bydate.data.scope.map(esc).join(', ')}` : ''}</div>`;
+}

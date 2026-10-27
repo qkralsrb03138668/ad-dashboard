@@ -163,7 +163,7 @@ function menuDrawer(open) {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) menuDrawer(false); });
 function showMenu(key) {
-  if (key !== 'mycre' && key !== 'brief' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
+  if (key !== 'mycre' && key !== 'bydate' && key !== 'brief' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
   menuDrawer(false);
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
@@ -177,7 +177,7 @@ function showMenu(key) {
   }
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   // 광고관리자는 Meta 프리셋 기간을 따로 쓰므로 공통 기간 바를 숨긴다
-  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload' || key === 'ptest' || key === 'mycre' || key === 'brief') ? 'none' : 'flex';   // 소재 업로드도 기간을 안 쓴다 (2026-09-14 사용자 요청: PC·모바일 모두 숨김)
+  $('period-bar').style.display = (sec === 'admgr' || key === 'perf' || key === 'upload' || key === 'ptest' || key === 'mycre' || key === 'bydate' || key === 'brief') ? 'none' : 'flex';   // 소재 업로드도 기간을 안 쓴다 (2026-09-14 사용자 요청: PC·모바일 모두 숨김)
   rerender();
 }
 function rerender() {
@@ -188,6 +188,7 @@ function rerender() {
   else if (curMenu === 'admgr') admgrOpen();
   else if (ADMGR_SOLO[curMenu]) admgrSolo(ADMGR_SOLO[curMenu]);
   else if (curMenu === 'mycre') renderMycre();
+  else if (curMenu === 'bydate') renderBydate();
   else if (curMenu === 'brief') renderBrief();
   else if (curMenu === 'upload') renderUpload();
   else if (curMenu === 'perf') perfMenuInit();
