@@ -57,6 +57,8 @@ function metaHeaders(cfg) {
 async function sbCall(fn, params, payload, _retried) {
   const cfg = admgrCfg();
   if (!cfg) throw new Error('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)');
+  // 로그인 확인(authInit)이 진행 중이면 끝날 때까지 기다린다(최대 8초) — 어떤 화면이 먼저 요청을 보내든 로그인 전 401이 안 생기게 (2026-10-27 구조적 방지)
+  if (fn !== 'auth-admin' && typeof AUTH === 'object' && AUTH.initializing) { for (let i = 0; i < 80 && AUTH.initializing; i++) await new Promise(r => setTimeout(r, 100)); }
   const url = cfg.SUPABASE_URL + '/functions/v1/' + fn + '?' + new URLSearchParams(params);
   const headers = metaHeaders(cfg);
   const ds = typeof dnrbSession === 'function' ? dnrbSession() : null;

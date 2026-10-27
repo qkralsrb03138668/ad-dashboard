@@ -39,6 +39,10 @@ async function dnrbInit() {
 }
 function authApi(params, payload) { return sbCall('auth-admin', params, payload); }
 async function authInit() {
+  AUTH.initializing = true;   // 이 동안 나가는 서버 요청은 sbCall이 잠깐 기다린다 — 로그인 전에 나간 요청의 401이 새 세션을 지우던 경합 재발 방지 (2026-10-27)
+  try { await authInitInner(); } finally { AUTH.initializing = false; }
+}
+async function authInitInner() {
   const cfg = admgrCfg();
   if (!cfg || !window.supabase) return;                       // 연동 정보 없음 → 데모 모드 그대로
   AUTH.sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);

@@ -88,6 +88,12 @@ console.log('서버 호출 (sbCall) — 오류가 항상 사람이 읽는 문장
     ctx.fetch = async (url, init) => { raceCalls++; if (raceCalls === 1) { localStorage.setItem('dnrb_sso', JSON.stringify({ token: 'fresh', id: 'u', role: 'staff', exp: Date.now() + 60000 })); return { ok: false, status: 401, text: async () => '{"error":"로그인이 필요합니다"}' }; }
       return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, tok: init.headers['x-dnrb-token'] }) }; };
     const r = await sbCall('meta-ads', {}); assert.equal(r.tok + ':' + raceCalls, 'fresh:2'); assert.ok(localStorage.getItem('dnrb_sso'));
+    // 구조적 방지: 로그인 확인 중(AUTH.initializing)엔 요청을 보내지 않고 기다렸다가, 끝난 뒤 그때 저장된 세션 토큰으로 보낸다
+    localStorage.removeItem('dnrb_sso'); vm.runInContext("AUTH.initializing = true;", ctx); let sentWith = null;
+    ctx.fetch = async (url, init) => { sentWith = init.headers['x-dnrb-token'] || null; return { ok: true, status: 200, text: async () => '{"ok":true}' }; };
+    setTimeout(() => { localStorage.setItem('dnrb_sso', JSON.stringify({ token: 'late', id: 'u', role: 'staff', exp: Date.now() + 60000 })); vm.runInContext("AUTH.initializing = false;", ctx); }, 250);
+    await sbCall('meta-ads', {}); assert.equal(sentWith, 'late');
+    localStorage.removeItem('dnrb_sso');
     localStorage.removeItem('dnrb_sso');
     n++; console.log('  ✓ sbCall(SSO): 403은 세션 유지 · 401은 워크스페이스에 다시 확인 후에만 폐기 · 만료 안내');
     // 직접 로그인 세션 만료(2026-10-06): 세션 비우고 로그인 화면 — 로그인 화면의 status(auth-admin) 호출은 다시 로그인 화면을 부르지 않는다
