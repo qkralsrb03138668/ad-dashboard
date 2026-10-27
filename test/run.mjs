@@ -83,6 +83,11 @@ console.log('서버 호출 (sbCall) — 오류가 항상 사람이 읽는 문장
     await rejects(() => sbCall('meta-ads', {}), /워크스페이스 로그인이 만료/); assert.equal(localStorage.getItem('dnrb_sso'), null);   // 진짜 거절일 때만 폐기 + 다시 들어오는 길 안내
     localStorage.setItem('dnrb_sso', JSON.stringify({ token: 't', exp: Date.now() - 1 }));
     await rejects(() => sbCall('meta-ads', {}), /워크스페이스에서 광고 대시보드 메뉴/);                                     // 화면 켜둔 채 7일 만료
+    // 경합(2026-10-27): 요청 보낼 땐 세션 없음 → 응답 401이 올 때 유효한 새 세션이 저장돼 있음 → 지우지 말고 그 토큰으로 한 번 더
+    localStorage.removeItem('dnrb_sso'); let raceCalls = 0;
+    ctx.fetch = async (url, init) => { raceCalls++; if (raceCalls === 1) { localStorage.setItem('dnrb_sso', JSON.stringify({ token: 'fresh', id: 'u', role: 'staff', exp: Date.now() + 60000 })); return { ok: false, status: 401, text: async () => '{"error":"로그인이 필요합니다"}' }; }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, tok: init.headers['x-dnrb-token'] }) }; };
+    const r = await sbCall('meta-ads', {}); assert.equal(r.tok + ':' + raceCalls, 'fresh:2'); assert.ok(localStorage.getItem('dnrb_sso'));
     localStorage.removeItem('dnrb_sso');
     n++; console.log('  ✓ sbCall(SSO): 403은 세션 유지 · 401은 워크스페이스에 다시 확인 후에만 폐기 · 만료 안내');
     // 직접 로그인 세션 만료(2026-10-06): 세션 비우고 로그인 화면 — 로그인 화면의 status(auth-admin) 호출은 다시 로그인 화면을 부르지 않는다
@@ -325,28 +330,31 @@ test('admgrCheckHog: CBO 안 한 광고 독식 + 구매당 비용이 마진×60%
   assert.equal(f(cfg).length, 0);
 });
 
-test('admgrPromoCands: 테스트 캠페인 세트의 7일 성과 — 구매 30↑·ROAS 5↑·CBO 미등록 → 종합, 우수 2개↑·상품 60↑ → 상품 (켜진 상품CBO 있으면 제외)', () => {
-  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.demo = false; admgr.data = { campaigns: [] };
+test('admgrPromoCands(2026-10-26 기준): 상품 = 7일 100건↑·구매당≤마진35%·3일 추세 OK·우수 2개↑ / 종합 = 세트 30건↑·≤30% (상품 후보 상품은 제외, 종합으로 보내면 우수 세트 전부)', () => {
+  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {}; admgr.demo = false; admgr.data = { campaigns: [] };
+    // 마진 28,000 · 손익분기 1.79 · 우수 ROAS 4.5↑ · 상품 35% = 구매당 9,800 · 종합 30% = 8,400
     admgrAlert.h7 = { range: { start: '2026-10-16', end: '2026-10-22' }, campaigns: [
       { id: 'c1', name: '테스트2_260914', status: 'ACTIVE', adsets: [
-        { id: 's1', name: '루즈핏 니트_R1_28_261001', status: 'ACTIVE', spend: 400000, purchases: 50, value: 2400000, ads: [{ id: 'a1' }] },
-        { id: 's2', name: '루즈핏 니트_R2_28_261001_test', status: 'ACTIVE', spend: 150000, purchases: 15, value: 900000, ads: [] },
+        { id: 's1', name: '루즈핏 니트_R1_28_261001', status: 'ACTIVE', spend: 560000, purchases: 70, value: 2800000, ads: [{ id: 'a1' }] },   // 구매당 8,000 (28.6%) · ROAS 5
+        { id: 's2', name: '루즈핏 니트_R2_28_261001_test', status: 'ACTIVE', spend: 300000, purchases: 40, value: 1500000, ads: [{ id: 'a2' }] },   // 7,500 (26.8%) · ROAS 5
         { id: 's3', name: '스커트_P1_20_261001 [→CBO4]', status: 'ACTIVE', spend: 400000, purchases: 50, value: 2400000, ads: [{ id: 'a3' }] },
         { id: 's4', name: '블라우스_R1_20_261001', status: 'ACTIVE', spend: 400000, purchases: 50, value: 1200000, ads: [{ id: 'a4' }] },
         { id: 's5', name: '가디건_R1_20_261001', status: 'PAUSED', spend: 400000, purchases: 50, value: 2400000, ads: [] },
         { id: 's6', name: '베리쉬 세트_P1_27_261016', status: 'ACTIVE', spend: 300000, purchases: 60, value: 3000000, ads: [] } ] },
       { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '니트_R9', status: 'ACTIVE', spend: 900000, purchases: 90, value: 9000000, ads: [] }] },
-      { id: 'c3', name: '상품CBO_베리쉬 세트_261019', status: 'ACTIVE', budget: 300000, adsets: [] } ] };`, ctx);
+      { id: 'c3', name: '상품CBO_베리쉬 세트_261019', status: 'ACTIVE', budget: 300000, adsets: [] } ] };
+    admgrAlert.h3 = { campaigns: [{ id: 'c1', name: '테스트2_260914', adsets: [
+        { id: 's1', spend: 240000, ads: [{ id: 'a1', purchases_7d: 30 }] }, { id: 's2', spend: 120000, ads: [{ id: 'a2', purchases_7d: 16 }] } ] }] };`, ctx);   // 3일 구매당 8,000·7,500 = 7일과 같음 → 추세 OK
   localStorage.removeItem('adc_promo_toall');
   let c = g('admgrPromoCands')();
-  assert.equal(c.prods.map(p => p.name + ':' + p.goods.length).join(), '루즈핏 니트:2');   // 우수 2개(손익 1.79×2.5=4.5 ↑) · 상품 65건
-  assert.equal(c.ads.map(r => r.s.id).join(), '');                            // s1은 상품 CBO 후보 상품이라 종합엔 안 올라감 · s3 CBO 표시 · s4 ROAS 3 · s2 구매 15 · s5 꺼짐 · s6 상품CBO 켜짐
+  assert.equal(c.prods.map(p => p.name + ':' + p.goods.length + ':' + p.pct7 + ':' + p.trendOk).join(), '루즈핏 니트:2:28:true');   // 상품 110건 · 27.9% · 우수 2개
+  assert.equal(c.ads.map(r => r.s.id).join(), '');                            // s1·s2는 상품 후보 상품이라 종합엔 안 올라감 · s3 CBO 표시 · s4 상품 미매칭 · s5 꺼짐 · s6 상품CBO 켜짐
   let items = g('admgrCheckPromo')(); assert.ok(items[0].text.includes('종합 CBO 0개 · 상품 CBO 1개'), JSON.stringify(items));
-  localStorage.setItem('adc_promo_toall', JSON.stringify(['루즈핏 니트']));            // 사용자가 '종합 CBO로' → 세트가 종합 후보로
+  localStorage.setItem('adc_promo_toall', JSON.stringify(['루즈핏 니트']));            // 사용자가 '종합 CBO로' → 우수 세트 전부가 종합 후보로 (구매당 비용 낮은 순)
   c = g('admgrPromoCands')();
-  assert.equal(c.ads.map(r => r.s.id + (r.fromProd ? '*' : '')).join(), 's1*,s2*'); assert.ok(c.prods[0].toAll);   // 종합으로 보낸 상품은 우수 세트 전부가 종합 후보로 (2026-10-26 점검 커밋)
+  assert.equal(c.ads.map(r => r.s.id + (r.fromProd ? '*' : '')).join(), 's2*,s1*'); assert.ok(c.prods[0].toAll);
   localStorage.removeItem('adc_promo_toall');
-  vm.runInContext("admgrAlert.h7 = null;", ctx);
+  vm.runInContext("admgrAlert.h7 = null; admgrAlert.h3 = null;", ctx);
 });
 
 test('admgrFatigueCalc: 상품 단위 구매당 비용 전주 대비 25%↑ & 지난주 구매 20↑만', () => {

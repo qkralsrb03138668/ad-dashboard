@@ -83,7 +83,12 @@ async function sbCall(fn, params, payload, _retried) {
       if (dead) { localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); }   // 만료 확정 → 바로 로그인 화면 + 다시 들어오는 길 안내 (2026-10-06)
       throw new Error(dead ? DNRB_RELOGIN : '로그인 확인이 잠시 안 됐어요 — 잠시 후 다시 시도하세요');
     }
-    if (localStorage.getItem(DNRB_KEY)) { localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); throw new Error(DNRB_RELOGIN); }   // 저장본은 있는데 기한(7일)이 지남
+    if (localStorage.getItem(DNRB_KEY)) {
+      // 요청을 보낼 땐 세션이 없었는데 응답이 올 때쯤 생겼다 = 워크스페이스 자동 로그인(sso_redeem)과 첫 화면 요청의 경합 (2026-10-27 친구 제보: 들어오자마자 '만료' 화면).
+      // 방금 받은 새 세션을 지우면 안 된다 → 그 토큰으로 같은 요청을 한 번 다시 보낸다. 진짜 기한(7일)이 지난 저장본일 때만 지운다
+      if (!_retried && dnrbSession()) return sbCall(fn, params, payload, true);
+      localStorage.removeItem(DNRB_KEY); authGate(DNRB_RELOGIN); throw new Error(DNRB_RELOGIN);
+    }
     if (AUTH.session) {
       /* 직접 로그인 토큰이 서버에서 거부됨. 폰 탭이 뒤에 오래 있으면 자동 갱신 타이머가 멈춰 1시간짜리 토큰이 만료된 채 나간다(iOS) —
          먼저 한 번 갱신해 같은 요청을 다시 보내고, 갱신도 안 될 때만 로그인 화면으로. (2026-10-06)

@@ -260,7 +260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('pd-start').value = p.s; $('pd-end').value = p.e;
   updateHdr();
   menuGroupToggle('analysis', !!lsGet('adc_mg_analysis', false));
+  await authInit();    // 로그인(워크스페이스 자동 로그인 포함)을 먼저 — 첫 화면 요청이 로그인 전에 나가 401 → 새 세션을 지우던 경합 (2026-10-27)
   showMenu('ptest');   // 첫 화면 = 소재 업로드 (2026-09-11: 분석 메뉴는 CSV 기반 옛 기능이라 접어 둠)
-  await authInit();
   backupToServer().then(d => { if (d) console.info('서버 백업 완료', d.day, d.bytes + 'B'); }).catch(e => console.warn('서버 백업 실패', e.message));   // 하루 1회, 실패해도 조용히(콘솔만)
 });
