@@ -265,6 +265,26 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
     ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
       num(r.daily_budget), num(r.lifetime_budget), String(r.created_time ?? ""), String(r.updated_time ?? ""));
   }
+  /* 끌올 사본 (2026-10-27 사용자 요청): 꺼진 채로 복사한 세트도 '끌올 사본 정리'에 잡히게 — 오늘 화면에서만, 이름에 '사본'이 있고 1시간 안에 만든 세트 + 그 광고.
+     실패해도 화면은 그대로 (사본만 안 보임) */
+  let recentCopies = 0, recentErr = "";
+  if (preset === "today") {
+    try {
+      const since = Date.now() - 3600_000;
+      const rs = ((await graphGet(`${c.account}/adsets`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
+        filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: "사본" }]), limit: "200" }, c.token)).data ?? []) as Node[];
+      const fresh = rs.filter((r) => !sMap.has(String(r.id)) && new Date(String(r.created_time ?? "")).getTime() >= since && !["DELETED", "ARCHIVED"].includes(String(r.effective_status ?? "")));
+      for (const r of fresh) ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
+        num(r.daily_budget), num(r.lifetime_budget), String(r.created_time ?? ""), String(r.updated_time ?? ""));
+      if (fresh.length) {
+        const ra = ((await graphGet(`${c.account}/ads`, { fields: "id,name,effective_status,adset_id,campaign_id,created_time,updated_time",
+          filtering: JSON.stringify([{ field: "adset.id", operator: "IN", value: fresh.map((r) => String(r.id)) }]), limit: "500" }, c.token)).data ?? []) as Node[];
+        for (const r of ra) { const st = sMap.get(String(r.adset_id ?? "")); if (!st) continue; const ads = st.ads as Map<string, Node>;
+          if (!ads.has(String(r.id))) ads.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""), created: String(r.created_time ?? ""), updated: String(r.updated_time ?? ""), spend: 0, purchases: 0, value: 0, clicks: 0, roas: 0 }); }
+      }
+      recentCopies = fresh.length;
+    } catch (e) { recentErr = String(e).slice(0, 160); }
+  }
 
   // 광고: 활성 전체 + 기간 중 게재분(인사이트) 합집합 — 중간에 꺼진 광고도 지출이 보인다
   const ensureAd = (adId: string, adsetId: string, campId: string, name: string, status: string, created = "", updated = "") => {
@@ -300,7 +320,7 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
     })),
   }));
   const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
-  return { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns };
+  return { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns, recent_copies: recentCopies, ...(recentErr ? { recent_copies_err: recentErr } : {}) };
 }
 
 async function fetchBudgetHistory(c: Creds, s: string, e: string) {
