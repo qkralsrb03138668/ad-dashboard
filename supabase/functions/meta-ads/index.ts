@@ -574,7 +574,7 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string, range: M
   const filt = JSON.stringify([{ field: "campaign.id", operator: "IN", value: campIds }]);
   const [adRows, insRows] = await Promise.all([
     graphGetAll(`${c.account}/ads`, { fields: "id,name,status,effective_status,created_time,adset_id,adset{name},campaign{name},creative{id,video_id,image_hash}", filtering: filt, limit: "500" }, c.token, 20),
-    graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify(range ? { since: range.since, until: range.until } : { since: "2024-01-01", until: today }), level: "ad", filtering: filt, limit: "500",
+    graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify(range ? { since: range.since, until: range.until } : { since: "2024-01-01", until: today }), level: "ad", filtering: filt, limit: "500", action_attribution_windows: JSON.stringify(["7d_click", "default"]), 
       fields: "ad_id,spend,actions,action_values,impressions,reach,frequency,inline_link_clicks,video_thruplay_watched_actions" }, c.token, 20),
   ]);
   const metric = new Map(insRows.map((r) => [String(r.ad_id ?? ""), r]));
@@ -589,6 +589,7 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string, range: M
       is_video: !!((a.creative ?? {}) as R).video_id,
       status: String(a.status ?? ""), effective_status: String(a.effective_status ?? ""), reg_date: regDate(String(a.created_time ?? "")),
       spend: m ? num(m.spend) : 0, purchases: m ? pickPurchase(m.actions) : 0, value: m ? pickPurchase(m.action_values) : 0,
+      purchases_7d: m ? pickPurchase(m.actions, "7d_click") : 0, value_7d: m ? pickPurchase(m.action_values, "7d_click") : 0,   // 클릭 후 7일 — 날짜별 소재·일별 스냅샷 (2026-10-27 사용자: 조회 제외)
       imp: m ? num(m.impressions) : 0, freq: m ? num(m.frequency) : 0, clicks: m ? num(m.inline_link_clicks) : 0,
       v3: m ? pickAct(m.actions, ["video_view"]) : 0, lpv: m ? pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]) : 0,
       atc: m ? pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]) : 0,
@@ -598,7 +599,7 @@ async function fetchCampAds(c: Creds, campIds: string[], today: string, range: M
 // 일별 누적 스냅샷 (추세·'식는 중'용) — 지정 캠페인의 켜져 있는 광고를 등록 이후 누적으로. 5분 수집이 12시간마다 부른다 (화면 요청은 기간 성과라 여기에 적으면 안 된다)
 async function snapshotCampAds(c: Creds, campIds: string[], today: string) {
   const onNow = (await fetchCampAds(c, campIds, today, null)).filter((a) => a.effective_status === "ACTIVE");
-  if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases), value: num(a.value),
+  if (onNow.length) await dbUpsert("test_ad_day", "ad_id,day", onNow.map((a) => ({ ad_id: String(a.id), day: today, spend: num(a.spend), purchases: num(a.purchases_7d), value: num(a.value_7d),   // 스냅샷은 모두 클릭7일 (2026-10-27)
     status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() })));
 }
 async function buildMycre(c: Creds, today: string, camps: { id: string; name: string }[] = [], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) {
@@ -618,7 +619,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
     try {
       const live = (await poolMap(chunk(goneOn, 50), 3, (ids) => graphGetAll(`${c.account}/ads`, {
         filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "100",
-        fields: "id,effective_status,adset{name},insights.date_preset(maximum){spend,actions,action_values,impressions,frequency,inline_link_clicks}",
+        fields: 'id,effective_status,adset{name},insights.date_preset(maximum).action_attribution_windows(["7d_click","default"]){spend,actions,action_values,impressions,frequency,inline_link_clicks}',   // 구매·전환값 = 클릭7일 (테스트 소재와 같은 기준, 2026-10-27)
       }, c.token))).flat();
       const byId = new Map(live.map((r) => [String(r.id), r]));
       for (const a of ads) {
@@ -626,7 +627,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
         if (!l) { a.effective_status = "DELETED"; continue; }   // Meta에 더는 없음
         a.effective_status = String(l.effective_status ?? ""); a.adset_name = String(((l.adset ?? {}) as R).name ?? a.adset_name);
         const m = (((l.insights ?? {}) as R).data as R[] | undefined)?.[0];
-        if (m) { a.spend = num(m.spend); a.purchases = pickPurchase(m.actions); a.value = pickPurchase(m.action_values); a.imp = num(m.impressions); a.freq = num(m.frequency); a.clicks = num(m.inline_link_clicks);
+        if (m) { a.spend = num(m.spend); a.purchases = a.purchases_7d = pickPurchase(m.actions, "7d_click"); a.value = a.value_7d = pickPurchase(m.action_values, "7d_click"); a.imp = num(m.impressions); a.freq = num(m.frequency); a.clicks = num(m.inline_link_clicks);
           a.v3 = pickAct(m.actions, ["video_view"]); a.lpv = pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]); a.atc = pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]); }
       }
     } catch (e) { if (isRateLimit(e)) throw e; }
@@ -636,11 +637,11 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       status: String(a.status ?? ""), effective_status: "ACTIVE", snap_at: new Date().toISOString() }))).catch(() => {});
   }
   if (range) {   // 성과만 그 기간 것으로 (계정 전체를 광고 단위로 한 번 — 기간 안에 돈 광고만 행이 온다)
-    const ins = await graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: range.since, until: range.until }), level: "ad", limit: "500",
+    const ins = await graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: range.since, until: range.until }), level: "ad", limit: "500", action_attribution_windows: JSON.stringify(["7d_click", "default"]), 
       fields: "ad_id,spend,actions,action_values,impressions,frequency,inline_link_clicks" }, c.token, 20);
     const byAd = new Map(ins.map((r) => [String(r.ad_id ?? ""), r]));
     for (const a of ads) { const m = byAd.get(String(a.id));
-      a.spend = m ? num(m.spend) : 0; a.purchases = m ? pickPurchase(m.actions) : 0; a.value = m ? pickPurchase(m.action_values) : 0; a.imp = m ? num(m.impressions) : 0; a.freq = m ? num(m.frequency) : 0; a.clicks = m ? num(m.inline_link_clicks) : 0;
+      a.spend = m ? num(m.spend) : 0; a.purchases = m ? pickPurchase(m.actions) : 0; a.value = m ? pickPurchase(m.action_values) : 0; a.purchases_7d = m ? pickPurchase(m.actions, "7d_click") : 0; a.value_7d = m ? pickPurchase(m.action_values, "7d_click") : 0; a.imp = m ? num(m.impressions) : 0; a.freq = m ? num(m.frequency) : 0; a.clicks = m ? num(m.inline_link_clicks) : 0;
       a.v3 = m ? pickAct(m.actions, ["video_view"]) : 0; a.lpv = m ? pickAct(m.actions, ["omni_landing_page_view", "landing_page_view"]) : 0; a.atc = m ? pickAct(m.actions, ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"]) : 0; }
   }
   }   // (지정 캠페인 없음 = 테스트 소재 전체 경로 끝)
@@ -678,14 +679,14 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
     const g: R = { ...lead, mkey: k, _m: M, effective_status: on.length ? "ACTIVE" : lead.effective_status, gone: M.every((m) => !!m.gone),
       reg_date: M.map((m) => String(m.reg_date ?? "")).filter(Boolean).sort()[0] ?? "" };
     const noFunnel = M.every((m) => m.imp == null);
-    for (const f of ["spend", "purchases", "value", "imp", "clicks", "v3", "lpv", "atc"]) g[f] = M.reduce((s0, m) => s0 + num(m[f]), 0);
+    for (const f of ["spend", "purchases", "value", "purchases_7d", "value_7d", "imp", "clicks", "v3", "lpv", "atc"]) g[f] = M.reduce((s0, m) => s0 + num(m[f]), 0);
     if (noFunnel) delete g.imp;
     g._maker = (M.find((m) => known(m)) ?? lead)._maker;
     return g;
   });
 
   // 일별 스냅샷 → 최근 7일 ROAS·일별 ROAS (비율만 내보낸다)
-  const since = addDays(today, -8), dayRows: R[] = [];
+  const since = [addDays(today, -8), "2026-10-27"].sort()[1], dayRows: R[] = [];   // 10/27 전 스냅샷은 기본 창 기준이라 제외
   for (let off = 0; off < 20000; off += 1000) {
     const r = await dbRest(`test_ad_day?select=ad_id,day,spend,value,purchases&day=gte.${since}&order=day.asc&limit=1000&offset=${off}`);
     if (!r.ok) break; const page = await r.json() as R[]; dayRows.push(...page); if (page.length < 1000) break;
@@ -754,7 +755,8 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       ai: vt || it ? { hook: vt ? String(vt.hook ?? "") : "", cuts: vt ? num(vt.cuts) : null, cut: it ? String(it.cut ?? "") : "", text: it ? !!it.text : null, size: it ? !!it.size : null } : null,
       // 이 소재가 들어가 있는 곳 (테스트 세트 → CBO …) — 비중·ROAS만, 금액 없음
       sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""), spend: Math.round(ms),
-        share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases), clicks: num(m.clicks) }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
+        share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases), clicks: num(m.clicks),
+        purchases_7d: num(m.purchases_7d ?? m.purchases), roas_7d: ms > 0 ? Math.round(num(m.value_7d ?? m.value) / ms * 100) / 100 : null }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
       verdict_at: sts.find((x) => x.verdict_at)?.verdict_at ?? null, asset_req_at: sts.find((x) => x.asset_req_at)?.asset_req_at ?? null, asset_done_at: sts.find((x) => x.asset_done_at)?.asset_done_at ?? null,
     };
   });   // hidden(테스트 소재 탭에서 '목록에서 제거')도 그대로 보낸다 — 관리자의 목록 정리일 뿐, 만든 사람에게는 결과 기록이다

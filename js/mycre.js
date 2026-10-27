@@ -395,7 +395,7 @@ function renderBydate() {
     ${bydate.err ? `<div class="info-bar" style="color:#b91c1c;margin-bottom:12px;"><i class="fa-solid fa-triangle-exclamation"></i> 불러오기 실패: ${esc(bydate.err)}${bydate.data ? ' — 마지막으로 받아둔 것을 보여줘요' : ''}</div>` : ''}`;
   if (!bydate.data) { box.innerHTML = head + `<div class="empty-state"><p>${bydate.loading ? '소재를 불러오는 중… (처음엔 10초쯤 걸려요)' : ''}</p></div>`; return; }
 
-  const rows = (bydate.data.ads || []).flatMap(a => (a.sets && a.sets.length ? a.sets : [a]).map(s => ({ ...s, kind: a.kind, st: a.st, maker: myMaker(a) })))
+  const rows = (bydate.data.ads || []).flatMap(a => (a.sets && a.sets.length ? a.sets : [a]).map(s => ({ ...s, purchases: s.purchases_7d ?? s.purchases, roas: s.roas_7d !== undefined ? s.roas_7d : s.roas, kind: a.kind, st: a.st, maker: myMaker(a) })))   // 구매·ROAS = 클릭 후 7일 (2026-10-27 사용자: 조회 제외)
     .filter(r => r.reg_date >= from && r.reg_date <= to);
   const key = bydate.sort, val = r => key === 'roas' ? (r.roas ?? -1) : (r[key] || 0);
   const newer = (x, y) => y.id.length - x.id.length || (y.id > x.id ? 1 : y.id < x.id ? -1 : 0);   // 업로드순 = 나중에 올린 것 먼저 (Meta 광고 ID는 만든 순서대로 커진다)
@@ -417,5 +417,5 @@ function renderBydate() {
   box.innerHTML = head + `<div class="my-h"><b>${fmtMD(from)}${from !== to ? ' ~ ' + fmtMD(to) : ''} 업로드 ${rows.length}개</b><span>${rows.length ? sum(rows) : ''}${bydate.loading ? ' · <i class="fa-solid fa-spinner fa-spin"></i> 새로 받는 중…' : ''}</span></div>
     ${rows.length ? `<div class="table-wrap"><table class="my-table"><thead><tr><th style="text-align:left;">소재</th><th>상태</th><th class="num">지출</th><th class="num">구매</th><th class="num">구매당비용</th><th class="num" title="링크 클릭 1회에 든 비용">CPC</th><th class="num">ROAS</th></tr></thead><tbody>${body}</tbody></table></div>`
       : `<div class="empty-state" style="padding:24px;"><p>${bydate.loading ? '불러오는 중…' : '이 기간에 올라간 소재가 없어요.'}</p></div>`}
-    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(bydate.data.fetched_at)} 기준 · 숫자는 <b>업로드한 날부터 오늘까지 누적</b> · 썸네일을 누르면 미리보기 · 60일 넘게 지나고 꺼진 소재는 나오지 않아요${(bydate.data.scope || []).length ? ` · 보는 범위: ${bydate.data.scope.map(esc).join(', ')}` : ''}</div>`;
+    <div class="info-bar" style="margin-top:14px;"><i class="fa-regular fa-clock"></i> ${admgrAgo(bydate.data.fetched_at)} 기준 · 숫자는 <b>업로드한 날부터 오늘까지 누적</b> · 구매·구매당비용·ROAS = 클릭 후 7일 (조회 제외) · 썸네일을 누르면 미리보기 · 60일 넘게 지나고 꺼진 소재는 나오지 않아요${(bydate.data.scope || []).length ? ` · 보는 범위: ${bydate.data.scope.map(esc).join(', ')}` : ''}</div>`;
 }
