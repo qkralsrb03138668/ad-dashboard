@@ -348,7 +348,7 @@ const bydate = { data: null, loading: false, err: '', thumbs: {}, asked: new Set
   sort: 'upload', range: { preset: 'last_30d' }, stf: '' };   // stf = 상태로 거르기 ('' = 전체)   // 기본 = 업로드순 · 최근 30일 (2026-10-27 사용자 요청 — 저장 안 함, 페이지를 열 때마다 이 값)
 const BD_PRESETS = { today: ['오늘', 0], yesterday: ['어제', 1], last_7d: ['최근 7일', 6], last_14d: ['최근 14일', 13], last_30d: ['최근 30일', 29] };   // 업로드 날짜라 오늘도 포함
 const BD_ST = { live: ['badge-green', '활성'], eval: ['badge-blue', '테스트중'], off: ['badge-red', '꺼짐'] };   // 상태 (2026-10-27 사용자): 꺼진 건 꺼짐 → 세트명에 test면 테스트중 → 나머지 켜진 건 활성
-const BD_SORTS = { upload: '업로드순', purchases: '구매 많은 순', roas: 'ROAS 높은 순', spend: '지출 많은 순' };
+const BD_SORTS = { upload: '업로드순', product: '상품순', purchases: '구매 많은 순', roas: 'ROAS 높은 순', spend: '지출 많은 순' };
 function bydateSpan() {
   const r = bydate.range;
   if (r.preset === 'custom') return [r.since, r.until];
@@ -405,20 +405,21 @@ function renderBydate() {
   const stBar = all.length ? `<div class="my-period"><b class="bd-lbl">상태</b><span class="ag-seg"><button class="${bydate.stf ? '' : 'on'}" onclick="bydateStf('')">전체 ${all.length}</button>${Object.keys(BD_ST).filter(k => stN[k]).map(k => `<button class="${bydate.stf === k ? 'on' : ''}" onclick="bydateStf('${k}')">${BD_ST[k][1]} ${stN[k]}</button>`).join('')}</span></div>` : '';
   const key = bydate.sort, val = r => key === 'roas' ? (r.roas ?? -1) : (r[key] || 0);
   const newer = (x, y) => y.id.length - x.id.length || (y.id > x.id ? 1 : y.id < x.id ? -1 : 0);   // 업로드순 = 나중에 올린 것 먼저 (Meta 광고 ID는 만든 순서대로 커진다)
-  rows.sort(key === 'upload' ? newer : (x, y) => val(y) - val(x) || (y.spend || 0) - (x.spend || 0));
+  rows.sort(key === 'upload' || key === 'product' ? newer : (x, y) => val(y) - val(x) || (y.spend || 0) - (x.spend || 0));
   const per = (sp, n) => n > 0 ? won(Math.round(sp / n)) : '—';
-  const days = new Map(); rows.forEach(r => (days.get(r.reg_date) || days.set(r.reg_date, []).get(r.reg_date)).push(r));
+  const byProd = key === 'product', gk = r => byProd ? admgrProductOf(r) : r.reg_date;   // 상품순 (2026-10-27 사용자 요청) = 상품별 묶음(가나다), 안에서는 최근 업로드 먼저
+  const days = new Map(); rows.forEach(r => (days.get(gk(r)) || days.set(gk(r), []).get(gk(r))).push(r));
   const sum = L => { const sp = L.reduce((s, r) => s + (r.spend || 0), 0), pu = L.reduce((s, r) => s + (r.purchases || 0), 0), va = L.reduce((s, r) => s + (r.roas || 0) * (r.spend || 0), 0);
     return `지출 ${won(sp)} · 구매 ${comma(pu)}건 · 구매당 ${per(sp, pu)} · ROAS ${sp ? (va / sp).toFixed(2) : '—'}`; };
   const dow = d => '일월화수목금토'[new Date(d + 'T00:00:00').getDay()];
   const tr = r => { const st = BD_ST[r.st], src = bydate.thumbs[r.id];
     return `<tr><td style="text-align:left;"><div class="bd-ad"><span class="tt-th" onclick="showMetaPreview('${r.id}')" title="미리보기">${src ? `<img src="${esc(src)}" loading="lazy" alt="">` : ''}</span>
-        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.active ? '켜짐' : '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
+        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[byProd ? fmtMD(r.reg_date) + ' 업로드' : '', r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.active ? '켜짐' : '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
       <td class="ctr">${st[1] ? `<span class="status-badge ${st[0]}">${st[1]}</span>` : ''}</td>
       <td class="num ${key === 'spend' ? 'bd-on' : ''}">${won(r.spend || 0)}</td><td class="num ${key === 'purchases' ? 'bd-on' : ''}">${comma(r.purchases || 0)}</td>
       <td class="num">${per(r.spend || 0, r.purchases)}</td><td class="num">${per(r.spend || 0, r.clicks)}</td>
       <td class="num ${key === 'roas' ? 'bd-on' : ''}"><b style="color:${myRoasColor(r.roas)};">${r.roas == null ? '—' : r.roas.toFixed(2)}</b></td></tr>`; };
-  const body = [...days.keys()].sort().reverse().map(d => `<tr class="bd-day"><td colspan="7"><b>${fmtMD(d)} (${dow(d)}) 업로드</b> <span>${days.get(d).length}개 · ${sum(days.get(d))}</span></td></tr>${days.get(d).map(tr).join('')}`).join('');
+  const body = (byProd ? [...days.keys()].sort((x, y) => x.localeCompare(y, 'ko')) : [...days.keys()].sort().reverse()).map(d => `<tr class="bd-day"><td colspan="7"><b>${byProd ? esc(d) : `${fmtMD(d)} (${dow(d)}) 업로드`}</b> <span>${days.get(d).length}개 · ${sum(days.get(d))}</span></td></tr>${days.get(d).map(tr).join('')}`).join('');
   setTimeout(() => bydateThumbs(rows), 0);
   box.innerHTML = head + stBar + `<div class="my-h"><b>${fmtMD(from)}${from !== to ? ' ~ ' + fmtMD(to) : ''} 업로드 ${rows.length}개${bydate.stf ? ` · ${BD_ST[bydate.stf][1]}` : ''}</b><span>${rows.length ? sum(rows) : ''}${bydate.loading ? ' · <i class="fa-solid fa-spinner fa-spin"></i> 새로 받는 중…' : ''}</span></div>
     ${rows.length ? `<div class="table-wrap"><table class="my-table"><thead><tr><th style="text-align:left;">소재</th><th>상태</th><th class="num">지출</th><th class="num">구매</th><th class="num">구매당비용</th><th class="num" title="링크 클릭 1회에 든 비용">CPC</th><th class="num">ROAS</th></tr></thead><tbody>${body}</tbody></table></div>`
