@@ -972,3 +972,6 @@ summary::-webkit-details-marker { display: none; }
 #sec-bydate .bd-day td { background: #f5f6fb; text-align: left; } #sec-bydate .bd-day span { font-size: .74rem; color: #6b7280; margin-left: 6px; }
 #sec-bydate .bd-on { background: #eef2ff; }
 @media (max-width: 768px) { #sec-bydate .ag-seg { overflow-x: auto; max-width: 100%; scrollbar-width: none; } #sec-bydate .ag-seg button { min-height: 36px; } }
+
+/* 메뉴 숨김 (2026-10-27 사용자: 날짜별 소재로 정리 — 내 소재 성과·테스트 소재·베스트소재는 일단 가림. 기능은 그대로, 이 규칙만 지우면 다시 보임) */
+.menu-item[data-menu="mycre"], .menu-item[data-menu="atest"], .menu-item[data-menu="abest"] { display: none !important; }
