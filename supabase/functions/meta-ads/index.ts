@@ -753,7 +753,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       ai: vt || it ? { hook: vt ? String(vt.hook ?? "") : "", cuts: vt ? num(vt.cuts) : null, cut: it ? String(it.cut ?? "") : "", text: it ? !!it.text : null, size: it ? !!it.size : null } : null,
       // 이 소재가 들어가 있는 곳 (테스트 세트 → CBO …) — 비중·ROAS만, 금액 없음
       sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""), spend: Math.round(ms),
-        share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases) }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
+        share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases), clicks: num(m.clicks) }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
       verdict_at: sts.find((x) => x.verdict_at)?.verdict_at ?? null, asset_req_at: sts.find((x) => x.asset_req_at)?.asset_req_at ?? null, asset_done_at: sts.find((x) => x.asset_done_at)?.asset_done_at ?? null,
     };
   });   // hidden(테스트 소재 탭에서 '목록에서 제거')도 그대로 보낸다 — 관리자의 목록 정리일 뿐, 만든 사람에게는 결과 기록이다
