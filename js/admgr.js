@@ -864,7 +864,7 @@ function admgrRepostPlan(sets, allSets, today, picks) {   // picks: {세트 id �
     }
     const vt = x => typeof regVerTag === 'function' ? regVerTag(x.name) : '', tagHit = x => { const t = vt(x); return t && n.includes(admgrNorm(t.replace(/ver\d*$/i, ''))) ? 1 : 0; };
     cands.sort((a, b) => tagHit(b) - tagHit(a) || b.n.length - a.n.length || (vt(a) ? 1 : 0) - (vt(b) ? 1 : 0));   // 기본 후보 (2026-10-27): 이름에 '기모' 같은 버전 단어가 있으면 그 버전 → 더 구체적인 상품 → 버전 없는 일반 상품 ('클레르 블라우스 25000'에 기모ver가 먼저 잡히던 것)
-    const pick = picks && picks[s.id], p = (pick != null && cands.find(x => x.no === pick)) || cands[0] || null;
+    const pick = picks && picks[s.id], p = (pick != null && (cands.find(x => x.no === pick) || idx.find(x => x.no === pick))) || cands[0] || null;   // 후보 밖 상품도 직접 고를 수 있게 (지난 소재 찾기의 상품 검색, 2026-10-27)
     if (!pname) pname = p ? (typeof regVerTag === 'function' && regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + coreName(p.name)
       : (old.split('_').map(x => coreName(x).replace(/^[\s\-–—·.@#]+/, '').replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}(,\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').replace(/\s+/g, ' ').trim())   // 날짜·가격·' - 색상'·꼬리 숫자 제거
           .filter(x => x && !/^\d+$/.test(x)).sort((a, b) => b.length - a.length)[0] || old);   // 옛 이름('전환_(160이상 추천)밍크 트임 pt (2 colors)_231219'): 상품 목록에서 찾기 → 지금 없는 상품이면 가장 긴 토막(괄호 뺀 것)
@@ -925,18 +925,21 @@ async function admgrRepostRun() {
 }
 /* ═══ 지난 소재 찾기 (2026-10-27 사용자 요청) — 끌올할 상품명으로 작년 1월부터 돌았던 광고를 같은 소재끼리 묶어 클릭 7일 구매당 비용 ÷ 마진 낮은 순으로.
    고르면 소재마다 새 세트 1개(타겟은 그 소재가 가장 잘 됐던 세트, 입찰·최적화는 넣을 캠페인의 지금 세트) + 광고 1개를 고른 캠페인에 켜진 상태로 만든다(PIN). 이름은 끌올 사본 정리와 같은 규칙 */
-admgr.past = { q: '', since: '', data: null, loading: false, sel: new Set(), camp: '', budget: '15000', picks: {} };
+admgr.past = { q: '', since: '', data: null, loading: false, sel: new Set(), camp: '', budget: '15000', picks: {}, sort: 'up', queue: [] };
+/* 2026-10-27 사용자 요청 ②: 기본 정렬 업로드순(최근 먼저) · 상품 못 찾으면 직접 검색 · 상품마다 찾아 대기 목록에 넣고 한 번에 켜기 */
 function admgrPastRows() {
-  const d = admgr.past.data; if (!d) return [];
-  return d.groups.map(g => {
+  const P = admgr.past, d = P.data; if (!d) return [];
+  const rows = d.groups.map(g => {
     const best = g.ads.filter(a => a.p >= 3).sort((x, y) => x.sp / x.p - y.sp / y.p)[0] || [...g.ads].sort((x, y) => y.p - x.p)[0];
     const m = admgrMarginOf({ id: '', name: best.ad }).m || admgrMarginOf({ id: '', name: best.set }).m;
-    return { ...g, best, m, pct: g.p && m ? Math.round(g.sp / g.p / m * 100) : null, roas: g.sp ? g.v / g.sp : 0, nSets: new Set(g.ads.map(a => a.set_id)).size };
-  }).filter(g => g.p >= 5).sort((a, b) => (a.pct ?? 999) - (b.pct ?? 999) || b.p - a.p);
+    return { ...g, best, m, pct: g.p && m ? Math.round(g.sp / g.p / m * 100) : null, roas: g.sp ? g.v / g.sp : 0, nSets: new Set(g.ads.map(a => a.set_id)).size, up: g.up || g.first };
+  }).filter(g => g.p >= 5);
+  return P.sort === 'eff' ? rows.sort((a, b) => (a.pct ?? 999) - (b.pct ?? 999) || b.p - a.p) : rows.sort((a, b) => String(b.up).localeCompare(String(a.up)) || b.p - a.p);
 }
-function admgrPastPlan(rows) {   // 고른 소재 → 끌올 규칙 이름 (같은 상품이 여럿이면 순번이 이어진다)
+function admgrPastPlan(rows) {   // 고른 소재 → 끌올 규칙 이름. 대기 목록 이름도 순번에 넣어 같은 상품이면 번호가 이어진다
   const input = rows.map(g => ({ id: g.key, name: AG_RULE.test(admgrBase(g.best.set)) ? g.best.set : g.best.ad, ads: [], is_video: g.is_video }));
-  return new Map(admgrRepostPlan(input, admgrRows().sets, todayStr(0), admgr.past.picks).filter(p => p.level === 'adset').map(p => [p.id, p]));
+  const taken = [...admgrRows().sets, ...admgr.past.queue.map(q => ({ name: q.name }))];
+  return new Map(admgrRepostPlan(input, taken, todayStr(0), admgr.past.picks).filter(p => p.level === 'adset').map(p => [p.id, p]));
 }
 async function admgrPastModal() {
   const P = admgr.past;
@@ -950,7 +953,7 @@ async function admgrPastModal() {
 async function admgrPastSearch() {
   const P = admgr.past; P.q = (($('ag-past-q') || {}).value || '').trim(); P.since = ($('ag-past-since') || {}).value || P.since;
   if (P.q.length < 2) { toast('상품명을 2글자 이상 입력하세요'); return; }
-  P.loading = true; P.data = null; P.sel.clear(); P.picks = {}; admgrPastRender();
+  P.loading = true; P.data = null; P.sel.clear(); admgrPastRender();   // 대기 목록·고른 상품은 그대로 둔다
   try {
     while (admgr.productsLoading) await new Promise(r => setTimeout(r, 200));   // 마진 계산에 상품 가격이 필요
     P.data = await metaGet({ action: 'pastcre', q: P.q, since: P.since, until: todayStr(0) });
@@ -959,63 +962,101 @@ async function admgrPastSearch() {
 }
 function admgrPastToggle(k) { const S = admgr.past.sel; if (S.has(k)) S.delete(k); else if (S.size >= 20) toast('한 번에 20개까지예요'); else S.add(k); admgrPastRender(); }
 function admgrPastPick(k, no) { admgr.past.picks[k] = Number(no); admgrPastRender(); }
+function admgrPastProdFind(el) {   // 상품 직접 검색 — 다시 그리지 않고 결과 칸만 (입력 포커스 유지)
+  const toks = el.value.trim().split(/\s+/).map(admgrNorm).filter(Boolean), out = el.nextElementSibling;
+  if (!toks.length) { out.innerHTML = ''; return; }
+  const hit = admgrProdIdx().filter(x => toks.every(t => admgrNorm(x.name).includes(t))).slice(0, 8);
+  out.innerHTML = hit.length ? hit.map(x => `<button type="button" class="filter-tab" style="font-size:.7rem;padding:2px 8px;margin:2px 4px 0 0;" data-k="${esc(el.dataset.k)}" data-no="${x.no}" onclick="event.preventDefault();admgrPastPick(this.dataset.k, this.dataset.no)">${esc(x.name)} <span class="ag-muted">${comma(x.price || 0)}원</span></button>`).join('') : '<span class="ag-muted" style="font-size:.7rem;">상품 목록에 없어요</span>';
+}
+function admgrPastBudgetOk(camp) { const cbo = camp.budget > 0 || camp.budget_life > 0, b = Number(String(admgr.past.budget || '').replace(/[^\d]/g, '')); return { cbo, budget: cbo ? 0 : b, ok: cbo || b >= 1000 }; }
+function admgrPastQueue() {   // 고른 소재를 지금 캠페인·예산으로 대기 목록에 (이름도 지금 확정)
+  const P = admgr.past, rows = admgrPastRows().filter(g => P.sel.has(g.key)); if (!rows.length) return true;
+  const camp = admgrRows().camps.find(c => c.id === P.camp); if (!camp) { toast('캠페인을 고르세요'); return false; }
+  const b = admgrPastBudgetOk(camp); if (!b.ok) { toast('세트 일예산을 입력하세요 (1,000원 이상)'); return false; }
+  if (P.queue.length + rows.length > 60) { toast('대기 목록은 60개까지예요'); return false; }
+  const plan = admgrPastPlan(rows);
+  for (const g of rows) { const pl = plan.get(g.key); if (!pl) continue;
+    P.queue.push({ key: g.key, ad_id: g.best.ad_id, name: pl.to, note: pl.note, camp: camp.id, campName: admgrBase(camp.name), budget: b.budget, cbo: b.cbo, thumb: g.thumb, label: admgrBase(g.best.ad), is_video: g.is_video }); }
+  P.sel.clear(); admgrPastRender(); return true;
+}
+function admgrPastUnq(i) { admgr.past.queue.splice(i, 1); admgrPastRender(); }
 function admgrPastRender() {
   const P = admgr.past, rows = admgrPastRows(), chosen = rows.filter(g => P.sel.has(g.key)), plan = admgrPastPlan(chosen);
   const camps = admgrRows().camps, camp = camps.find(c => c.id === P.camp), cbo = !!camp && (camp.budget > 0 || camp.budget_life > 0);
-  const ym = d => d ? d.slice(2, 7).replace('-', '.') : '';
-  const row = g => { const on = P.sel.has(g.key), pl = plan.get(g.key), a = g.best;
+  const ym = d => d ? d.slice(2, 7).replace('-', '.') : '', ymd = d => d ? d.slice(2, 10).replace(/-/g, '.') : '';
+  const queued = new Set(P.queue.map(q => q.key));
+  const row = (g, i) => { const on = P.sel.has(g.key), pl = plan.get(g.key), a = g.best;
     return `<label style="display:grid;grid-template-columns:20px 46px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:.76rem;">
       <input type="checkbox" ${on ? 'checked' : ''} data-k="${esc(g.key)}" onchange="admgrPastToggle(this.dataset.k)" />
       <div data-ad="${esc(a.ad_id)}" onclick="event.preventDefault();event.stopPropagation();$('admgr-preview').style.zIndex=210;showMetaPreview(this.dataset.ad)" title="눌러서 소재 보기" style="position:relative;width:46px;height:46px;cursor:zoom-in;">${g.thumb ? `<img src="${esc(g.thumb)}" style="width:46px;height:46px;object-fit:cover;border-radius:6px;" loading="lazy" />` : '<div style="width:46px;height:46px;border-radius:6px;background:#f3f4f6;"></div>'}<i class="fa-solid ${g.is_video ? 'fa-play' : 'fa-magnifying-glass'}" style="position:absolute;right:3px;bottom:3px;font-size:.6rem;color:#fff;background:rgba(0,0,0,.55);border-radius:4px;padding:2px 3px;"></i></div>
       <div style="min-width:0;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${g.is_video ? '<i class="fa-solid fa-film" style="color:#9ca3af;margin-right:4px;"></i>' : ''}${esc(admgrBase(a.ad))}</div>
-        <div class="ag-muted" style="font-size:.7rem;">${ym(g.first)} ~ ${ym(g.last)} · 세트 ${g.nSets}개 · 가장 좋았던 세트 ${esc(admgrBase(a.set).slice(0, 30))}${g.live ? ' · <span style="color:#b45309;">지금 켜져 있음</span>' : ''}</div>
+        <div class="ag-muted" style="font-size:.7rem;">업로드 ${ymd(g.up)} · ${ym(g.first)}~${ym(g.last)} 돌았음 · 세트 ${g.nSets}개${g.live ? ' · <span style="color:#b45309;">지금 켜져 있음</span>' : ''}${queued.has(g.key) ? ' · <span style="color:#4f46e5;">대기 목록에 있음</span>' : ''}</div>
         ${on && pl ? `<div style="font-size:.72rem;color:#4f46e5;margin-top:2px;">→ ${esc(pl.to)}${pl.note ? ` <span style="color:#b45309;">· ${esc(pl.note)}</span>` : ''}</div>
-          ${pl.cands && pl.cands.length > 1 ? `<div style="font-size:.7rem;color:#b45309;">비슷한 상품 ${pl.cands.length}개 — <select data-k="${esc(g.key)}" onchange="admgrPastPick(this.dataset.k, this.value)" style="font-size:.7rem;max-width:100%;">${pl.cands.map(c => `<option value="${c.no}" ${c.no === pl.pick ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}` : ''}</div>
+          ${pl.cands && pl.cands.length > 1 && pl.cands.some(c => c.no === pl.pick) ? `<div style="font-size:.7rem;color:#b45309;">비슷한 상품 ${pl.cands.length}개 — <select data-k="${esc(g.key)}" onchange="admgrPastPick(this.dataset.k, this.value)" style="font-size:.7rem;max-width:100%;">${pl.cands.map(c => `<option value="${c.no}" ${c.no === pl.pick ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
+          <div style="font-size:.7rem;margin-top:2px;" onclick="event.preventDefault()"><span class="ag-muted">${pl.product ? '상품: ' + esc(pl.product) + ' · ' : ''}상품 직접 찾기</span> <input class="inp" data-k="${esc(g.key)}" placeholder="예: 케이프 패딩" style="font-size:.7rem;padding:2px 6px;width:130px;" oninput="admgrPastProdFind(this)" /><div></div></div>` : ''}</div>
       <div style="text-align:right;white-space:nowrap;"><b>${comma(Math.round(g.p))}건</b><div style="font-size:.7rem;color:${g.pct == null ? '#9ca3af' : g.pct <= 30 ? '#15803d' : g.pct <= 40 ? '#374151' : '#dc2626'};" title="${g.pct == null ? '마진 모름' : '마진의 ' + g.pct + '%'}">구매당 ${comma(Math.round(g.sp / g.p))}원 · ROAS ${g.roas.toFixed(1)}</div></div></label>`; };
-  const d = P.data;
+  const d = P.data, total = P.queue.length + chosen.length;
+  const qrow = (q, i) => `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;font-size:.72rem;border-bottom:1px solid #f3f4f6;">
+      ${q.thumb ? `<img src="${esc(q.thumb)}" style="width:26px;height:26px;object-fit:cover;border-radius:4px;" />` : ''}
+      <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${esc(q.name)}</b>${q.note ? ` <span style="color:#b45309;">· ${esc(q.note)}</span>` : ''}</div>
+      <span class="ag-muted" style="white-space:nowrap;">${esc(q.campName)}${q.cbo ? ' · CBO' : ' · ' + comma(q.budget) + '원'}</span>
+      <button class="btn-ghost" style="padding:0 6px;" onclick="admgrPastUnq(${i})" title="빼기">✕</button></div>`;
   $('abm-body').innerHTML = `
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
       <input class="inp" id="ag-past-q" value="${esc(P.q)}" placeholder="상품명 (예: 클레르 블라우스)" style="flex:1;min-width:160px;" onkeydown="if(event.key==='Enter')admgrPastSearch()" />
       <input class="inp" type="date" id="ag-past-since" value="${esc(P.since)}" style="width:140px;" />
       <button class="btn-analyze" onclick="admgrPastSearch()" ${P.loading ? 'disabled' : ''}>${P.loading ? '찾는 중…' : '찾기'}</button></div>
-    <div class="ag-muted" style="font-size:.7rem;margin-bottom:6px;">광고 이름에 상품명이 들어간 광고 · 같은 영상·이미지·인스타 게시물끼리 묶음 · 클릭 7일 구매 5건 이상 · 구매당 비용 ÷ 마진 낮은 순</div>
-    <div style="max-height:46vh;overflow:auto;">${P.loading ? '<div style="padding:16px;color:#6b7280;font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin"></i> 작년부터 돈 광고를 모으는 중… (10초쯤)</div>'
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+      <button class="filter-tab ${P.sort === 'eff' ? '' : 'active'}" style="font-size:.72rem;padding:3px 10px;" onclick="admgr.past.sort='up';admgrPastRender()">업로드순</button>
+      <button class="filter-tab ${P.sort === 'eff' ? 'active' : ''}" style="font-size:.72rem;padding:3px 10px;" onclick="admgr.past.sort='eff';admgrPastRender()">효율순</button>
+      <span class="ag-muted" style="font-size:.7rem;">광고 이름에 상품명이 들어간 광고 · 같은 영상·이미지·인스타 게시물끼리 묶음 · 클릭 7일 구매 5건 이상</span></div>
+    <div style="max-height:${P.queue.length ? 34 : 44}vh;overflow:auto;">${P.loading ? '<div style="padding:16px;color:#6b7280;font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin"></i> 작년부터 돈 광고를 모으는 중… (10초쯤)</div>'
       : !d ? '' : rows.length ? rows.map(row).join('') : '<div style="padding:12px 0;color:#9ca3af;font-size:.78rem;">구매 5건 이상인 소재가 없어요</div>'}</div>
     ${d && (d.ads_capped || d.meta_err) ? `<div style="font-size:.7rem;color:#b45309;margin-top:6px;">${d.ads_capped ? '광고가 많아 지출 상위 400개만 봤어요 · ' : ''}${d.meta_err ? '일부 소재 정보를 못 받아 따로 보일 수 있어요' : ''}</div>` : ''}
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;">
       <span style="font-size:.76rem;color:#4b5563;">넣을 캠페인</span>
       <select class="inp" style="flex:1;min-width:160px;" onchange="admgr.past.camp=this.value;admgrPastRender()">${camps.map(c => `<option value="${c.id}" ${c.id === P.camp ? 'selected' : ''}>${esc(admgrBase(c.name))}${c.budget > 0 || c.budget_life > 0 ? ' · CBO' : ''}</option>`).join('')}</select>
-      ${cbo ? '' : `<span style="font-size:.76rem;color:#4b5563;">세트 일예산</span><input class="inp" id="ag-past-budget" value="${esc(P.budget)}" style="width:90px;" oninput="admgr.past.budget=this.value" />`}</div>
+      ${cbo ? '' : `<span style="font-size:.76rem;color:#4b5563;">세트 일예산</span><input class="inp" id="ag-past-budget" value="${esc(P.budget)}" style="width:90px;" oninput="admgr.past.budget=this.value" />`}
+      <button class="btn-ghost" onclick="admgrPastQueue()" ${chosen.length ? '' : 'disabled'}><i class="fa-solid fa-plus"></i> 대기 목록에 넣기${chosen.length ? ' ' + chosen.length : ''}</button></div>
+    ${P.queue.length ? `<div style="margin-top:10px;padding:8px 10px;background:#f9fafb;border-radius:8px;"><div style="font-size:.74rem;font-weight:700;color:#374151;margin-bottom:4px;">대기 목록 ${P.queue.length}개 <span class="ag-muted" style="font-weight:400;">— 다른 상품을 찾아 계속 넣고, 아래에서 한 번에 켜요</span></div><div style="max-height:18vh;overflow:auto;">${P.queue.map(qrow).join('')}</div></div>` : ''}
     <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">소재마다 새 세트 1개 · 타겟은 그 소재가 가장 잘 됐던 세트에서, 입찰·최적화·전환 이벤트는 넣을 캠페인의 지금 세트를 따라요 · <b style="color:#dc2626;">세트·광고 모두 켜진 상태로 바로 게재</b> · PIN 필요</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>
-      <button class="btn-analyze" id="ag-past-go" onclick="admgrPastRun()" ${chosen.length ? '' : 'disabled'}>${chosen.length ? chosen.length + '개 켜서 만들기' : '소재를 고르세요'}</button></div>`;
+      <button class="btn-analyze" id="ag-past-go" onclick="admgrPastRun()" ${total ? '' : 'disabled'}>${total ? total + '개 한 번에 켜기' : '소재를 고르세요'}</button></div>`;
 }
 async function admgrPastRun() {
-  const w = admgr.write;
+  const w = admgr.write, P = admgr.past;
   if (!w.pin) { admgrPinPrompt(() => admgrPastRun()); return; }
-  const P = admgr.past, rows = admgrPastRows().filter(g => P.sel.has(g.key)); if (!rows.length) return;
-  const camp = admgrRows().camps.find(c => c.id === P.camp); if (!camp) { toast('캠페인을 고르세요'); return; }
-  const cbo = camp.budget > 0 || camp.budget_life > 0, budget = Number(String(P.budget || '').replace(/[^\d]/g, ''));
-  if (!cbo && !(budget >= 1000)) { toast('세트 일예산을 입력하세요 (1,000원 이상)'); return; }
-  const plan = admgrPastPlan(rows), items = rows.map(g => ({ ad_id: g.best.ad_id, name: (plan.get(g.key) || {}).to })).filter(x => x.name);
-  if (!confirm(`${admgrBase(camp.name)}에 세트 ${items.length}개를 켜진 상태로 만들어요${cbo ? '' : ` (하루 최대 ${comma(budget * items.length)}원)`}. 진행할까요?`)) return;
-  const btn = $('ag-past-go'); btn.disabled = true; btn.textContent = '만드는 중…';
+  if (P.sel.size && !admgrPastQueue()) return;   // 체크만 하고 안 넣은 것도 지금 캠페인·예산으로 같이
+  const Q = P.queue.slice(); if (!Q.length) return;
+  const daily = Q.reduce((s0, q) => s0 + (q.cbo ? 0 : q.budget), 0), cboN = Q.filter(q => q.cbo).length;
+  if (!confirm(`세트 ${Q.length}개를 켜진 상태로 만들어요 (세트 예산 합계 하루 ${comma(daily)}원${cboN ? ` + CBO 캠페인 안 ${cboN}개` : ''}). 진행할까요?`)) return;
+  const btn = $('ag-past-go'); btn.disabled = true;
+  const groups = new Map(); for (const q of Q) { const k = q.camp + '|' + q.budget; (groups.get(k) || groups.set(k, []).get(k)).push(q); }   // 서버는 한 번에 캠페인·예산 하나, 20개까지
+  const created = [], failed = []; let done = 0;
   try {
-    const d = await sbCall('meta-upload', { action: 'adset_repost' }, { pin: w.pin, campaign_id: camp.id, daily_budget: budget, items });
-    P.sel.clear();
-    $('abm-title').textContent = '지난 소재 다시 테스트 결과';
-    $('abm-body').innerHTML = `<div style="font-size:.8rem;color:#374151;margin-bottom:6px;">${esc(d.campaign || '')}에 세트 <b style="color:#15803d;">${(d.created || []).length}</b>개를 켜진 상태로 만들었어요${(d.failed || []).length ? ` · 실패 <b style="color:#dc2626;">${d.failed.length}</b>개` : ''}</div>
-      ${(d.created || []).map(c => `<div style="font-size:.74rem;">✓ ${esc(c.name)}</div>`).join('')}
-      ${(d.failed || []).map(f => `<div style="font-size:.74rem;color:#dc2626;">✗ ${esc(f.name || f.ad_id)} — ${esc(String(f.error || ''))}</div>`).join('')}
-      <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">이름에 test가 들어가 테스트 소재 탭에서 판정돼요 · 화면을 새로 받아오고 있어요</div>
-      <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="admgrPastModal()">다시 찾기</button> <button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
-    admgrFetch();
+    for (const L of groups.values()) for (let i = 0; i < L.length; i += 20) {
+      const part = L.slice(i, i + 20); btn.textContent = `만드는 중… ${done}/${Q.length}`;
+      try {
+        const d = await sbCall('meta-upload', { action: 'adset_repost' }, { pin: w.pin, campaign_id: part[0].camp, daily_budget: part[0].budget, items: part.map(q => ({ ad_id: q.ad_id, name: q.name })) });
+        (d.created || []).forEach(c => created.push({ ...c, campName: part[0].campName })); (d.failed || []).forEach(f => failed.push(f));
+      } catch (e) { if (/PIN/.test(e.message)) throw e; part.forEach(q => failed.push({ ad_id: q.ad_id, name: q.name, error: e.message })); }
+      done += part.length;
+    }
   } catch (e) {
-    btn.disabled = false; btn.textContent = rows.length + '개 켜서 만들기';
+    btn.disabled = false; btn.textContent = Q.length + '개 한 번에 켜기';
     if (/PIN/.test(e.message)) admgrPinInvalidate();
-    toast('만들기 실패: ' + e.message);
+    toast('만들기 실패: ' + e.message); return;
   }
+  const okIds = new Set(created.map(c => String(c.ad_id) + '|' + c.name));
+  P.queue = P.queue.filter(q => !okIds.has(String(q.ad_id) + '|' + q.name));   // 실패한 것만 대기 목록에 남김
+  $('abm-title').textContent = '지난 소재 다시 테스트 결과';
+  $('abm-body').innerHTML = `<div style="font-size:.8rem;color:#374151;margin-bottom:6px;">세트 <b style="color:#15803d;">${created.length}</b>개를 켜진 상태로 만들었어요${failed.length ? ` · 실패 <b style="color:#dc2626;">${failed.length}</b>개 (대기 목록에 남겨 뒀어요)` : ''}</div>
+    <div style="max-height:45vh;overflow:auto;">${created.map(c => `<div style="font-size:.74rem;">✓ ${esc(c.name)} <span class="ag-muted">· ${esc(c.campName)}</span></div>`).join('')}
+    ${failed.map(f => `<div style="font-size:.74rem;color:#dc2626;">✗ ${esc(f.name || f.ad_id)} — ${esc(String(f.error || ''))}</div>`).join('')}</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:10px;">이름에 test가 들어가 테스트 소재 탭에서 판정돼요 · 화면을 새로 받아오고 있어요</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button class="btn-ghost" onclick="admgrPastModal()">${failed.length ? '대기 목록 보기' : '다시 찾기'}</button><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">확인</button></div>`;
+  admgrFetch();
 }
 function admgrCopyModal() {
   const { camps, ads } = admgrRows();

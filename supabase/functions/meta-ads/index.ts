@@ -1270,7 +1270,7 @@ async function handle(req: Request): Promise<Response> {
       const q = (url.searchParams.get("q") ?? "").normalize("NFC").trim();
       const since = url.searchParams.get("since") ?? "", until = url.searchParams.get("until") ?? "";
       if (!q || q.length > 40 || !DAY_RE.test(since) || !DAY_RE.test(until) || since > until) return json({ error: "q·since·until 형식 오류" }, 400);
-      const cacheKey = `meta:pastcre:v2:${q}:${since}:${until}`;
+      const cacheKey = `meta:pastcre:v3:${q}:${since}:${until}`;
       const pre = await metaPre(cacheKey, 6 * 3600_000);
       if (pre) return pre;
       const ALL_ST = ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "DISAPPROVED", "WITH_ISSUES", "IN_PROCESS", "PENDING_REVIEW", "PREAPPROVED"];
@@ -1298,8 +1298,8 @@ async function handle(req: Request): Promise<Response> {
       const ads = [...byAd.values()].filter((a) => a.sp > 0).sort((x, y) => y.sp - x.sp).slice(0, 400);
       // 소재 키 — 계정 광고 목록을 id로 걸러 50개씩 (?ids=는 v26부터 막힘, 2026-10-27 실측). 인스타 게시물 광고는 영상·이미지 값이 비어 effective_instagram_media_id로 묶는다
       const meta = new Map<string, Record<string, unknown>>(); let metaErr = "";
-      const F1 = "id,effective_status,adset{effective_status},creative.thumbnail_width(200).thumbnail_height(200){id,thumbnail_url,object_type,video_id,image_hash,effective_instagram_media_id}";
-      const F2 = "id,effective_status,adset{effective_status},creative{id,thumbnail_url,object_type,video_id,image_hash}";
+      const F1 = "id,created_time,effective_status,adset{effective_status},creative.thumbnail_width(200).thumbnail_height(200){id,thumbnail_url,object_type,video_id,image_hash,effective_instagram_media_id}";
+      const F2 = "id,created_time,effective_status,adset{effective_status},creative{id,thumbnail_url,object_type,video_id,image_hash}";
       for (let i = 0; i < ads.length; i += 50) {
         const filtering = JSON.stringify([{ field: "id", operator: "IN", value: ads.slice(i, i + 50).map((a) => a.ad_id) }, { field: "effective_status", operator: "IN", value: ALL_ST }]);
         let r: Record<string, unknown>[] = [];
@@ -1308,12 +1308,13 @@ async function handle(req: Request): Promise<Response> {
       }
       const camps = await graphGetAll(`${c.account}/campaigns`, { fields: "id,daily_budget,lifetime_budget", limit: "500" }, c.token, 4).catch(() => []);
       const cbo = new Set(camps.filter((x) => num(x.daily_budget) > 0 || num(x.lifetime_budget) > 0).map((x) => String(x.id)));
-      type G = { key: string; thumb: string; is_video: boolean; sp: number; p: number; v: number; first: string; last: string; live: boolean; ads: (Ad & { st: string; set_st: string; cbo: boolean; creative_id: string })[] };
+      type G = { key: string; thumb: string; is_video: boolean; sp: number; p: number; v: number; first: string; last: string; live: boolean; up: string; ads: (Ad & { st: string; set_st: string; cbo: boolean; creative_id: string })[] };
       const groups = new Map<string, G>();
       for (const a of ads) {
         const m = meta.get(a.ad_id) ?? {}, cr = (m.creative ?? {}) as Record<string, unknown>, st = String(m.effective_status ?? "DELETED"), setSt = String(((m.adset ?? {}) as Record<string, unknown>).effective_status ?? "");
         const key = cr.video_id ? "v:" + cr.video_id : cr.image_hash ? "i:" + cr.image_hash : cr.effective_instagram_media_id ? "g:" + cr.effective_instagram_media_id : cr.id ? "c:" + cr.id : "a:" + a.ad_id;
-        const g = groups.get(key) ?? { key, thumb: String(cr.thumbnail_url ?? ""), is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO", sp: 0, p: 0, v: 0, first: a.first, last: a.last, live: false, ads: [] };
+        const g = groups.get(key) ?? { key, thumb: String(cr.thumbnail_url ?? ""), is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO", sp: 0, p: 0, v: 0, first: a.first, last: a.last, live: false, up: "", ads: [] };
+        const ct = String(m.created_time ?? "").slice(0, 10); if (ct && (!g.up || ct < g.up)) g.up = ct;   // 업로드 = 그 소재로 만든 가장 이른 광고 (2026-10-27 기본 정렬)
         g.sp += a.sp; g.p += a.p; g.v += a.v; if (a.first < g.first) g.first = a.first; if (a.last > g.last) g.last = a.last;
         if (st === "ACTIVE" && setSt === "ACTIVE") g.live = true;
         if (!g.thumb && cr.thumbnail_url) g.thumb = String(cr.thumbnail_url);
