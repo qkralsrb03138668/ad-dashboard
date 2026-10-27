@@ -270,17 +270,19 @@ async function fetchHierarchy(c: Creds, preset: string, custom?: { since: string
   let recentCopies = 0, recentErr = "";
   if (preset === "today") {
     try {
-      const since = Date.now() - 3600_000;
+      const since = Date.parse(`${seoulToday()}T00:00:00+09:00`);   // 2026-10-27 사용자: 1시간 → 오늘 0시(한국)부터 만든 사본 전부 (꺼진 채 복사해 두고 나중에 정리해도 잡히게)
       // 예외 (2026-10-27 사용자 요청): 10/26에 꺼진 채 복사한 (기모ver.) 클레르 블라우스 사본 5개 — 1시간이 지났어도 정리할 수 있게. 11/3까지만
       const COPY_EXTRA = seoulToday() <= "2026-11-03" ? new Set(["120249272638370775", "120249272638350775", "120249272638310775", "120249272638300775", "120249272638290775"]) : new Set<string>();
-      const rs = ((await graphGet(`${c.account}/adsets`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
-        filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: "사본" }]), limit: "200" }, c.token)).data ?? []) as Node[];
+      // 페이지 넘김 (2026-10-27): 계정 전체 '사본' 세트가 200개를 넘으면 첫 페이지만 읽어 오늘 사본이 빠지던 문제 — 최대 2,500개
+      const rs = (await graphGetAll(`${c.account}/adsets`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
+        filtering: JSON.stringify([{ field: "name", operator: "CONTAIN", value: "사본" }]), limit: "500" }, c.token, 5)) as Node[];
       const fresh = rs.filter((r) => !sMap.has(String(r.id)) && (new Date(String(r.created_time ?? "")).getTime() >= since || COPY_EXTRA.has(String(r.id))) && !["DELETED", "ARCHIVED"].includes(String(r.effective_status ?? "")));
       for (const r of fresh) ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""),
         num(r.daily_budget), num(r.lifetime_budget), String(r.created_time ?? ""), String(r.updated_time ?? ""));
       if (fresh.length) {
-        const ra = ((await graphGet(`${c.account}/ads`, { fields: "id,name,effective_status,adset_id,campaign_id,created_time,updated_time",
-          filtering: JSON.stringify([{ field: "adset.id", operator: "IN", value: fresh.map((r) => String(r.id)) }]), limit: "500" }, c.token)).data ?? []) as Node[];
+        const ra: Node[] = [];
+        for (let i = 0; i < fresh.length; i += 100) ra.push(...(await graphGetAll(`${c.account}/ads`, { fields: "id,name,effective_status,adset_id,campaign_id,created_time,updated_time",
+          filtering: JSON.stringify([{ field: "adset.id", operator: "IN", value: fresh.slice(i, i + 100).map((r) => String(r.id)) }]), limit: "500" }, c.token, 3)) as Node[]);   // 100개씩 (IN 필터 한도)
         for (const r of ra) { const st = sMap.get(String(r.adset_id ?? "")); if (!st) continue; const ads = st.ads as Map<string, Node>;
           if (!ads.has(String(r.id))) ads.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""), created: String(r.created_time ?? ""), updated: String(r.updated_time ?? ""), spend: 0, purchases: 0, value: 0, clicks: 0, roas: 0 }); }
       }
@@ -861,9 +863,10 @@ async function handle(req: Request): Promise<Response> {
       const cacheKey = `meta:adsets:${campId}`;
       const pre = await metaPre(cacheKey, 5 * 60 * 1000);
       if (pre) return pre;
-      const r = await graphGet(`${campId}/adsets`, { fields: "id,name,effective_status,daily_budget", limit: "300" }, c.token);
-      const rows = ((r.data ?? []) as Record<string, unknown>[]).map((a) => ({
-        id: String(a.id), name: String(a.name ?? ""), status: String(a.effective_status ?? ""), budget: num(a.daily_budget),
+      // 페이지 넘김 (2026-10-27): 테스트2 캠페인이 세트 300개를 넘어 첫 페이지에서 잘리던 문제 — 최대 2,000개
+      const all = await graphGetAll(`${campId}/adsets`, { fields: "id,name,effective_status,daily_budget,created_time", limit: "500" }, c.token, 4);
+      const rows = all.map((a) => ({
+        id: String(a.id), name: String(a.name ?? ""), status: String(a.effective_status ?? ""), budget: num(a.daily_budget), created: String(a.created_time ?? ""),
       }));
       const body = { rows, count: rows.length };
       await cacheSet(cacheKey, body);

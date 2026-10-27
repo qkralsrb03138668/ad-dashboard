@@ -854,14 +854,21 @@ function admgrRepostPlan(sets, allSets, today, picks) {   // picks: {세트 id �
     const { base, camps } = admgrMarkParse(s.name);
     const old = base.replace(AG_COPY_TAIL, '').trim(), m = old.match(AG_RULE);
     let pname = m ? m[1] : '', note = '';
-    const n = admgrNorm(pname || old), cands = idx.filter(x => n.includes(x.n));   // 이름에 들어 있는 상품 전부 (긴 이름 먼저) — '모튼 가디건 니트'에 '라이트 모튼 가디건 니트'도 걸리면 고르게
+    const n = admgrNorm(pname || old);
+    let cands = idx.filter(x => n.includes(x.n)), loose = false;   // 이름에 들어 있는 상품 전부 (긴 이름 먼저) — '모튼 가디건 니트'에 '라이트 모튼 가디건 니트'도 걸리면 고르게
+    if (!cands.length) {   // 옛 이름이 상품명보다 짧은 경우 (2026-10-27: '리얼 소프트 퍼cd' = '리얼 소프트 퍼 가디건', '플랫 루즈핏 블루종' = '…블루종 점퍼') — 약어를 풀고, 이름 토막이 상품명 안에 들어 있는 상품을 후보로
+      const ABBR = [[/cd$/i, '가디건'], [/ops$/i, '원피스'], [/mtm$/i, '맨투맨'], [/pt$/i, '팬츠'], [/jk$/i, '자켓'], [/sk$/i, '스커트'], [/bl$/i, '블라우스']];
+      const toks = old.split('_').map(x => coreName(x).replace(/^[\s\-–—·.@#]+/, '').replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}([.,]\d{3})+|\d{4,6}/g, '').replace(/\s+\d{1,3}$/, '').trim()).filter(x => admgrNorm(x).length >= 4);
+      for (const tk of toks) { let k = admgrNorm(tk); for (const [re, full] of ABBR) if (re.test(k)) k = k.replace(re, admgrNorm(full));
+        const hit = idx.filter(x => x.n.includes(k) || x.n.includes(admgrNorm(tk))); if (hit.length) { cands = hit; loose = true; break; } }
+    }
     const vt = x => typeof regVerTag === 'function' ? regVerTag(x.name) : '', tagHit = x => { const t = vt(x); return t && n.includes(admgrNorm(t.replace(/ver\d*$/i, ''))) ? 1 : 0; };
     cands.sort((a, b) => tagHit(b) - tagHit(a) || b.n.length - a.n.length || (vt(a) ? 1 : 0) - (vt(b) ? 1 : 0));   // 기본 후보 (2026-10-27): 이름에 '기모' 같은 버전 단어가 있으면 그 버전 → 더 구체적인 상품 → 버전 없는 일반 상품 ('클레르 블라우스 25000'에 기모ver가 먼저 잡히던 것)
     const pick = picks && picks[s.id], p = (pick != null && cands.find(x => x.no === pick)) || cands[0] || null;
     if (!pname) pname = p ? (typeof regVerTag === 'function' && regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + coreName(p.name)
-      : (old.split('_').map(x => coreName(x).replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}(,\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').replace(/\s+/g, ' ').trim())   // 날짜·가격·' - 색상'·꼬리 숫자 제거
+      : (old.split('_').map(x => coreName(x).replace(/^[\s\-–—·.@#]+/, '').replace(/^\d{3,4}\s+/, '').replace(/\d{1,3}(,\d{3})+|\d{4,6}/g, '').replace(/\s*-\s*[가-힣]+\s*$/, '').replace(/\s+\d{1,3}$/, '').replace(/\s+/g, ' ').trim())   // 날짜·가격·' - 색상'·꼬리 숫자 제거
           .filter(x => x && !/^\d+$/.test(x)).sort((a, b) => b.length - a.length)[0] || old);   // 옛 이름('전환_(160이상 추천)밍크 트임 pt (2 colors)_231219'): 상품 목록에서 찾기 → 지금 없는 상품이면 가장 긴 토막(괄호 뺀 것)
-    if (!p) note = '상품 못 찾음 — 마진은 ' + (m ? '예전 값' : '0');
+    if (!p) note = '상품 못 찾음 — 마진은 ' + (m ? '예전 값' : '0'); else if (loose && pick == null) note = '이름이 짧아 비슷한 상품으로 잡았어요 — 맞는지 확인';
     const rp = m ? m[2] : (s.is_video || /릴스|영상/.test(old)) ? 'R' : 'P', tag = m && m[4] ? m[4].slice(1) : '끌올';   // 옛 이름: 소재 종류 → 없으면 이름의 릴스·영상 힌트
     const margin = p ? Math.floor(Math.max(0, (p.price || 0) - (p.supply || 0)) / 1000) : (m ? +m[5] : 0);
     const k = seqKey(pname, rp), seq = (seqMax.get(k) || 0) + 1; seqMax.set(k, seq);

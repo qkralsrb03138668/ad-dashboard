@@ -290,6 +290,11 @@ test('admgrRepostPlan: 사본 세트만 상품명 읽어 업로드 규칙 이름
   assert.equal(by['14'].name, '없는 상품_P3_끌올_9_261015_test [→CBO4]');  // 캠페인 표시는 세트명에만 유지
   assert.ok(by['14'].note.includes('상품 못 찾음'));
   assert.equal(by['15'].to, '블린 mtm_P1_끌올_0_261015_test'); assert.ok(by['15'].note.includes('상품 못 찾음'));
+  // 이름이 상품명보다 짧은 옛 세트 (2026-10-27): 약어 풀기(cd→가디건) · 토막이 상품명 안에 → 후보로, 확인 안내
+  vm.runInContext("admgr.products.push({ no: 7, name: '(털빠짐X) 리얼 소프트 퍼 가디건 (3 colors)', price: 48000, supply: 23000 }, { no: 8, name: '플랫 루즈핏 블루종 점퍼 (3 colors)', price: 56000, supply: 27000 }); admgrPI = null;", ctx);
+  const L2 = Object.fromEntries(f([{ id: '21', name: '[1125]- 리얼 소프트 퍼cd - 사본', ads: [] }, { id: '22', name: '플랫 루즈핏 블루종 2_29_260910 - 사본', ads: [] }], all, '2026-10-27').map(p => [p.id, p]));
+  assert.equal(L2['21'].to + '|' + L2['22'].to, '리얼 소프트 퍼 가디건_P1_끌올_25_261027_test|플랫 루즈핏 블루종 점퍼_P1_끌올_29_261027_test');
+  assert.ok(L2['21'].note.includes('비슷한 상품') && L2['22'].note.includes('비슷한 상품'));
   assert.equal(by['16'].to, '모카 니트_R1_끌올_0_261015_test');
   assert.equal(by['17'].to, '모카 가디건_P1_끌올_0_261015_test');
   assert.equal(by['18'].to, '라이트 모튼 가디건 니트_R1_끌올_24_261015_test');       // 기본: 긴 이름(라이트 모튼) · 마진 (39000−15000)/1000
