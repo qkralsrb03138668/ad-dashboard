@@ -559,7 +559,7 @@ function admgrAdjModal() {
   const sum = () => { let a = 0, b = 0; R.filter(x => ['off', 'half', 'up'].includes(x.act)).forEach(x => { a += x.from; b += x.to; }); return { a, b }; }, S = sum(), B = admgrBudgetTotal(false);
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : 1;
   $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일 <b>ROAS</b>(${admgrAttrTxt()})로 골랐어요. 450% 미만 OFF · 450~550% 절반(3일 뒤에도 550% 미만이면 OFF) · 550~900% 유지 · 900%↑ 증액(1100%↑ +30%). 7일 구매 5건 또는 지출 5만원부터 판단 · 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일 <b>ROAS</b>로 골랐어요 (${admgrAttrTxt()}). 450% 미만 OFF · 450~550% 절반(3일 뒤에도 550% 미만이면 OFF) · 550~900% 유지 · 900%↑ 증액(1100%↑ +30%). 7일 구매 5건 또는 지출 5만원부터 판단 · 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
       <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
     <div style="max-height:50vh;overflow:auto;">${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}${info('watch', '유지 (7일 ROAS 550~900%)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrAdjApply()">체크한 것 임시 저장에 넣기</button></div>`;
