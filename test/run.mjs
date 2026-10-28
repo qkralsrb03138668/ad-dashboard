@@ -413,6 +413,22 @@ test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 클릭 구
   vm.runInContext("admgrAlert.h7 = null; admgr.data = null;", ctx);
 });
 
+test('admgrAdjCalc: 7일 비율로 OFF·절반·유지·증액·대기 (마진 20,000 · 오늘 10/28 수)', () => {
+  const f = g('admgrAdjCalc'), m = () => 20000;
+  const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });
+  const W = (spend, purchases) => ({ spend, purchases, purchases_7d: purchases });
+  const ids = 'abcdefghij'.split(''), sets = ids.map(id => S(id, 40000, id === 'h' ? { _cbo: true } : id === 'i' ? { created: '2026-10-27T10:00:00+0900' } : {}));
+  const s7 = new Map([['a', W(140000, 7)], ['b', W(110000, 10)], ['c', W(60000, 10)], ['d', W(120000, 10)], ['e', W(70000, 10)], ['f', W(90000, 10)], ['g', W(110000, 10)], ['h', W(140000, 1)], ['i', W(140000, 1)], ['j', W(30000, 1)]]);
+  const s3 = new Map(ids.map(id => [id, W(30000, 1)]));   // 3일은 참고만 — 결과에 영향 없어야 함
+  const hist = [{ level: 'adset', object_id: 'd', time: '2026-10-25T03:00:00Z', old_value: 80000, new_value: 40000 }, { level: 'adset', object_id: 'g', time: '2026-10-27T03:00:00Z', old_value: 80000, new_value: 40000 }];
+  const by = Object.fromEntries(f(sets, s7, s3, hist, '2026-10-28', 3, m).map(x => [x.s.id, x.act + (x.act === 'half' || x.act === 'up' ? ':' + x.to : '')]));
+  // a 100% OFF / b 55% 절반 / c 30% +30% / d 10/25 감액 뒤 60%(50%↑) OFF / e 35% +20% / f 45% 유지 / g 10/27 감액 · 55% 대기 / h CBO·i 신규·j 표본 부족(구매1·지출<마진×2) 제외
+  assert.equal(JSON.stringify(by), JSON.stringify({ a: 'off', b: 'half:20000', c: 'up:52000', d: 'off', e: 'up:48000', f: 'watch', g: 'cool' }));
+  assert.equal(f([S('g', 40000)], new Map([['g', W(130000, 10)]]), new Map(), hist, '2026-10-28', 3, m)[0].act, 'off');   // 대기 중이어도 60%↑면 OFF
+  assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 10)]]), new Map(), [], '2026-10-30', 5, m).length, 0);   // 금요일엔 증액 없음
+  assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 9)]]), new Map(), [], '2026-10-28', 3, m).length, 0);    // 구매 10건 미만은 증액 없음
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',

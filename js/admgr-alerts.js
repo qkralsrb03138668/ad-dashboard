@@ -423,6 +423,7 @@ function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, ratio }] — 지
   const out = [];
   for (const s of admgrRows().sets) {
     if (s.status !== 'ACTIVE' || !(s.budget > 1000) || !/테스트/.test(s._campName || '')) continue;
+    if (((admgr.budget && admgr.budget.byObj && admgr.budget.byObj.get(s.id)) || []).some(e => e.new_value < e.old_value) || admgrDraft[s.id] || admgrSDraft[s.id]) continue;   // 오늘 이미 감액·임시 저장한 세트는 주말 감액에서 빼기 (예산 조정 후보와 겹쳐 두 번 깎이지 않게, 2026-10-28)
     const w = s7.get(s.id); if (!w || !(w.spend > 0)) continue;
     const p = admgrP7(w); if (!(p > 0)) continue;
     const m = (admgrMarginOf({ id: s.id, name: s.name }) || {}).m; if (!(m > 0)) continue;
@@ -483,4 +484,90 @@ async function admgrWeekendRestore() {
   try { await admgrWeekendSave({ ...L, restored_at: new Date().toISOString(), restore_n: n }); } catch (e) { toast(e.message); }
   toast(`주말 모드: ${n}개 오늘 23:45 원복 예약 완료${failed.length ? ` · 실패 ${failed.length}` : ''}`);
   admgrWritePending(); renderAdmgr(true);
+}
+
+/* ═══ 예산 조정 후보 (2026-10-28 사용자 요청: "말 안 했으면 언제 하려고 했냐" — 매일 자동으로, 놓치는 세트 없게) ═══
+   대상: CBO가 아닌 켜진 세트(운영·테스트 모두) · 일예산 1,000원 초과 · 만든 지 3일↑ · 상품 마진을 아는 세트.
+   비율 = 구매당 비용 ÷ 마진 (클릭 후 7일 구매), 어제까지 7일. 3일은 참고로만 보여 줌.
+   근거: 2025-01~2026-10 세트 3,269개 백테스트(.insight-tmp/hist-analyze*.mjs, sim.mjs) — 3일 규칙을 더해도 손해 세트 포착 55→56%로 거의 그대로,
+   신호 뒤 회복 11%(3일 안)·7%(4~10일)라 60%↑는 기다리지 않고 바로 OFF, 40~50%는 다음 주 순이익이 거의 본전(+0.07원/광고비 1원)이라 유지.
+   판단 : 7일 구매 5건↑ 또는 7일 지출이 마진의 2배↑일 때만 (표본 부족이면 건너뜀)
+   OFF  : 7일 60%↑ · 또는 4~10일 전에 감액했는데 7일이 아직 50%↑ ("줄였는데도 계속 나쁨")
+   절반 : 7일 50~60%
+   유지 : 7일 40~50% — 손대지 않고 증액만 금지 (표시만)
+   증액 : 7일 35%↓ & 7일 구매 10↑ & 3일 안 증액 없음 — 금·토 제외 (30%↓ +30%, 35%↓ +20%. 좋은 세트도 다음 주 42%만 유지돼서 조금씩)
+   대기 : 최근 3일 안에 감액한 세트 — OFF 조건만 빼고 3일은 다시 건드리지 않음 */
+const ADMGR_ADJ = { offR7: 0.6, reR7: 0.5, cutR7: 0.5, holdR7: 0.4, upR7: 0.35, upBig: 0.30, upMinPur: 10, minPur: 5, cool: 3, back: 10, minAge: 3 };
+async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액 날짜 → 대기·재확인)
+  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.adjLoading || (A.adjHist && Date.now() - A.adjHistAt < 30 * 60000) || Date.now() - (A.adjFailAt || 0) < 5 * 60000) return;
+  A.adjLoading = true;
+  try { const r = await metaGet({ action: 'budgethistory', start_date: todayStr(-ADMGR_ADJ.back), end_date: todayStr(0) }); A.adjHist = r.events || []; A.adjHistAt = Date.now(); A.adjFailAt = 0; renderAdmgr(true); }
+  catch (e) { A.adjFailAt = Date.now(); }
+  A.adjLoading = false;
+}
+const admgrKstDay = t => { const k = new Date(new Date(t).getTime() + 9 * 3600e3); return k.toISOString().slice(0, 10); };
+function admgrAdjCalc(sets, s7, s3, hist, today, dow, marginOf) {   // 순수 계산 — 테스트용으로 인자 전부 받음
+  const C = ADMGR_ADJ, last = new Map();   // 세트 id → { cut: 가장 최근 감액일, up: 가장 최근 증액일 }
+  for (const e of hist || []) { if (e.level !== 'adset' || !(e.old_value > 0)) continue; const d = admgrKstDay(e.time), o = last.get(e.object_id) || {}; if (e.new_value < e.old_value) { if (!o.cut || d > o.cut) o.cut = d; } else if (e.new_value > e.old_value) { if (!o.up || d > o.up) o.up = d; } last.set(e.object_id, o); }
+  const coolFrom = admgrShiftDay(today, -(C.cool - 1)), backFrom = admgrShiftDay(today, -C.back), ageTo = admgrShiftDay(today, -C.minAge);
+  const r1k = v => Math.max(1000, Math.round(v / 1000) * 1000), out = [];
+  for (const s of sets) {
+    if (s.status !== 'ACTIVE' || s._cbo || !(s.budget > 1000)) continue;
+    if (s.created && admgrKstDay(s.created) > ageTo) continue;   // 신규(3일 미만)는 테스트 판정이 맡는다
+    const m = marginOf(s); if (!(m > 0)) continue;
+    const w = s7.get(s.id); if (!w || !(w.spend > 0)) continue;
+    const p7 = admgrP7(w), r7 = p7 ? w.spend / p7 / m : (w.spend >= m ? 9 : null); if (r7 == null) continue;   // 7일 지출이 마진도 안 되고 구매 0 — 판단 이름
+    const t = s3.get(s.id), sp3 = t ? t.spend || 0 : 0, p3 = t ? admgrP7(t) : 0, r3 = p3 ? sp3 / p3 / m : (sp3 >= m ? 9 : null);
+    if (!(p7 >= C.minPur || w.spend >= 2 * m)) continue;   // 표본 부족
+    const L = last.get(s.id) || {}, cool = !!(L.cut && L.cut >= coolFrom), prevCut = !!(L.cut && !cool && L.cut >= backFrom);
+    const base = { s, m, r7, r3, p7, p3, sp7: w.spend, sp3, from: s.budget, lastCut: L.cut || null };
+    if (r7 > C.offR7 || (prevCut && r7 > C.reR7)) { out.push({ ...base, act: 'off', to: 0, why: r7 > C.offR7 ? '7일 60%↑ — 회복 가능성 낮음' : `${L.cut.slice(5)} 감액 뒤에도 7일 50%↑` }); continue; }
+    if (cool) { out.push({ ...base, act: 'cool', to: s.budget, why: `${L.cut.slice(5)}에 감액 — 3일 뒤 다시 확인` }); continue; }
+    if (r7 > C.cutR7) { out.push({ ...base, act: 'half', to: r1k(s.budget / 2), why: '7일 50~60%' }); continue; }
+    if (r7 > C.holdR7) { out.push({ ...base, act: 'watch', to: s.budget, why: '7일 40~50% — 유지 · 증액 금지' }); continue; }
+    const upOk = dow !== 5 && dow !== 6 && r7 <= C.upR7 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom);
+    if (upOk) out.push({ ...base, act: 'up', to: r1k(s.budget * (r7 <= C.upBig ? 1.3 : 1.2)), why: r7 <= C.upBig ? '7일 30%↓ → +30%' : '7일 30~35% → +20%' });
+  }
+  return out;
+}
+function admgrAdjRows() {
+  const A = admgrAlert; if (!A.h7 || !A.h3) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPromoEnsure(), 0); return null; }
+  if (!A.adjHist) { if (admgr.data && !admgr.demo) setTimeout(() => admgrAdjEnsure(), 0); return null; }
+  if (!admgr.products) return null;
+  const M = h => new Map(((h && h.campaigns) || []).flatMap(c => (c.adsets || []).map(s => [s.id, s])));
+  const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : new Date().getDay();
+  return admgrAdjCalc(admgrRows().sets, M(A.h7), M(A.h3), A.adjHist, todayStr(0), dow, s => (admgrMarginOf({ id: s.id, name: s.name }) || {}).m);
+}
+function admgrCheckAdj() {
+  if (!dnrbCan('budget')) return [];
+  const R = admgrAdjRows(); if (!R) return [];
+  const n = k => R.filter(x => x.act === k && !admgrDraft[x.s.id] && !admgrSDraft[x.s.id]).length, off = n('off'), half = n('half'), up = n('up');
+  if (!off && !half && !up) return [];
+  return [{ key: 'adj:' + todayStr(0), lvl: off ? 'red' : 'yellow', text: `<b>예산 조정 후보</b> OFF ${off} · 절반 ${half}${up ? ` · 증액 ${up}` : ''} <small>최근 7일 · 클릭7일 구매당 비용÷마진 · 유지 ${R.filter(x => x.act === 'watch').length} · 감액 뒤 대기 ${R.filter(x => x.act === 'cool').length}</small>`, act: { label: '보기', onclick: 'admgrAdjModal()' } }];
+}
+admgrAlert.checks.push(admgrCheckAdj);
+function admgrAdjModal() {
+  const R = admgrAdjRows() || [], pct = r => r == null ? '—' : r >= 9 ? '구매0' : Math.round(r * 100) + '%';
+  const role = x => admgrIsTest(x.s) ? '<span class="status-badge badge-gray" style="font-size:.58rem;">테스트</span>' : '<span class="status-badge badge-blue" style="font-size:.58rem;">운영</span>';
+  const row = x => { const pend = admgrDraft[x.s.id] || admgrSDraft[x.s.id];
+    return `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.76rem;cursor:pointer;${pend ? 'opacity:.55;' : ''}"><input type="checkbox" class="adj-ck" data-id="${esc(x.s.id)}" data-act="${x.act}" data-to="${x.to}" ${pend ? '' : 'checked'} />
+      <span style="flex:1;min-width:0;word-break:break-all;">${role(x)} ${esc(admgrBase(x.s.name))}<div style="color:#6b7280;font-size:.68rem;">${esc(x.why)}${pend ? ' · 이미 임시 저장됨' : ''}</div></span>
+      <span style="flex:none;text-align:right;color:#374151;font-size:.72rem;">7일 <b>${pct(x.r7)}</b> (${x.p7}건) · 3일 <b>${pct(x.r3)}</b> (${x.p3}건)<div>${comma(x.from)} → <b style="color:${x.act === 'off' ? '#b91c1c' : x.act === 'up' ? '#15803d' : '#b45309'};">${x.act === 'off' ? 'OFF' : comma(x.to)}</b></div></span></label>`; };
+  const sec = (k, t, c) => { const L = R.filter(x => x.act === k).sort((a, b) => (b.r7 || 0) - (a.r7 || 0)); return L.length ? `<div style="margin:10px 0 4px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L.length}</div>${L.map(row).join('')}` : ''; };
+  const info = (k, t) => { const L = R.filter(x => x.act === k); return L.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:.74rem;color:#6b7280;">${t} ${L.length}개 (손대지 않음)</summary>${L.map(x => `<div style="font-size:.72rem;color:#6b7280;padding:2px 0;">${esc(admgrBase(x.s.name))} — 7일 ${pct(x.r7)} · 3일 ${pct(x.r3)} · ${esc(x.why)}</div>`).join('')}</details>` : ''; };
+  const sum = () => { let a = 0, b = 0; R.filter(x => ['off', 'half', 'up'].includes(x.act)).forEach(x => { a += x.from; b += x.to; }); return { a, b }; }, S = sum(), B = admgrBudgetTotal(false);
+  const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : 1;
+  $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일의 <b>구매당 비용 ÷ 마진</b>(클릭 후 7일 구매)으로 골랐어요. 60%↑ OFF · 50~60% 절반 · 40~50% 유지 · 35%↓ 증액. 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
+      <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
+    <div style="max-height:50vh;overflow:auto;">${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}${info('watch', '유지 (7일 40~50% · 증액 금지)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrAdjApply()">체크한 것 임시 저장에 넣기</button></div>`;
+  $('admgr-budget-modal').classList.add('show');
+}
+function admgrAdjApply() {
+  let n = 0;
+  document.querySelectorAll('.adj-ck:checked').forEach(el => { const id = el.dataset.id; if (el.dataset.act === 'off') admgrSDraft[id] = { level: 'adset', status: 'PAUSED' }; else admgrDraft[id] = Number(el.dataset.to); n++; });
+  lsSet('adc_admgr_draft', admgrDraft); lsSet('adc_admgr_sdraft', admgrSDraft);
+  closeModal('admgr-budget-modal'); toast(`${n}개를 임시 저장했어요 — 표에서 확인한 뒤 상단 [게시]를 누르세요${admgr.write.resetRow ? ' · 오늘 23:45 원복 승인이 걸려 있으니 유지하려면 "지금 예산 기준 원복"으로 다시 걸어두세요' : ''}`);
+  admgrSetView('set'); renderAdmgr();
 }

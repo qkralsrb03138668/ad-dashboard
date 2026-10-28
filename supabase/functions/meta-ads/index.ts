@@ -786,7 +786,7 @@ async function handle(req: Request): Promise<Response> {
        · mycre(돈 없는 요약)·preview·creatives(썸네일)·usage = 로그인한 누구나 */
     const menus = me.perms ? (me.perms.menus ?? []) : null;
     const has = (...ks: string[]) => me.role === "admin" || (!!menus && ks.some((k) => menus.includes(k)));
-    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting", "attrcheck", "statusevents"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
+    const ADMGR_ONLY = ["hierarchy", "adsets", "hourlystats", "budgethistory", "offsets", "adcopy", "adpages", "targeting", "attrcheck", "statusevents", "adsetdaily"];   // adstats(광고 하나의 기간별 지출·ROAS)는 소재 미리보기가 쓴다 — 내 소재 성과에서 지출을 보여주기로 했으므로 로그인한 누구나 (2026-09-22)
     const TEST_LEVEL = ["testads", "daystats", "state_list", "state_save", "best_list", "best_add", "best_del", "best_rename"];
     if (ADMGR_ONLY.includes(action) && !has("admgr", "upload")) return json({ error: "이 화면을 볼 권한이 없습니다 (광고관리자)" }, 403);
     if (TEST_LEVEL.includes(action) && menus && !has("admgr", "atest", "abest")) return json({ error: "이 화면을 볼 권한이 없습니다 (테스트·베스트 소재)" }, 403);
@@ -1082,6 +1082,23 @@ async function handle(req: Request): Promise<Response> {
       return json(body);
     }
     // 기여 창 비교 (2026-10-22) — 계정 기본(지금 화면) vs 클릭 후 1일만. 캠페인 단위, preset=today|yesterday|last_7d. 5분 캐시
+    // 광고세트 일별 성과 (2026-10-28, 운영 방식 검증용 — 관리자만): 기간(최대 31일) × 세트 × 하루. 클릭7일·조회1일·기본 창 구매·전환값. 캐시 6시간(지난 기간은 안 변함)
+    if (action === "adsetdaily") {
+      const day = (k: string) => { const v = url.searchParams.get(k) ?? ""; return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };   // 관리자 확인은 위 ADMGR_ONLY 목록이 함
+      const since = day("since"), until = day("until");
+      if (!since || !until || until < since || (Date.parse(until) - Date.parse(since)) > 31 * 86400e3) return json({ error: "since·until (31일 이내) 필요" }, 400);
+      const cacheKey = `meta:adsetdaily:${since}:${until}`;
+      const pre = await metaPre(cacheKey, 6 * 3600 * 1000);
+      if (pre) return pre;
+      const rows = await graphGetAll(`${c.account}/insights`, { level: "adset", time_increment: "1", time_range: JSON.stringify({ since, until }),
+        fields: "adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values", action_attribution_windows: JSON.stringify(["7d_click", "1d_view", "default"]), limit: "500" }, c.token, 60);
+      const camp: Record<string, string> = {}, name: Record<string, string> = {};
+      const out = rows.map((r) => { const sid = String(r.adset_id ?? ""), cid = String(r.campaign_id ?? ""); camp[cid] = String(r.campaign_name ?? ""); name[sid] = String(r.adset_name ?? "");
+        return [String(r.date_start ?? ""), sid, cid, Math.round(num(r.spend)), pickPurchase(r.actions, "7d_click"), Math.round(pickPurchase(r.action_values, "7d_click")), pickPurchase(r.actions, "value"), pickPurchase(r.actions, "1d_view")]; });
+      const body = { since, until, cols: ["day", "adset", "camp", "spend", "p7c", "v7c", "pdef", "p1v"], rows: out, camps: camp, names: name };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
     if (action === "attrcheck") {
       const preset = url.searchParams.get("preset") ?? "yesterday";
       const level = url.searchParams.get("level") === "adset" ? "adset" : "campaign";

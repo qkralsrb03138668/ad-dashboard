@@ -106,6 +106,29 @@ try {
   out.hygiene = { copies, odd_names: odd.slice(0, 10), wrong_page: off.slice(0, 10), main_page: main ? (ap.ads.find(a => a.page_id === main[0]) || {}).page || main[0] : null };
 } catch (e) { out.hygiene_error = String(e.message || e).slice(0, 200); }
 
+// 예산 조정 후보 (2026-10-28) — 대시보드 알림판 '예산 조정 후보'와 같은 함수(js/admgr-alerts.js admgrAdjCalc)를 그대로 불러 같은 기준으로 센다
+//   7일(어제까지) 클릭7일 구매당 비용÷마진: 60%↑ OFF · 50~60% 절반 · 40~50% 유지 · 35%↓ 증액. 마진 = 카페24 판매가 − 공급가×1.1 (상품명 포함 매칭)
+try {
+  const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8');
+  const grab = (re) => (src.match(re) || [])[0] || '';
+  const code = [grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
+  if (!/function admgrAdjCalc/.test(code)) throw new Error('admgrAdjCalc를 못 찾음');
+  const ctx = { admgrShiftDay: addDays, admgrP7: r => r.purchases_7d != null ? r.purchases_7d : Math.max(0, (r.purchases || 0) - (r.purchases_1dv || 0)) };
+  vm.createContext(ctx); vm.runInContext(code + '\nthis.calc = admgrAdjCalc;', ctx);
+  const [h7, h3, hn, bh, pr] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -3), addDays(seoulToday, -1)), day(seoulToday, seoulToday),
+    api('meta-ads', { action: 'budgethistory', start_date: addDays(seoulToday, -10), end_date: seoulToday }), api('cafe24-perf', { action: 'products' })]);
+  const M = h => new Map(h.campaigns.flatMap(c => (c.adsets || []).map(s => [s.id, s])));
+  const sets = hn.campaigns.flatMap(c => (c.adsets || []).map(s => ({ ...s, _cbo: c.budget > 0 || c.budget_life > 0 })));
+  const norm = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^0-9a-z가-힣]/g, ''), key = n => norm(String(n || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
+  const idx = (pr.rows || []).filter(p => p.price > 0 && p.supply_price > 0).map(p => ({ m: p.price - p.supply_price * 1.1, n: key(p.name) })).filter(p => p.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
+  const marginOf = s => { const n = norm(String(s.name).split('_')[0]); const hit = idx.find(x => n.includes(x.n) || x.n.includes(n)); return hit ? hit.m : 0; };
+  const dow = new Date(seoulToday + 'T00:00:00Z').getUTCDay(), R = ctx.calc(sets, M(h7), M(h3), bh.events || [], seoulToday, dow, marginOf);
+  const pick = k => R.filter(x => x.act === k), nm = x => String(x.s.name).replace(/\s*\[→[^\]]+\]/g, '').trim(), pct = r => r >= 9 ? '구매0' : Math.round(r * 100) + '%';
+  const act = R.filter(x => ['off', 'half', 'up'].includes(x.act)), before = act.reduce((a, x) => a + x.from, 0), after = act.reduce((a, x) => a + x.to, 0);
+  out.budget_adjust = { off: pick('off').length, half: pick('half').length, up: pick('up').length, hold: pick('watch').length, cool: pick('cool').length, budget_before: before, budget_after: after,
+    top_off: pick('off').sort((a, b) => b.from - a.from).slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, 일예산 ${x.from})`), top_up: pick('up').slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, ${x.from}→${x.to})`) };
+} catch (e) { out.budget_adjust_error = String(e.message || e).slice(0, 200); }
+
 // 오늘 판정할 테스트 소재 수 — 대시보드 테스트 소재 탭 '판정할 차례'와 같은 규칙(D+2, 금액 조건 없음, 판정 안 함, 숨김·종료 제외, 기준 전에 직접 끈 것 포함)
 try {
   const [ta, st] = await Promise.all([api('meta-ads', { action: 'testads' }), api('meta-ads', { action: 'state_list' })]);
