@@ -490,14 +490,15 @@ async function admgrWeekendRestore() {
    대상: CBO가 아닌 켜진 세트(운영·테스트 모두) · 일예산 1,000원 초과 · 만든 지 3일↑ · 상품 마진을 아는 세트.
    비율 = 구매당 비용 ÷ 마진 (클릭 후 7일 구매), 어제까지 7일. 3일은 참고로만 보여 줌.
    근거: 2025-01~2026-10 세트 3,269개 백테스트(.insight-tmp/hist-analyze*.mjs, sim.mjs) — 3일 규칙을 더해도 손해 세트 포착 55→56%로 거의 그대로,
-   신호 뒤 회복 11%(3일 안)·7%(4~10일)라 60%↑는 기다리지 않고 바로 OFF, 40~50%는 다음 주 순이익이 거의 본전(+0.07원/광고비 1원)이라 유지.
+   신호 뒤 회복 11%(3일 안)·7%(4~10일). 2026-10-28 사장님 결정으로 '느슨한 방식' — 주문 한 건이 광고 상품가의 평균 1.5배라 60~80%도 주문 전체로는 남을 수 있어서
+   OFF는 80%↑만, 60~80%는 절반 뒤 재확인. 백테스트상 순이익은 엄격안(60% OFF)과 같고 광고비·매출은 약 30% 더 유지.
    판단 : 7일 구매 5건↑ 또는 7일 지출이 마진의 2배↑일 때만 (표본 부족이면 건너뜀)
-   OFF  : 7일 60%↑ · 또는 4~10일 전에 감액했는데 7일이 아직 50%↑ ("줄였는데도 계속 나쁨")
-   절반 : 7일 50~60%
-   유지 : 7일 40~50% — 손대지 않고 증액만 금지 (표시만)
+   OFF  : 7일 80%↑ · 또는 4~10일 전에 감액했는데 7일이 아직 60%↑ ("줄였는데도 계속 나쁨")
+   절반 : 7일 60~80%
+   유지 : 7일 40~60% — 손대지 않고 증액만 금지 (표시만)
    증액 : 7일 35%↓ & 7일 구매 10↑ & 3일 안 증액 없음 — 금·토 제외 (30%↓ +30%, 35%↓ +20%. 좋은 세트도 다음 주 42%만 유지돼서 조금씩)
    대기 : 최근 3일 안에 감액한 세트 — OFF 조건만 빼고 3일은 다시 건드리지 않음 */
-const ADMGR_ADJ = { offR7: 0.6, reR7: 0.5, cutR7: 0.5, holdR7: 0.4, upR7: 0.35, upBig: 0.30, upMinPur: 10, minPur: 5, cool: 3, back: 10, minAge: 3 };
+const ADMGR_ADJ = { offR7: 0.8, reR7: 0.6, cutR7: 0.6, holdR7: 0.4, upR7: 0.35, upBig: 0.30, upMinPur: 10, minPur: 5, cool: 3, back: 10, minAge: 3 };
 async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액 날짜 → 대기·재확인)
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.adjLoading || (A.adjHist && Date.now() - A.adjHistAt < 30 * 60000) || Date.now() - (A.adjFailAt || 0) < 5 * 60000) return;
   A.adjLoading = true;
@@ -508,7 +509,11 @@ async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액
 const admgrKstDay = t => { const k = new Date(new Date(t).getTime() + 9 * 3600e3); return k.toISOString().slice(0, 10); };
 function admgrAdjCalc(sets, s7, s3, hist, today, dow, marginOf) {   // 순수 계산 — 테스트용으로 인자 전부 받음
   const C = ADMGR_ADJ, last = new Map();   // 세트 id → { cut: 가장 최근 감액일, up: 가장 최근 증액일 }
-  for (const e of hist || []) { if (e.level !== 'adset' || !(e.old_value > 0)) continue; const d = admgrKstDay(e.time), o = last.get(e.object_id) || {}; if (e.new_value < e.old_value) { if (!o.cut || d > o.cut) o.cut = d; } else if (e.new_value > e.old_value) { if (!o.up || d > o.up) o.up = d; } last.set(e.object_id, o); }
+  // 시간순으로 본다. 감액 뒤 원래 예산 이하로 되올린 건 '원복'(주말 모드·낮 감액 23:45 원복 등) — 감액도 증액도 아닌 것으로 지운다 (2026-10-28)
+  for (const e of [...(hist || [])].sort((x, y) => String(x.time).localeCompare(String(y.time)))) { if (e.level !== 'adset' || !(e.old_value > 0)) continue; const d = admgrKstDay(e.time), o = last.get(e.object_id) || {};
+    if (e.new_value < e.old_value) { if (!o.cut) o.cutFrom = e.old_value; o.cut = d; }
+    else if (e.new_value > e.old_value) { if (o.cut && e.new_value <= o.cutFrom) { delete o.cut; delete o.cutFrom; } else { o.up = d; delete o.cut; delete o.cutFrom; } }
+    last.set(e.object_id, o); }
   const coolFrom = admgrShiftDay(today, -(C.cool - 1)), backFrom = admgrShiftDay(today, -C.back), ageTo = admgrShiftDay(today, -C.minAge);
   const r1k = v => Math.max(1000, Math.round(v / 1000) * 1000), out = [];
   for (const s of sets) {
@@ -521,10 +526,10 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, marginOf) {   // 순수 �
     if (!(p7 >= C.minPur || w.spend >= 2 * m)) continue;   // 표본 부족
     const L = last.get(s.id) || {}, cool = !!(L.cut && L.cut >= coolFrom), prevCut = !!(L.cut && !cool && L.cut >= backFrom);
     const base = { s, m, r7, r3, p7, p3, sp7: w.spend, sp3, from: s.budget, lastCut: L.cut || null };
-    if (r7 > C.offR7 || (prevCut && r7 > C.reR7)) { out.push({ ...base, act: 'off', to: 0, why: r7 > C.offR7 ? '7일 60%↑ — 회복 가능성 낮음' : `${L.cut.slice(5)} 감액 뒤에도 7일 50%↑` }); continue; }
+    if (r7 > C.offR7 || (prevCut && r7 > C.reR7)) { out.push({ ...base, act: 'off', to: 0, why: r7 > C.offR7 ? `7일 ${C.offR7 * 100}%↑ — 회복 가능성 낮음` : `${L.cut.slice(5)} 감액 뒤에도 7일 ${C.reR7 * 100}%↑` }); continue; }
     if (cool) { out.push({ ...base, act: 'cool', to: s.budget, why: `${L.cut.slice(5)}에 감액 — 3일 뒤 다시 확인` }); continue; }
-    if (r7 > C.cutR7) { out.push({ ...base, act: 'half', to: r1k(s.budget / 2), why: '7일 50~60%' }); continue; }
-    if (r7 > C.holdR7) { out.push({ ...base, act: 'watch', to: s.budget, why: '7일 40~50% — 유지 · 증액 금지' }); continue; }
+    if (r7 > C.cutR7) { out.push({ ...base, act: 'half', to: r1k(s.budget / 2), why: `7일 ${C.cutR7 * 100}~${C.offR7 * 100}% — 3일 뒤 ${C.reR7 * 100}%↑면 OFF` }); continue; }
+    if (r7 > C.holdR7) { out.push({ ...base, act: 'watch', to: s.budget, why: `7일 ${C.holdR7 * 100}~${C.cutR7 * 100}% — 유지 · 증액 금지` }); continue; }
     const upOk = dow !== 5 && dow !== 6 && r7 <= C.upR7 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom);
     if (upOk) out.push({ ...base, act: 'up', to: r1k(s.budget * (r7 <= C.upBig ? 1.3 : 1.2)), why: r7 <= C.upBig ? '7일 30%↓ → +30%' : '7일 30~35% → +20%' });
   }
@@ -558,9 +563,9 @@ function admgrAdjModal() {
   const sum = () => { let a = 0, b = 0; R.filter(x => ['off', 'half', 'up'].includes(x.act)).forEach(x => { a += x.from; b += x.to; }); return { a, b }; }, S = sum(), B = admgrBudgetTotal(false);
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : 1;
   $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일의 <b>구매당 비용 ÷ 마진</b>(클릭 후 7일 구매)으로 골랐어요. 60%↑ OFF · 50~60% 절반 · 40~50% 유지 · 35%↓ 증액. 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일의 <b>구매당 비용 ÷ 마진</b>(클릭 후 7일 구매)으로 골랐어요. 80%↑ OFF · 60~80% 절반(3일 뒤 60%↑면 OFF) · 40~60% 유지 · 35%↓ 증액. 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
       <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
-    <div style="max-height:50vh;overflow:auto;">${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}${info('watch', '유지 (7일 40~50% · 증액 금지)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
+    <div style="max-height:50vh;overflow:auto;">${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}${info('watch', '유지 (7일 40~60% · 증액 금지)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrAdjApply()">체크한 것 임시 저장에 넣기</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }

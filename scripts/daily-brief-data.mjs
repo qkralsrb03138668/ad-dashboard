@@ -107,7 +107,7 @@ try {
 } catch (e) { out.hygiene_error = String(e.message || e).slice(0, 200); }
 
 // 예산 조정 후보 (2026-10-28) — 대시보드 알림판 '예산 조정 후보'와 같은 함수(js/admgr-alerts.js admgrAdjCalc)를 그대로 불러 같은 기준으로 센다
-//   7일(어제까지) 클릭7일 구매당 비용÷마진: 60%↑ OFF · 50~60% 절반 · 40~50% 유지 · 35%↓ 증액. 마진 = 카페24 판매가 − 공급가×1.1 (상품명 포함 매칭)
+//   7일(어제까지) 클릭7일 구매당 비용÷마진: 80%↑ OFF · 60~80% 절반 · 40~60% 유지 · 35%↓ 증액 (느슨한 방식, 10/28). 마진 = 카페24 판매가 − 공급가×1.1 (상품명 포함 매칭)
 try {
   const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8');
   const grab = (re) => (src.match(re) || [])[0] || '';

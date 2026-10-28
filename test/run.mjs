@@ -413,20 +413,25 @@ test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 클릭 구
   vm.runInContext("admgrAlert.h7 = null; admgr.data = null;", ctx);
 });
 
-test('admgrAdjCalc: 7일 비율로 OFF·절반·유지·증액·대기 (마진 20,000 · 오늘 10/28 수)', () => {
+test('admgrAdjCalc: 느슨한 방식 — 80%↑ OFF · 60~80% 절반 · 40~60% 유지 · 35%↓ 증액 · 대기 (마진 20,000 · 오늘 10/28 수)', () => {
   const f = g('admgrAdjCalc'), m = () => 20000;
   const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });
   const W = (spend, purchases) => ({ spend, purchases, purchases_7d: purchases });
-  const ids = 'abcdefghij'.split(''), sets = ids.map(id => S(id, 40000, id === 'h' ? { _cbo: true } : id === 'i' ? { created: '2026-10-27T10:00:00+0900' } : {}));
-  const s7 = new Map([['a', W(140000, 7)], ['b', W(110000, 10)], ['c', W(60000, 10)], ['d', W(120000, 10)], ['e', W(70000, 10)], ['f', W(90000, 10)], ['g', W(110000, 10)], ['h', W(140000, 1)], ['i', W(140000, 1)], ['j', W(30000, 1)]]);
+  const ids = 'abcdefghijk'.split(''), sets = ids.map(id => S(id, 40000, id === 'h' ? { _cbo: true } : id === 'i' ? { created: '2026-10-27T10:00:00+0900' } : {}));
+  const s7 = new Map([['a', W(200000, 10)], ['b', W(140000, 10)], ['c', W(60000, 10)], ['d', W(130000, 10)], ['e', W(70000, 10)], ['f', W(110000, 10)], ['g', W(140000, 10)], ['h', W(140000, 1)], ['i', W(140000, 1)], ['j', W(30000, 1)], ['k', W(90000, 10)]]);
   const s3 = new Map(ids.map(id => [id, W(30000, 1)]));   // 3일은 참고만 — 결과에 영향 없어야 함
   const hist = [{ level: 'adset', object_id: 'd', time: '2026-10-25T03:00:00Z', old_value: 80000, new_value: 40000 }, { level: 'adset', object_id: 'g', time: '2026-10-27T03:00:00Z', old_value: 80000, new_value: 40000 }];
   const by = Object.fromEntries(f(sets, s7, s3, hist, '2026-10-28', 3, m).map(x => [x.s.id, x.act + (x.act === 'half' || x.act === 'up' ? ':' + x.to : '')]));
-  // a 100% OFF / b 55% 절반 / c 30% +30% / d 10/25 감액 뒤 60%(50%↑) OFF / e 35% +20% / f 45% 유지 / g 10/27 감액 · 55% 대기 / h CBO·i 신규·j 표본 부족(구매1·지출<마진×2) 제외
-  assert.equal(JSON.stringify(by), JSON.stringify({ a: 'off', b: 'half:20000', c: 'up:52000', d: 'off', e: 'up:48000', f: 'watch', g: 'cool' }));
-  assert.equal(f([S('g', 40000)], new Map([['g', W(130000, 10)]]), new Map(), hist, '2026-10-28', 3, m)[0].act, 'off');   // 대기 중이어도 60%↑면 OFF
+  // a 100% OFF / b 70% 절반 / c 30% +30% / d 10/25 감액 뒤 65%(60%↑) OFF / e 35% +20% / f 55%·k 45% 유지 / g 10/27 감액 · 70% 대기 / h CBO·i 신규·j 표본 부족 제외
+  assert.equal(JSON.stringify(by), JSON.stringify({ a: 'off', b: 'half:20000', c: 'up:52000', d: 'off', e: 'up:48000', f: 'watch', g: 'cool', k: 'watch' }));
+  assert.equal(f([S('g', 40000)], new Map([['g', W(170000, 10)]]), new Map(), hist, '2026-10-28', 3, m)[0].act, 'off');   // 대기 중이어도 80%↑면 OFF
   assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 10)]]), new Map(), [], '2026-10-30', 5, m).length, 0);   // 금요일엔 증액 없음
   assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 9)]]), new Map(), [], '2026-10-28', 3, m).length, 0);    // 구매 10건 미만은 증액 없음
+  const ev = (t, o, n) => ({ level: 'adset', object_id: 'r', time: t, old_value: o, new_value: n });
+  const R1 = h => f([S('r', 40000)], new Map([['r', W(130000, 10)]]), new Map(), h, '2026-10-28', 3, m)[0].act;   // 7일 65%
+  assert.equal(R1([ev('2026-10-24T14:45:00Z', 40000, 30000), ev('2026-10-26T14:45:00Z', 30000, 40000)]), 'half');   // 주말 −25% 뒤 원복 → 감액 이력 아님 → 절반
+  assert.equal(R1([ev('2026-10-23T03:00:00Z', 40000, 4000), ev('2026-10-23T14:45:00Z', 4000, 40000)]), 'half');     // 낮 ÷10 뒤 23:45 원복 → 절반
+  assert.equal(R1([ev('2026-10-23T03:00:00Z', 80000, 40000)]), 'off');                                                // 진짜 절반 감액 뒤에도 60%↑ → OFF
 });
 
 console.log('주간 리포트');
