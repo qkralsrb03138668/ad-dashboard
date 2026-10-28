@@ -217,7 +217,7 @@ function admgrMoreMenu(ev) {
     ${npend && !admgrMobile() ? agItem('fa-list', `23:45 예약 목록 (${npend})`, 'admgrMidList()') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') && admgrCopySets().length ? agItem('fa-arrow-up-from-bracket', `끌올 사본 정리 (${admgrCopySets().length})`, 'admgrRepostModal()', '" - 사본" 붙은 세트·광고 이름을 소재 업로드 규칙으로') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') ? agItem('fa-clock-rotate-left', '지난 소재 찾기', 'admgrPastModal()', '상품명으로 작년부터 돈 소재 중 효율 좋은 것 → 새 세트로 켜서 다시 테스트 (PIN)') : ''}
-    ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-sliders', '알림 기준', 'admgrAlertCfgModal()', '일예산 상한 · CBO 독식 · 소재 피로 기준 (모든 계정 공유)') : ''}
+    ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-sliders', '알림 기준', 'admgrAlertCfgModal()', '일예산 상한 · 소재 피로 · 주말 모드 기준 (모든 계정 공유)') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-wand-magic-sparkles', '추천 예산 불러오기', 'admgrRecoLoad()', 'Claude가 저장해 둔 예산 추천을 임시 저장으로 — 반영은 상단 [게시] (PIN)') : ''}
     ${nd ? agItem('fa-eraser', `임시 저장 전체 취소 (${nd})`, 'admgrClearDrafts()', 'Meta에는 아무 변화 없어요') : ''}
     ${!admgrCfg() || admgr.demo ? '' : agItem('fa-wand-magic-sparkles', '데모 데이터로 보기', 'admgrDemo()')}

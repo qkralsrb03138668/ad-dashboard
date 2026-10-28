@@ -1,10 +1,10 @@
-/* ═══ 알림판 (2026-10-23, 사용자 요청: 상한·독식·피로 같은 알림을 광고관리자 맨 위 한 곳에) ═══
+/* ═══ 알림판 (2026-10-23, 사용자 요청: 상한·피로 같은 알림을 광고관리자 맨 위 한 곳에) ═══
    #admgr-banner 자리에 그린다. 머리줄 = 켜진 일예산 합계(세트+CBO)와 상한, 그 아래 = 검사 항목들.
    기준값은 계정 공유 설정(shared_state 'admgr_alert_cfg', 관리자만 저장) — ⋯ 메뉴 '알림 기준' 또는 머리줄 [기준] 버튼.
    검사는 admgrAlert.checks에 함수로 등록: (cfg) → [{ key, lvl:'red'|'yellow'|'blue', text(html), act?:{label, onclick} }]. '오늘 하루 숨기기'는 이 브라우저에만.
    (index.html에서 분리 로드 — 전역 함수·변수를 그대로 공유) */
 'use strict';
-const ADMGR_ALERT_DEF = { cap: 4500000, hog: 60, hogRoas: 550, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 900 };   // 10/28 구매당 비용 → ROAS: 독식 = ROAS 550% 미만 · 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~900%(유지 구간) 테스트 세트
+const ADMGR_ALERT_DEF = { cap: 4500000, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 900 };   // 10/28 구매당 비용 → ROAS: 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~900%(유지 구간) 테스트 세트
 const admgrAlert = { cfg: null, ver: null, loading: false, checks: [] };
 function admgrAlertCfg() { return Object.assign({}, ADMGR_ALERT_DEF, admgrAlert.cfg || {}); }
 async function admgrAlertCfgEnsure() {
@@ -39,7 +39,7 @@ function admgrAlertPanel() {
   const shown = items.filter(i => hide[i.key] !== today);
   const row = i => `<div class="ag-al ag-al-${i.lvl}"><span class="ag-al-dot"></span><span class="ag-al-txt">${i.text}</span>${i.act ? `<button class="ag-al-btn" onclick="${i.act.onclick}">${esc(i.act.label)}</button>` : ''}<button class="ag-al-x" onclick="admgrAlertHide('${esc(i.key)}')" title="오늘 하루 숨기기" aria-label="오늘 하루 숨기기">×</button></div>`;
   return `<div class="ag-alerts">
-    <div class="ag-al ag-al-head ${over ? 'ag-al-red' : ''}"><span class="ag-al-dot"></span><span class="ag-al-txt"><b>켜진 일예산 ${admgrW(B.total)}원</b> <small>세트 ${admgrW(B.sets)} · CBO ${admgrW(B.cbo)}${cfg.cap > 0 ? ` · 상한 ${admgrW(cfg.cap)}` : ''}</small>${over ? ` <b class="ag-al-over">상한 초과 +${admgrW(B.total - cfg.cap)}</b>` : ''}</span>${typeof dnrbCan === 'function' && dnrbCan('budget') ? `<button class="ag-al-btn ghost" onclick="admgrAlertCfgModal()" title="상한·독식·피로 기준 편집"><i class="fa-solid fa-sliders"></i> 기준</button>` : ''}</div>
+    <div class="ag-al ag-al-head ${over ? 'ag-al-red' : ''}"><span class="ag-al-dot"></span><span class="ag-al-txt"><b>켜진 일예산 ${admgrW(B.total)}원</b> <small>세트 ${admgrW(B.sets)} · CBO ${admgrW(B.cbo)}${cfg.cap > 0 ? ` · 상한 ${admgrW(cfg.cap)}` : ''}</small>${over ? ` <b class="ag-al-over">상한 초과 +${admgrW(B.total - cfg.cap)}</b>` : ''}</span>${typeof dnrbCan === 'function' && dnrbCan('budget') ? `<button class="ag-al-btn ghost" onclick="admgrAlertCfgModal()" title="상한·피로·주말 모드 기준 편집"><i class="fa-solid fa-sliders"></i> 기준</button>` : ''}</div>
     ${shown.map(row).join('')}${items.length && !shown.length ? `<div class="ag-al-muted">알림 ${items.length}개 오늘 숨김 · <a href="#" onclick="lsSet('adc_admgr_alert_hide',{});renderAdmgr(true);return false;">다시 보기</a></div>` : ''}</div>`;
 }
 function admgrAlertHide(key) { const h = lsGet('adc_admgr_alert_hide', {}); h[key] = todayStr(0); lsSet('adc_admgr_alert_hide', h); renderAdmgr(true); }
@@ -47,9 +47,9 @@ function admgrAlertCfgModal() {
   const c = admgrAlertCfg();
   const f = (k, label, unit, step) => `<label style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:.8rem;"><span style="flex:1;">${label}</span><input id="alc-${k}" class="inp" type="number" min="0" step="${step || 1}" value="${c[k]}" style="width:120px;text-align:right;" /><span style="width:28px;color:#6b7280;">${unit}</span></label>`;
   $('abm-title').textContent = '알림 기준'; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `${f('cap', '켜진 일예산 합계 상한 (0 = 경고 안 함)', '원', 10000)}${f('hog', 'CBO 독식 — 한 광고가 캠페인 지출의', '%')}${f('hogRoas', '독식 경고 조건 — 그 광고 ROAS가 이 아래', '%', 50)}${f('fatigueRoas', '소재 피로 — 전주 대비 ROAS 하락', '%', 5)}${f('fatigueMinPur', '피로 감지에 필요한 지난주 구매', '건')}${f('fatigueCooldown', '같은 상품 피로 재알림 간격', '일')}
+  $('abm-body').innerHTML = `${f('cap', '켜진 일예산 합계 상한 (0 = 경고 안 함)', '원', 10000)}${f('fatigueRoas', '소재 피로 — 전주 대비 ROAS 하락', '%', 5)}${f('fatigueMinPur', '피로 감지에 필요한 지난주 구매', '건')}${f('fatigueCooldown', '같은 상품 피로 재알림 간격', '일')}
     <div style="font-size:.74rem;font-weight:800;color:#6b7280;margin:10px 0 2px;">주말 모드 (금 23:45 감액 → 일 23:45 원복)</div>${f('weekend', '켬 1 / 끔 0', '')}${f('weekendPct', '금요일 밤 감액 폭', '%', 5)}${f('wkRoasLo', '대상 구간 — 7일 ROAS 이상', '%', 50)}${f('wkRoasHi', '대상 구간 — 7일 ROAS 미만', '%', 50)}
-    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 독식 60% · ROAS 550% 미만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~900%)</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~900%)</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button><button class="btn-analyze" onclick="admgrAlertCfgSave()">저장</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
@@ -63,29 +63,7 @@ async function admgrAlertCfgSave() {
   } catch (e) { toast('저장 실패: ' + e.message); }
 }
 
-/* ── 검사 ③ CBO 독식 (2026-10-23): CBO 캠페인(캠페인 예산 있음·켜짐) 안에서 광고 하나가 지출의 hog% 이상을 먹고,
-   그 광고의 ROAS가 hogRoas% 미만이면(구매 0 포함, 10/28 구매당 비용 → ROAS) → 빨강 + [이 광고 끄기 임시 저장]. 데이터는 지금 화면 기간 기준 */
-function admgrCheckHog(cfg) {
-  const out = [], R = admgrRows();
-  const per = admgr.preset === 'custom' && admgr.customRange ? `${admgr.customRange.since.slice(5)}~${admgr.customRange.until.slice(5)}` : (ADMGR_PRESETS[admgr.preset] || '오늘');
-  for (const c of R.camps) {
-    if (c.status !== 'ACTIVE' || !(c.budget > 0)) continue;
-    const ads = (c.adsets || []).flatMap(s => s.ads || []).filter(a => a.spend > 0);
-    const total = ads.reduce((a, x) => a + x.spend, 0); if (total < 30000 || ads.length < 2) continue;
-    const top = ads.slice().sort((x, y) => y.spend - x.spend)[0], share = top.spend / total;
-    if (share * 100 < cfg.hog) continue;
-    const roas = admgrVJ(top) / top.spend;
-    if (roas * 100 >= cfg.hogRoas) continue;
-    out.push({ key: 'hog:' + c.id + ':' + top.id, lvl: 'red',
-      text: `<b>CBO 독식</b> ${esc(c.name)} — "${esc(top.name)}"가 ${per} 지출의 <b>${Math.round(share * 100)}%</b>(${won(top.spend)}) · ${admgrPJ(top) ? `ROAS <b>${Math.round(roas * 100)}%</b>` : '<b>구매 0</b>'} <small>(${cfg.hogRoas}% 미만)</small>`,
-      act: { label: '이 광고 끄기 임시 저장', onclick: `admgrHogOff('${esc(top.id)}')` } });
-  }
-  return out;
-}
-function admgrHogOff(adId) {   // 끄기 임시 저장 → 상단 '게시'로 Meta 반영 (다른 켜기/끄기와 같은 길)
-  admgrSDraft[adId] = { level: 'ad', status: 'PAUSED' }; lsSet('adc_admgr_sdraft', admgrSDraft);
-  toast('끄기를 임시 저장했어요 — 상단 [게시]를 눌러야 Meta에 반영돼요'); renderAdmgr(true);
-}
+/* 검사 ③ CBO 독식은 2026-10-28 사용자 요청으로 뺌 (CBO 승격 없이 ABO로만 운영) */
 /* ── 23:45 관련 알림을 팝업 대신 여기로 (사용자 요청: 알림은 한 곳에) — 원복 승인 상태 · 예약 건수 · 반영 결과 */
 function admgrCheck2345(cfg) {
   const w = admgr.write, out = []; if (!w || !w.st) return out;
@@ -102,7 +80,7 @@ function admgrCheck2345(cfg) {
   }
   return out;
 }
-admgrAlert.checks.push(admgrCheckHog, admgrCheck2345);
+admgrAlert.checks.push(admgrCheck2345);
 
 /* ── 검사 ⑦ 승격 후보 (2026-10-23): 테스트 캠페인(이름에 '테스트') 안 켜진 세트의 **최근 7일 Meta 성과**로 — 월요일 브리핑(daily-brief-data.mjs promotion)과 같은 기준.
    종합 CBO 후보 = 7일 구매 30↑ · ROAS 5↑ · 아직 [→CBO] 표시 없음 · 그 상품의 상품 CBO가 켜져 있지 않음

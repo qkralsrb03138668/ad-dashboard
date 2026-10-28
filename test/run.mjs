@@ -327,20 +327,6 @@ test('admgrBudgetTotal·알림판: 켜진 세트+CBO 예산 합, 임시 저장 �
   const h0 = g('admgrAlertPanel')(); assert.ok(!h0.includes('상한 초과') && !h0.includes('· 상한'), h0);   // 상한 0 = 표시도 경고도 없음 ([기준] 버튼 툴팁의 '상한'은 제외)
 });
 
-test('admgrCheckHog: CBO 안 한 광고 독식 + 그 광고 ROAS 550% 미만이면 빨강, 아니면 없음 (10/28 ROAS 기준)', () => {
-  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.preset = 'today'; admgr.demo = false;
-    admgr.data = { campaigns: [{ id: 'c1', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's', status: 'ACTIVE', budget: 0, ads: [
-      { id: 'a1', name: '루즈핏 니트_R1', status: 'ACTIVE', spend: 150000, purchases: 7, value: 600000 }, { id: 'a2', name: '루즈핏 니트_R2', status: 'ACTIVE', spend: 40000, purchases: 5, value: 0 }, { id: 'a3', name: '루즈핏 니트_R3', status: 'ACTIVE', spend: 10000, purchases: 0, value: 0 }] }] }] };`, ctx);
-  const f = g('admgrCheckHog'), cfg = { hog: 60, hogRoas: 550 };
-  const r = f(cfg);   // a1: 75% 독식 · ROAS 400% < 550%
-  assert.equal(r.length, 1); assert.ok(r[0].lvl === 'red' && r[0].text.includes('75%') && r[0].text.includes('ROAS <b>400%</b>') && r[0].act.onclick.includes("admgrHogOff('a1')"), r[0].text);
-  assert.equal(f({ hog: 80, hogRoas: 550 }).length, 0);                                   // 독식 기준 80%면 해당 없음
-  vm.runInContext("admgr.data.campaigns[0].adsets[0].ads[0].value = 900000;", ctx);      // ROAS 600% → 독식이어도 경고 없음
-  assert.equal(f(cfg).length, 0);
-  vm.runInContext("admgr.data.campaigns[0].adsets[0].ads[0].value = 600000; admgr.data.campaigns[0].budget = 0;", ctx);   // CBO가 아니면 검사 안 함
-  assert.equal(f(cfg).length, 0);
-});
-
 test('admgrPromoCands: 10/28부터 꺼짐(ABO만) → 빈 값 · 켜면 2026-10-26 기준 — 상품 = 7일 100건↑·구매당≤마진35%·3일 추세 OK·우수 2개↑ / 종합 = 세트 30건↑·≤30%', () => {
   assert.equal(g('admgrPromoCands')().ads.length + g('admgrPromoCands')().prods.length, 0); assert.equal(g('admgrCheckPromo')().length, 0);
   vm.runInContext("ADMGR_PROMO.on = true;", ctx);
