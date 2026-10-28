@@ -40,7 +40,7 @@ const admgrJudgeView = () => admgr.preset === 'today' || admgr.preset === 'custo
    서버 캐시가 아직 옛 응답이면 purchases_7d가 없다 → 기본 창 − 조회 후 1일 (메타 실측: 기본 = 클릭7일 + 조회1일, 겹침 없음)로 계산 */
 const admgrP7 = r => r.purchases_7d != null ? r.purchases_7d : Math.max(0, (r.purchases || 0) - (r.purchases_1dv || 0));
 const admgrV7 = r => r.value_7d != null ? r.value_7d : (r.purchases > 0 ? (r.value || 0) * admgrP7(r) / r.purchases : (r.value || 0));   // 캐시 전 응답: 전환값을 구매 비율로 나눠 근사
-/* 판정 = ROAS (2026-10-28 사용자 확정: 구매당 비용÷마진 대신 ROAS, 최소 550%). 예산 조정·빠른 증액·주말 모드·독식·피로·테스트 판정·브리핑이 모두 이 선을 쓴다.
+/* 판정 = ROAS (2026-10-28 사용자 확정: 구매당 비용÷마진 대신 ROAS, 최소 550%). 예산 조정·빠른 증액·주말 모드·피로·테스트 판정·브리핑이 모두 이 선을 쓴다.
    판정 창: 10/29~11/11 2주는 메타 기본값(클릭 7일 + 조회 1일)으로 시험 → 카페24 매출과 비교해 클릭 7일로 갈지 정한다 (attr: 'click'으로 바꾸면 전부 클릭 7일) */
 const ADMGR_ROAS = { attr: 'def', off: 4.5, keep: 5.5, up: 9, upBig: 11 };   // 7일 ROAS: 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ +20% · 1100%↑ +30%
 const admgrPJ = r => ADMGR_ROAS.attr === 'click' ? admgrP7(r) : (r.purchases || 0);   // 판정용 구매 수
@@ -518,10 +518,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo && dnrbCan('budget');   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
   const showJudge = isSet && admgrJudgeView() && !admgr.demo;   // '판정' 열 — 광고세트 탭 + 오늘
   /* 오늘 할 일 줄 (2026-10-26 사용자 승인: 역할·오늘 예산·판정 세 줄 → 역할 + 할 일 두 줄). 역할마다 칩이 다르다.
-     운영: 마감 100%↑·구매 0 / 곧 도달 1~2 / 증액 검토 3+ / 감액 후 반등 / 오늘 예산 바뀜 · 테스트: 승격 후보 / 마감 100%↑·구매 0 · CBO: 광고 탭으로 넘겨 독식·지출 0 · 전체·캠페인 탭: 오늘 예산 바뀜
-     없앤 칩: 운영중(=역할 운영) · 테스트중(=역할 테스트) · 감액 ÷10 구매 0(옛 기준 — 마감 100%↑로 대체) · 마감 50%↑(예상 마감 열의 노랑으로) · 오늘 예산 줄 4개와 미변경(→ 오늘 예산 바뀜 하나) */
-  const campSp = new Map(); for (const x of R.ads) campSp.set(x._campId, (campSp.get(x._campId) || 0) + (x.spend || 0));   // CBO 광고의 캠페인 내 지출 비중용
-  const adShare = x => x._cbo && x.spend > 0 ? Math.round(x.spend / campSp.get(x._campId) * 100) : 0;
+     운영: 마감 100%↑·구매 0 / 곧 도달 1~2 / 증액 검토 3+ / 감액 후 반등 / 오늘 예산 바뀜 · 테스트: 승격 후보 / 마감 100%↑·구매 0 · CBO: 광고 탭으로 넘겨 지출 0 · 전체·캠페인 탭: 오늘 예산 바뀜
+     없앤 칩: 운영중(=역할 운영) · 테스트중(=역할 테스트) · 감액 ÷10 구매 0(옛 기준 — 마감 100%↑로 대체) · 마감 50%↑(예상 마감 열의 노랑으로) · 오늘 예산 줄 4개와 미변경(→ 오늘 예산 바뀜 하나) · CBO 독식 칩·광고 지출 % (10/28) */
   const changedOf = r => !!bb.byObj && (bb.byObj.get(r.id) || []).length > 0;
   const todo = [];   // [key, label, predicate, onclick(선택)]
   if (showJudge) {
@@ -535,8 +533,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     } else if (admgr.role === 'all') { /* 전체는 표 그대로 — 아래 '오늘 예산 바뀜'만 */ }
     else if (admgr.role === 'cbo') {
       const cboAds = R.ads.filter(x => x._cbo && x.status === 'ACTIVE');
-      const hog = new Set(cboAds.filter(x => adShare(x) >= 60).map(x => x._campId)).size, zero = cboAds.filter(x => !(x.spend > 0)).length;
-      todo.push(['hog', `<span class="ag-dot amber"></span>광고 하나가 60%↑ ${hog} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('hog')"], ['zero', `지출 0 광고 ${zero} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('zero')"]);
+      const zero = cboAds.filter(x => !(x.spend > 0)).length;   // 독식(광고 하나 60%↑) 칩은 2026-10-28 사용자 요청으로 뺌
+      todo.push(['zero', `지출 0 광고 ${zero} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('zero')"]);
     } else {
       todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', jk('warn')], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
       admgrFastEnsure();
@@ -548,7 +546,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
   }
-  if (admgr.view === 'ad' && admgr.role === 'cbo') todo.push(['hog', '<span class="ag-dot amber"></span>광고 하나가 60%↑', x => adShare(x) >= 60], ['zero', '지출 0 광고', x => x.status === 'ACTIVE' && !(x.spend > 0)]);
+  if (admgr.view === 'ad' && admgr.role === 'cbo') todo.push(['zero', '지출 0 광고', x => x.status === 'ACTIVE' && !(x.spend > 0)]);
   if (showChg && bb.byObj && admgr.role !== 'cbo') todo.push(['chg', '<i class="fa-solid fa-pen" style="font-size:.7em;margin-right:5px;"></i>오늘 예산 바뀜', changedOf]);
   if (admgr.judgeFilter !== 'all' && !todo.some(t => t[0] === admgr.judgeFilter)) admgr.judgeFilter = 'all';   // 역할·탭을 바꿔 그 칩이 없으면 전체로
   let judgeChips = '';
@@ -583,7 +581,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     ${admgrTile('ROAS', tot.spend ? (tot.value / tot.spend).toFixed(2) : '—')}${admgrTile('표시 중 ' + VIEW_LABEL, vis.length + '개')}
   </div>`);
   const cpcTd = r => r.clicks ? won(r.spend / r.clicks) : '—';
-  const shareTd = r => { if (!r._cbo || !(r.spend > 0)) return ''; const p = Math.round(r.spend / campSp.get(r._campId) * 100); return ` · <span title="이 캠페인 지출 중 이 광고 비중 — 60%↑면 한 광고 독식" style="${p >= 60 ? 'color:#b45309;font-weight:700;' : ''}">지출 ${p}%</span>`; };
   const totalRow = (lead, extraCols) => `<tfoot><tr>
     <td colspan="${lead}" style="text-align:left;">${vis.length}개 ${VIEW_LABEL}의 결과</td>
     ${extraCols}
@@ -639,7 +636,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="cb" onclick="event.stopPropagation()"><input type="checkbox" ${admgr.selAds.has(r.id) ? 'checked' : ''} onclick="admgrToggleAd('${r.id}')" title="복사할 광고 선택" /></td>
           <td class="l tg" onclick="event.stopPropagation()">${admgrOnOff(r, 'ad')}</td>
           <td class="name-cell" title="${esc(r.name || '')} · ${esc(r._setName || '')}">
-            <b>${esc(r.name || '(이름 없음)')}</b>${admgrViewBadge(r)}<div class="ag-sub">${admgrStBadge(r.status)}${r._setName ? ` · ${esc(admgrBase(r._setName))}` : ''}${shareTd(r)}${admgrMarkBadges(r._setName)}</div></td>
+            <b>${esc(r.name || '(이름 없음)')}</b>${admgrViewBadge(r)}<div class="ag-sub">${admgrStBadge(r.status)}${r._setName ? ` · ${esc(admgrBase(r._setName))}` : ''}${admgrMarkBadges(r._setName)}</div></td>
           <td>${admgrMoney(r.spend)}</td>
           <td class="m-hide">${comma(r.clicks || 0)}</td>
           <td>${comma(r.purchases || 0)}</td>
