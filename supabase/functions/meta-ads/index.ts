@@ -1087,15 +1087,25 @@ async function handle(req: Request): Promise<Response> {
       const day = (k: string) => { const v = url.searchParams.get(k) ?? ""; return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; };   // 관리자 확인은 위 ADMGR_ONLY 목록이 함
       const since = day("since"), until = day("until");
       if (!since || !until || until < since || (Date.parse(until) - Date.parse(since)) > 31 * 86400e3) return json({ error: "since·until (31일 이내) 필요" }, 400);
-      const cacheKey = `meta:adsetdaily:${since}:${until}`;
+      const adLv = url.searchParams.get("level") === "ad";   // level=ad: CBO 캠페인(예산이 캠페인에 있음)만 광고 단위 — 상품명이 광고명에 있어서 (2026-10-28)
+      const cacheKey = `meta:adsetdaily:${adLv ? "ad:" : ""}${since}:${until}`;
       const pre = await metaPre(cacheKey, 6 * 3600 * 1000);
       if (pre) return pre;
-      const rows = await graphGetAll(`${c.account}/insights`, { level: "adset", time_increment: "1", time_range: JSON.stringify({ since, until }),
-        fields: "adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values", action_attribution_windows: JSON.stringify(["7d_click", "1d_view", "default"]), limit: "500" }, c.token, 60);
-      const camp: Record<string, string> = {}, name: Record<string, string> = {};
+      let cbo: string[] = [];
+      if (adLv) {
+        const cs = await graphGetAll(`${c.account}/campaigns`, { fields: "id,daily_budget,lifetime_budget", limit: "500",
+          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES"] }]) }, c.token, 10);
+        cbo = cs.filter((x) => num(x.daily_budget) > 0 || num(x.lifetime_budget) > 0).map((x) => String(x.id));
+      }
+      const rows = adLv && !cbo.length ? [] : await graphGetAll(`${c.account}/insights`, { level: adLv ? "ad" : "adset", time_increment: "1", time_range: JSON.stringify({ since, until }),
+        fields: (adLv ? "ad_id,ad_name," : "") + "adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values", action_attribution_windows: JSON.stringify(["7d_click", "1d_view", "default"]), limit: "500",
+        ...(adLv ? { filtering: JSON.stringify([{ field: "campaign.id", operator: "IN", value: cbo }]) } : {}) }, c.token, 60);
+      const camp: Record<string, string> = {}, name: Record<string, string> = {}, ads: Record<string, string> = {};
       const out = rows.map((r) => { const sid = String(r.adset_id ?? ""), cid = String(r.campaign_id ?? ""); camp[cid] = String(r.campaign_name ?? ""); name[sid] = String(r.adset_name ?? "");
-        return [String(r.date_start ?? ""), sid, cid, Math.round(num(r.spend)), pickPurchase(r.actions, "7d_click"), Math.round(pickPurchase(r.action_values, "7d_click")), pickPurchase(r.actions, "value"), pickPurchase(r.actions, "1d_view")]; });
-      const body = { since, until, cols: ["day", "adset", "camp", "spend", "p7c", "v7c", "pdef", "p1v"], rows: out, camps: camp, names: name };
+        const row = [String(r.date_start ?? ""), sid, cid, Math.round(num(r.spend)), pickPurchase(r.actions, "7d_click"), Math.round(pickPurchase(r.action_values, "7d_click")), pickPurchase(r.actions, "value"), pickPurchase(r.actions, "1d_view")];
+        if (adLv) { const aid = String(r.ad_id ?? ""); ads[aid] = String(r.ad_name ?? ""); row.push(aid); }
+        return row; });
+      const body = { since, until, cols: ["day", "adset", "camp", "spend", "p7c", "v7c", "pdef", "p1v", ...(adLv ? ["ad"] : [])], rows: out, camps: camp, names: name, ...(adLv ? { ads, cbo } : {}) };
       await cacheSet(cacheKey, body);
       return json(body);
     }
