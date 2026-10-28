@@ -395,20 +395,26 @@ Deno.serve(async (req) => {
        같은 소재로 광고 1개. 이름은 화면이 끌올 규칙으로 지어 보낸다. 세트·광고 모두 켜진 상태(사용자 지정) — 바로 돈이 나가므로 PIN */
     /* 카탈로그 뺀 새 소재로 광고 다시 만들기 (2026-10-28 사용자 요청) — 끌올 소재 중 카탈로그 상품 세트가 붙은 것은 카탈로그 없는 캠페인에서
        "product_catalog_id를 캠페인에 설정하거나 광고에서 제품 세트를 삭제" 오류로 거부됨. 원본 소재의 사진·영상·문구·강화옵션은 그대로 두고
-       제품 세트만 뺀 새 소재를 만들어, 이미 만들어 둔(빈) 세트에 광고로 넣고 세트를 켠다. validate:true면 아무것도 안 만들고 검사만(PIN 없이) */
+       제품 세트만 뺀 새 소재를 만들어, 이미 만들어 둔(빈) 세트에 광고로 넣고 세트를 켠다. validate:true면 아무것도 안 만들고 검사만(PIN 없이)
+       swap:true 항목 = 그 광고 자신의 소재를 새로 만들어 같은 광고에 갈아 끼움 (2026-10-28: 링크 제목에 '카페24'가 박힌 광고 — 제목은 빈칸 유지).
+       만들기 전에 Meta가 링크 페이지를 다시 읽게 해서(scrape) 막힘 화면 제목('카페24'·'429')이면 만들지 않는다 */
     if (action === "ad_recreate") {
-      const items = (body.items ?? []) as { src_ad_id?: unknown; adset_id?: unknown }[];
+      const items = (body.items ?? []) as { src_ad_id?: unknown; adset_id?: unknown; swap?: unknown }[];
       if (!Array.isArray(items) || !items.length || items.length > 5) return json({ error: "1~5개씩 보내세요" }, 400);
       const CRE_FIELDS = "name,object_story_spec,asset_feed_spec,degrees_of_freedom_spec,url_tags,contextual_multi_ads,product_set_id,object_type";
       const created: Rec[] = [], failed: Rec[] = [];
       for (const it of items) {
         const srcId = String(it.src_ad_id ?? ""), adsetId = String(it.adset_id ?? "");
-        if (!/^\d{5,25}$/.test(srcId) || !/^\d{5,25}$/.test(adsetId)) { failed.push({ src_ad_id: srcId, error: "항목 오류" }); continue; }
+        const swap = it.swap === true;
+        if (!/^\d{5,25}$/.test(srcId) || (!swap && !/^\d{5,25}$/.test(adsetId))) { failed.push({ src_ad_id: srcId, error: "항목 오류" }); continue; }
         try {
-          const set = await graph(adsetId, { params: { fields: "name,ads.limit(1){id},destination_type,promoted_object,optimization_goal,billing_event" } });
-          const name = String(set.name ?? "").normalize("NFC");
-          if (body.validate !== true && ((set.ads as Rec)?.data as Rec[] ?? []).length) { failed.push({ src_ad_id: srcId, name, error: "이미 광고가 있는 세트 — 건너뜀" }); continue; }
-          const src = await graph(srcId, { params: { fields: `creative{${CRE_FIELDS}}` } });
+          const src = await graph(srcId, { params: { fields: `name,creative{${CRE_FIELDS}}` } });
+          let name = String(src.name ?? "").normalize("NFC"), set: Rec = {};
+          if (!swap) {
+            set = await graph(adsetId, { params: { fields: "name,ads.limit(1){id},destination_type,promoted_object,optimization_goal,billing_event" } });
+            name = String(set.name ?? "").normalize("NFC");
+            if (body.validate !== true && ((set.ads as Rec)?.data as Rec[] ?? []).length) { failed.push({ src_ad_id: srcId, name, error: "이미 광고가 있는 세트 — 건너뜀" }); continue; }
+          }
           const cre = (src.creative ?? {}) as Rec;
           const oss = JSON.parse(JSON.stringify(cre.object_story_spec ?? {})) as Rec;
           const removed: string[] = [];
@@ -423,6 +429,10 @@ Deno.serve(async (req) => {
           }
           const vd = oss.video_data as Rec | undefined;   // 읽어 오면 썸네일이 image_url·image_hash 둘 다 온다 — 하나만 보내야 생성됨
           if (vd?.image_hash && vd.image_url) delete vd.image_url;
+          const link = String((oss.link_data as Rec)?.link ?? (((vd?.call_to_action as Rec)?.value as Rec)?.link) ?? "");
+          let og = "";
+          if (link) { try { og = String((await graph("", { method: "POST", params: { id: link, scrape: "true" } })).title ?? ""); } catch { /* 못 읽으면 그대로 진행 */ } }
+          if (/카페24|cafe24|Too Many|^\d{3} /i.test(og)) { failed.push({ src_ad_id: srcId, name, error: `Meta가 페이지를 다시 읽어도 제목이 '${og}' — 잠시 뒤 다시 시도하세요` }); continue; }
           const p: Record<string, string> = { name, object_story_spec: JSON.stringify(oss) };
           if (cre.asset_feed_spec) p.asset_feed_spec = JSON.stringify(cre.asset_feed_spec);
           if (cre.degrees_of_freedom_spec) {
@@ -437,10 +447,14 @@ Deno.serve(async (req) => {
           if (body.validate === true) {
             try { await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: { ...p, ...VALIDATE } }); }   // 소재만 검사 — 광고에 소재를 바로 넣어 검사하면 Meta가 엉뚱한 WhatsApp 오류를 냄(실측)
             catch (e) { failed.push({ src_ad_id: srcId, name, error: String((e as Error).message).slice(0, 300), removed, spec: p, set }); continue; }   // 검사 때는 무엇을 보냈는지 같이
-            created.push({ src_ad_id: srcId, name, removed, validated: true, dof: Object.keys(((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) });
+            created.push({ src_ad_id: srcId, name, og, removed, validated: true, dof: Object.keys(((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) });
             continue;
           }
           const cr = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });
+          if (swap) {
+            await graph(srcId, { method: "POST", params: { creative: JSON.stringify({ creative_id: String(cr.id) }) } });
+            created.push({ src_ad_id: srcId, name, og, new_creative_id: String(cr.id) }); continue;
+          }
           const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id: adsetId, creative: JSON.stringify({ creative_id: String(cr.id) }), status: "ACTIVE" } });
           await graph(adsetId, { method: "POST", params: { status: "ACTIVE" } });   // 옮긴 다른 세트와 같게 켬 — 캠페인이 꺼져 있으면 지출 없음
           created.push({ src_ad_id: srcId, name, adset_id: adsetId, new_ad_id: String(ad.id), removed });
