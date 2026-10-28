@@ -401,14 +401,14 @@ Deno.serve(async (req) => {
     if (action === "ad_recreate") {
       const items = (body.items ?? []) as { src_ad_id?: unknown; adset_id?: unknown; swap?: unknown }[];
       if (!Array.isArray(items) || !items.length || items.length > 5) return json({ error: "1~5개씩 보내세요" }, 400);
-      const CRE_FIELDS = "name,object_story_spec,asset_feed_spec,degrees_of_freedom_spec,url_tags,contextual_multi_ads,product_set_id,object_type";
+      const CRE_FIELDS = "id,title,name,object_story_spec,asset_feed_spec,degrees_of_freedom_spec,url_tags,contextual_multi_ads,product_set_id,object_type";
       const created: Rec[] = [], failed: Rec[] = [];
       for (const it of items) {
         const srcId = String(it.src_ad_id ?? ""), adsetId = String(it.adset_id ?? "");
         const swap = it.swap === true;
         if (!/^\d{5,25}$/.test(srcId) || (!swap && !/^\d{5,25}$/.test(adsetId))) { failed.push({ src_ad_id: srcId, error: "항목 오류" }); continue; }
         try {
-          const src = await graph(srcId, { params: { fields: `name,creative{${CRE_FIELDS}}` } });
+          const src = await graph(srcId, { params: { fields: `name,created_time,updated_time,creative{${CRE_FIELDS}}` } });
           let name = String(src.name ?? "").normalize("NFC"), set: Rec = {};
           if (!swap) {
             set = await graph(adsetId, { params: { fields: "name,ads.limit(1){id},destination_type,promoted_object,optimization_goal,billing_event" } });
@@ -433,7 +433,8 @@ Deno.serve(async (req) => {
           let og = "";
           if (link) { try { og = String((await graph("", { method: "POST", params: { id: link, scrape: "true" } })).title ?? ""); } catch { /* 못 읽으면 그대로 진행 */ } }
           if (/카페24|cafe24|Too Many|^\d{3} /i.test(og)) { failed.push({ src_ad_id: srcId, name, error: `Meta가 페이지를 다시 읽어도 제목이 '${og}' — 잠시 뒤 다시 시도하세요` }); continue; }
-          const p: Record<string, string> = { name, object_story_spec: JSON.stringify(oss) };
+          // swap: 내용이 같으면 Meta가 기존 소재 id를 그대로 돌려준다(2026-10-28 실측 — 제목 '카페24'도 그대로) → 내부용 소재 이름만 달리해 새로 만들게 함
+          const p: Record<string, string> = { name: swap ? `${name} #${Date.now().toString(36)}` : name, object_story_spec: JSON.stringify(oss) };
           if (cre.asset_feed_spec) p.asset_feed_spec = JSON.stringify(cre.asset_feed_spec);
           if (cre.degrees_of_freedom_spec) {
             const dof = JSON.parse(JSON.stringify(cre.degrees_of_freedom_spec)) as Rec;
@@ -447,13 +448,16 @@ Deno.serve(async (req) => {
           if (body.validate === true) {
             try { await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: { ...p, ...VALIDATE } }); }   // 소재만 검사 — 광고에 소재를 바로 넣어 검사하면 Meta가 엉뚱한 WhatsApp 오류를 냄(실측)
             catch (e) { failed.push({ src_ad_id: srcId, name, error: String((e as Error).message).slice(0, 300), removed, spec: p, set }); continue; }   // 검사 때는 무엇을 보냈는지 같이
-            created.push({ src_ad_id: srcId, name, og, removed, validated: true, dof: Object.keys(((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) });
+            created.push({ src_ad_id: srcId, name, og, cur: { creative_id: cre.id, title: cre.title, ad_created: src.created_time, ad_updated: src.updated_time }, removed, validated: true, dof: Object.keys(((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) });
             continue;
           }
           const cr = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });
           if (swap) {
+            if (String(cr.id) === String(cre.id)) { failed.push({ src_ad_id: srcId, name, error: "Meta가 똑같은 기존 소재를 돌려줬어요 — 교체 안 됨" }); continue; }
+            const t = String((await graph(String(cr.id), { params: { fields: "title" } })).title ?? "");
+            if (/카페24|cafe24|Too Many/i.test(t)) { failed.push({ src_ad_id: srcId, name, error: `새 소재도 제목이 '${t}' — 교체 안 함` }); continue; }
             await graph(srcId, { method: "POST", params: { creative: JSON.stringify({ creative_id: String(cr.id) }) } });
-            created.push({ src_ad_id: srcId, name, og, new_creative_id: String(cr.id) }); continue;
+            created.push({ src_ad_id: srcId, name, og, title: t, new_creative_id: String(cr.id) }); continue;
           }
           const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id: adsetId, creative: JSON.stringify({ creative_id: String(cr.id) }), status: "ACTIVE" } });
           await graph(adsetId, { method: "POST", params: { status: "ACTIVE" } });   // 옮긴 다른 세트와 같게 켬 — 캠페인이 꺼져 있으면 지출 없음
