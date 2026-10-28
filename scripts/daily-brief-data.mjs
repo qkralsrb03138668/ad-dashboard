@@ -35,6 +35,11 @@ try {
   const w = sum(hw.campaigns);
   out.account = { yesterday: kpi(sum(hy.campaigns)), day_before: kpi(sum(hy2.campaigns)),
     avg_7d: kpi({ spend: w.spend / 7, purchases: r1(w.purchases / 7), value: w.value / 7, clicks: Math.round(w.clicks / 7) }) };
+  // 판정 창 2주 시험(2026-10-29~11-11) 기록 — 어제 메타 매출을 기본값(클릭7일+조회1일)과 클릭 7일로 같이. 카페24 결제금액(cafe24.order_amount)과 비교해 어느 창이 실제에 가까운지 본다
+  const P7 = a => a.purchases_7d != null ? a.purchases_7d : Math.max(0, (a.purchases || 0) - (a.purchases_1dv || 0)), V7 = a => a.value_7d != null ? a.value_7d : (a.purchases > 0 ? (a.value || 0) * P7(a) / a.purchases : (a.value || 0));
+  const ys = sum(hy.campaigns);
+  out.attr_trial = { date: Y, spend: Math.round(ys.spend), meta_default_value: Math.round(ys.value), meta_default_purchases: ys.purchases,
+    meta_click7_value: Math.round(hy.campaigns.reduce((t, c) => t + V7(c), 0)), meta_click7_purchases: hy.campaigns.reduce((t, c) => t + P7(c), 0) };
   const c2 = new Map(hy2.campaigns.map(c => [c.id, c]));
   out.campaigns = hy.campaigns.filter(c => c.spend > 0).sort((a, b) => b.spend - a.spend)
     .map(c => ({ name: c.name, status: c.status, daily_budget: c.budget, yesterday: kpi(c), day_before: c2.has(c.id) ? kpi(c2.get(c.id)) : null }));
@@ -52,7 +57,8 @@ try {
 // 승격 후보 (2026-10-23 ⑦) — 월요일 브리핑에만 (또는 --promo). 직전 7일 Meta 성과로: 종합 CBO 후보 = 테스트 세트 광고 중 구매 30↑·ROAS 5↑·아직 [→CBO] 표시 없음
 //   상품 CBO 후보 = 한 상품에 우수(구매 10↑·ROAS 5↑) 소재 2개↑ 이고 상품 구매 60↑·상품CBO 표시 없음. 대시보드 승격 후보(admgr-alerts.js)와 같은 기준(손익분기 대신 고정 5)
 const isMonday = new Date(seoulToday + 'T00:00:00+09:00').getDay() === 1;
-if (isMonday || process.argv.includes('--promo')) try {
+// 2026-10-28 사용자: CBO 승격 없이 ABO로만 운영해 보기 → 승격 후보는 안 냄 (대시보드 ADMGR_PROMO.on과 같이). 다시 켜려면 --promo
+if (process.argv.includes('--promo')) try {
   const h7 = await day(addDays(seoulToday, -7), addDays(seoulToday, -1));
   // 테스트 세트는 세트당 광고 1개라 세트 단위로 본다 — hierarchy의 광고 목록은 500행에서 잘려 큰 기간엔 테스트 광고가 빠진다 (2026-10-23 확인)
   const tests = h7.campaigns.filter(c => /테스트/.test(c.name)).flatMap(c => (c.adsets || []).map(s => ({ ...s, adset: s.name }))).filter(s => s.status === 'ACTIVE' && s.spend > 0);   // 테스트 캠페인 안 세트 전부 (이름에 _test가 없는 옛 세트 포함)
@@ -71,14 +77,14 @@ if (isMonday || process.argv.includes('--promo')) try {
   out.promotion = { range: [addDays(seoulToday, -7), addDays(seoulToday, -1)], general_cbo: all.filter(a => !prodNames.has(norm(prod(a.adset)))).slice(0, 12), product_cbo: prods.slice(0, 6) };
 } catch (e) { out.promotion_error = String(e.message || e).slice(0, 200); }
 
-// 소재 피로 (2026-10-23 ⑧) — 상품 단위 구매당 비용: 최근 7일 vs 그 전 7일. 지난주 구매 20↑ · 이번 주 5↑ · 25% 이상 상승. 대시보드 알림판과 같은 기준(기본값)
+// 소재 피로 (2026-10-23 ⑧, 10/28 구매당 비용 → ROAS) — 상품 단위 ROAS: 최근 7일 vs 그 전 7일. 지난주 구매 20↑ · 이번 주 5↑ · 20% 이상 하락. 대시보드 알림판과 같은 기준(기본값 창)
 try {
   const [hn, hp] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -14), addDays(seoulToday, -8))]);
   const prod = n => String(n).split('_')[0].replace(/\s+\d{6}\b.*$/, '').replace(/\s+\d{2,}\s*$/, '').trim();
-  const agg = h => { const m = new Map(); for (const c of h.campaigns) for (const s of c.adsets || []) { if (!(s.spend > 0)) continue; const k = prod(s.name); const o = m.get(k) || { spend: 0, pur: 0 }; o.spend += s.spend; o.pur += s.purchases || 0; m.set(k, o); } return m; };
+  const agg = h => { const m = new Map(); for (const c of h.campaigns) for (const s of c.adsets || []) { if (!(s.spend > 0)) continue; const k = prod(s.name); const o = m.get(k) || { spend: 0, pur: 0, val: 0 }; o.spend += s.spend; o.pur += s.purchases || 0; o.val += s.value || 0; m.set(k, o); } return m; };
   const now = agg(hn), prev = agg(hp), hits = [];
-  for (const [k, a] of now) { const bb = prev.get(k); if (!bb || bb.pur < 20 || a.pur < 5) continue; const c1 = a.spend / a.pur, c0 = bb.spend / bb.pur; if ((c1 - c0) / c0 >= 0.25) hits.push({ product: k, cpa_prev: Math.round(c0), cpa_now: Math.round(c1), up_pct: Math.round((c1 - c0) / c0 * 100), purchases_prev: bb.pur, purchases_now: a.pur }); }
-  out.fatigue = { range_now: [addDays(seoulToday, -7), addDays(seoulToday, -1)], range_prev: [addDays(seoulToday, -14), addDays(seoulToday, -8)], products: hits.sort((x, y) => y.up_pct - x.up_pct).slice(0, 8) };
+  for (const [k, a] of now) { const bb = prev.get(k); if (!bb || bb.pur < 20 || a.pur < 5 || !(bb.val > 0)) continue; const r1_ = a.val / a.spend, r0 = bb.val / bb.spend, d = 1 - r1_ / r0; if (d >= 0.20) hits.push({ product: k, roas_prev: Math.round(r0 * 100), roas_now: Math.round(r1_ * 100), drop_pct: Math.round(d * 100), purchases_prev: bb.pur, purchases_now: a.pur }); }
+  out.fatigue = { range_now: [addDays(seoulToday, -7), addDays(seoulToday, -1)], range_prev: [addDays(seoulToday, -14), addDays(seoulToday, -8)], products: hits.sort((x, y) => y.drop_pct - x.drop_pct).slice(0, 8) };
 } catch (e) { out.fatigue_error = String(e.message || e).slice(0, 200); }
 
 // 작년 이맘때 베스트 (2026-10-23 ⑨, 월요일) — 작년 3~7주 뒤 기간 세트 구매순 (Meta 37개월 조회). 지금 켜진 세트에 같은 상품이 있으면 already_on
@@ -106,24 +112,21 @@ try {
   out.hygiene = { copies, odd_names: odd.slice(0, 10), wrong_page: off.slice(0, 10), main_page: main ? (ap.ads.find(a => a.page_id === main[0]) || {}).page || main[0] : null };
 } catch (e) { out.hygiene_error = String(e.message || e).slice(0, 200); }
 
-// 예산 조정 후보 (2026-10-28) — 대시보드 알림판 '예산 조정 후보'와 같은 함수(js/admgr-alerts.js admgrAdjCalc)를 그대로 불러 같은 기준으로 센다
-//   7일(어제까지) 클릭7일 구매당 비용÷마진: 80%↑ OFF · 60~80% 절반 · 40~60% 유지 · 35%↓ 증액 (느슨한 방식, 10/28). 마진 = 카페24 판매가 − 공급가×1.1 (상품명 포함 매칭)
+// 예산 조정 후보 (2026-10-28) — 대시보드 알림판 '예산 조정 후보'와 같은 함수(js/admgr-alerts.js admgrAdjCalc)·같은 선(js/admgr.js ADMGR_ROAS)을 그대로 불러 같은 기준으로 센다
+//   7일(어제까지) ROAS(메타 기본값 창, 2주 시험): 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액. 상품 마진은 안 씀
 try {
-  const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8');
-  const grab = (re) => (src.match(re) || [])[0] || '';
-  const code = [grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
-  if (!/function admgrAdjCalc/.test(code)) throw new Error('admgrAdjCalc를 못 찾음');
-  const ctx = { admgrShiftDay: addDays, admgrP7: r => r.purchases_7d != null ? r.purchases_7d : Math.max(0, (r.purchases || 0) - (r.purchases_1dv || 0)) };
+  const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8'), base = fs.readFileSync(path.join(root, 'js/admgr.js'), 'utf8');
+  const grab = (re, t = src) => (t.match(re) || [])[0] || '';
+  const code = [...['admgrP7', 'admgrV7', 'ADMGR_ROAS', 'admgrPJ', 'admgrVJ'].map(k => grab(new RegExp(`const ${k} = [^\\n]+`), base)), grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
+  if (!/function admgrAdjCalc/.test(code) || !/const ADMGR_ROAS/.test(code)) throw new Error('admgrAdjCalc·ADMGR_ROAS를 못 찾음');
+  const ctx = { admgrShiftDay: addDays };
   vm.createContext(ctx); vm.runInContext(code + '\nthis.calc = admgrAdjCalc;', ctx);
-  const [h7, h3, hn, bh, pr] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -3), addDays(seoulToday, -1)), day(seoulToday, seoulToday),
-    api('meta-ads', { action: 'budgethistory', start_date: addDays(seoulToday, -10), end_date: seoulToday }), api('cafe24-perf', { action: 'products' })]);
+  const [h7, h3, hn, bh] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -3), addDays(seoulToday, -1)), day(seoulToday, seoulToday),
+    api('meta-ads', { action: 'budgethistory', start_date: addDays(seoulToday, -10), end_date: seoulToday })]);
   const M = h => new Map(h.campaigns.flatMap(c => (c.adsets || []).map(s => [s.id, s])));
   const sets = hn.campaigns.flatMap(c => (c.adsets || []).map(s => ({ ...s, _cbo: c.budget > 0 || c.budget_life > 0 })));
-  const norm = s => String(s || '').normalize('NFC').toLowerCase().replace(/[^0-9a-z가-힣]/g, ''), key = n => norm(String(n || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
-  const idx = (pr.rows || []).filter(p => p.price > 0 && p.supply_price > 0).map(p => ({ m: p.price - p.supply_price * 1.1, n: key(p.name) })).filter(p => p.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
-  const marginOf = s => { const n = norm(String(s.name).split('_')[0]); const hit = idx.find(x => n.includes(x.n) || x.n.includes(n)); return hit ? hit.m : 0; };
-  const dow = new Date(seoulToday + 'T00:00:00Z').getUTCDay(), R = ctx.calc(sets, M(h7), M(h3), bh.events || [], seoulToday, dow, marginOf);
-  const pick = k => R.filter(x => x.act === k), nm = x => String(x.s.name).replace(/\s*\[→[^\]]+\]/g, '').trim(), pct = r => r >= 9 ? '구매0' : Math.round(r * 100) + '%';
+  const dow = new Date(seoulToday + 'T00:00:00Z').getUTCDay(), R = ctx.calc(sets, M(h7), M(h3), bh.events || [], seoulToday, dow);
+  const pick = k => R.filter(x => x.act === k), nm = x => String(x.s.name).replace(/\s*\[→[^\]]+\]/g, '').trim(), pct = r => 'ROAS ' + Math.round(r * 100) + '%';
   const act = R.filter(x => ['off', 'half', 'up'].includes(x.act)), before = act.reduce((a, x) => a + x.from, 0), after = act.reduce((a, x) => a + x.to, 0);
   out.budget_adjust = { off: pick('off').length, half: pick('half').length, up: pick('up').length, hold: pick('watch').length, cool: pick('cool').length, budget_before: before, budget_after: after,
     top_off: pick('off').sort((a, b) => b.from - a.from).slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, 일예산 ${x.from})`), top_up: pick('up').slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, ${x.from}→${x.to})`) };

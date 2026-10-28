@@ -327,21 +327,23 @@ test('admgrBudgetTotal·알림판: 켜진 세트+CBO 예산 합, 임시 저장 �
   const h0 = g('admgrAlertPanel')(); assert.ok(!h0.includes('상한 초과') && !h0.includes('· 상한'), h0);   // 상한 0 = 표시도 경고도 없음 ([기준] 버튼 툴팁의 '상한'은 제외)
 });
 
-test('admgrCheckHog: CBO 안 한 광고 독식 + 구매당 비용이 마진×60% 초과면 빨강, 아니면 없음', () => {
+test('admgrCheckHog: CBO 안 한 광고 독식 + 그 광고 ROAS 550% 미만이면 빨강, 아니면 없음 (10/28 ROAS 기준)', () => {
   vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.preset = 'today'; admgr.demo = false;
     admgr.data = { campaigns: [{ id: 'c1', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's', status: 'ACTIVE', budget: 0, ads: [
-      { id: 'a1', name: '루즈핏 니트_R1', status: 'ACTIVE', spend: 150000, purchases: 7, value: 0 }, { id: 'a2', name: '루즈핏 니트_R2', status: 'ACTIVE', spend: 40000, purchases: 5, value: 0 }, { id: 'a3', name: '루즈핏 니트_R3', status: 'ACTIVE', spend: 10000, purchases: 0, value: 0 }] }] }] };`, ctx);
-  const f = g('admgrCheckHog'), cfg = { hog: 60, hogCpa: 60 };
-  const r = f(cfg);   // a1: 75% 독식 · 구매당 21,429 > 마진 28,000×60%=16,800
-  assert.equal(r.length, 1); assert.ok(r[0].lvl === 'red' && r[0].text.includes('75%') && r[0].text.includes('21,429') && r[0].act.onclick.includes("admgrHogOff('a1')"), r[0].text);
-  assert.equal(f({ hog: 80, hogCpa: 60 }).length, 0);                                   // 독식 기준 80%면 해당 없음
-  vm.runInContext("admgr.data.campaigns[0].adsets[0].ads[0].purchases = 12;", ctx);      // 구매당 12,500 ≤ 16,800 → 독식이어도 경고 없음
+      { id: 'a1', name: '루즈핏 니트_R1', status: 'ACTIVE', spend: 150000, purchases: 7, value: 600000 }, { id: 'a2', name: '루즈핏 니트_R2', status: 'ACTIVE', spend: 40000, purchases: 5, value: 0 }, { id: 'a3', name: '루즈핏 니트_R3', status: 'ACTIVE', spend: 10000, purchases: 0, value: 0 }] }] }] };`, ctx);
+  const f = g('admgrCheckHog'), cfg = { hog: 60, hogRoas: 550 };
+  const r = f(cfg);   // a1: 75% 독식 · ROAS 400% < 550%
+  assert.equal(r.length, 1); assert.ok(r[0].lvl === 'red' && r[0].text.includes('75%') && r[0].text.includes('ROAS <b>400%</b>') && r[0].act.onclick.includes("admgrHogOff('a1')"), r[0].text);
+  assert.equal(f({ hog: 80, hogRoas: 550 }).length, 0);                                   // 독식 기준 80%면 해당 없음
+  vm.runInContext("admgr.data.campaigns[0].adsets[0].ads[0].value = 900000;", ctx);      // ROAS 600% → 독식이어도 경고 없음
   assert.equal(f(cfg).length, 0);
-  vm.runInContext("admgr.data.campaigns[0].budget = 0;", ctx);                           // CBO가 아니면 검사 안 함
+  vm.runInContext("admgr.data.campaigns[0].adsets[0].ads[0].value = 600000; admgr.data.campaigns[0].budget = 0;", ctx);   // CBO가 아니면 검사 안 함
   assert.equal(f(cfg).length, 0);
 });
 
-test('admgrPromoCands(2026-10-26 기준): 상품 = 7일 100건↑·구매당≤마진35%·3일 추세 OK·우수 2개↑ / 종합 = 세트 30건↑·≤30% (상품 후보 상품은 제외, 종합으로 보내면 우수 세트 전부)', () => {
+test('admgrPromoCands: 10/28부터 꺼짐(ABO만) → 빈 값 · 켜면 2026-10-26 기준 — 상품 = 7일 100건↑·구매당≤마진35%·3일 추세 OK·우수 2개↑ / 종합 = 세트 30건↑·≤30%', () => {
+  assert.equal(g('admgrPromoCands')().ads.length + g('admgrPromoCands')().prods.length, 0); assert.equal(g('admgrCheckPromo')().length, 0);
+  vm.runInContext("ADMGR_PROMO.on = true;", ctx);
   vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {}; admgr.demo = false; admgr.data = { campaigns: [] };
     // 마진 28,000 · 손익분기 1.79 · 우수 ROAS 4.5↑ · 상품 35% = 구매당 9,800 · 종합 30% = 8,400
     admgrAlert.h7 = { range: { start: '2026-10-16', end: '2026-10-22' }, campaigns: [
@@ -365,18 +367,18 @@ test('admgrPromoCands(2026-10-26 기준): 상품 = 7일 100건↑·구매당≤�
   c = g('admgrPromoCands')();
   assert.equal(c.ads.map(r => r.s.id + (r.fromProd ? '*' : '')).join(), 's2*,s1*'); assert.ok(c.prods[0].toAll);
   localStorage.removeItem('adc_promo_toall');
-  vm.runInContext("admgrAlert.h7 = null; admgrAlert.h3 = null;", ctx);
+  vm.runInContext("admgrAlert.h7 = null; admgrAlert.h3 = null; ADMGR_PROMO.on = false;", ctx);
 });
 
-test('admgrFatigueCalc: 상품 단위 구매당 비용 전주 대비 25%↑ & 지난주 구매 20↑만', () => {
-  const f = g('admgrFatigueCalc'), cfg = { fatigue: 25, fatigueMinPur: 20 };
-  const H = (rows) => ({ campaigns: [{ adsets: rows.map(([name, spend, pur]) => ({ name, spend, purchases: pur })) }] });
-  const now = H([['니트_R1_28_261001', 300000, 20], ['니트_R2_28_261001', 200000, 10], ['스커트_P1_20_261001', 100000, 10], ['신상_P1_20_261020', 100000, 10]]);   // 니트 구매당 16,667 · 스커트 10,000
-  const prev = H([['니트_R1_28_261001', 250000, 25], ['스커트_P1_20_261001', 100000, 11], ['가디건_R1_20_261001', 100000, 10]]);                                      // 니트 10,000 · 스커트 9,091 · 가디건(이번 주 없음)
+test('admgrFatigueCalc: 상품 단위 ROAS 전주 대비 20%↓ & 지난주 구매 20↑만 (10/28 ROAS 기준)', () => {
+  const f = g('admgrFatigueCalc'), cfg = { fatigueRoas: 20, fatigueMinPur: 20 };
+  const H = (rows) => ({ campaigns: [{ adsets: rows.map(([name, spend, pur, value]) => ({ name, spend, purchases: pur, value })) }] });
+  const now = H([['니트_R1_28_261001', 300000, 20, 1200000], ['니트_R2_28_261001', 200000, 10, 800000], ['스커트_P1_20_261001', 100000, 10, 600000], ['신상_P1_20_261020', 100000, 10, 100000]]);   // 니트 ROAS 400% · 스커트 600%
+  const prev = H([['니트_R1_28_261001', 250000, 25, 1500000], ['스커트_P1_20_261001', 100000, 11, 650000], ['가디건_R1_20_261001', 100000, 10, 500000]]);                                       // 니트 600% · 스커트 650% · 가디건(이번 주 없음)
   const r = f(now, prev, cfg);
-  assert.equal(r.map(x => x.prod + ':' + Math.round(x.up * 100)).join(), '니트:67');   // 스커트 +10%는 미달 · 신상은 지난주 없음 · 가디건 이번 주 없음
-  assert.equal(f(now, prev, { fatigue: 70, fatigueMinPur: 20 }).length, 0);
-  assert.equal(f(now, prev, { fatigue: 25, fatigueMinPur: 30 }).length, 0);           // 지난주 구매 25 < 30
+  assert.equal(r.map(x => x.prod + ':' + Math.round(x.drop * 100)).join(), '니트:33');   // 스커트 −8%는 미달 · 신상은 지난주 없음 · 가디건 이번 주 없음
+  assert.equal(f(now, prev, { fatigueRoas: 40, fatigueMinPur: 20 }).length, 0);
+  assert.equal(f(now, prev, { fatigueRoas: 20, fatigueMinPur: 30 }).length, 0);           // 지난주 구매 25 < 30
 });
 
 test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표시 · 사본/이름 규칙/페이지 위생', () => {
@@ -397,41 +399,64 @@ test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표
   assert.equal(H([], [{ page_id: 'A', name: 'x' }], '2026-10-23').length, 0);
 });
 
-test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 클릭 구매당÷마진 35~50%만 −25% (천원 반올림)', () => {
-  vm.runInContext(`admgr.products = [{ no: 1, name: '루즈핏 니트 (3 colors)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {}; admgr.demo = false;
+test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 ROAS 550~900%만 −25% (천원 반올림, 10/28 ROAS 기준)', () => {
+  vm.runInContext(`admgr.products = []; admgrPI = null; admgr.margins = {}; admgr.demo = false;
     admgr.data = { campaigns: [{ id: 'c1', name: '테스트2', status: 'ACTIVE', adsets: [
-      { id: 's1', name: '루즈핏 니트_R1_28_261001', status: 'ACTIVE', budget: 50000 }, { id: 's2', name: '루즈핏 니트_R2_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's3', name: '루즈핏 니트_R3_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's4', name: '루즈핏 니트_R4_28_261001', status: 'PAUSED', budget: 30000 } ] },
+      { id: 's1', name: '루즈핏 니트_R1_28_261001', status: 'ACTIVE', budget: 50000 }, { id: 's2', name: '루즈핏 니트_R2_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's3', name: '루즈핏 니트_R3_28_261001', status: 'ACTIVE', budget: 30000 }, { id: 's4', name: '루즈핏 니트_R4_28_261001', status: 'PAUSED', budget: 30000 }, { id: 's5', name: '루즈핏 니트_R5_28_261001', status: 'ACTIVE', budget: 30000 } ] },
       { id: 'c2', name: 'CBO4', status: 'ACTIVE', budget: 100000, adsets: [{ id: 's9', name: '루즈핏 니트_R9', status: 'ACTIVE', budget: 0 }] }] };
     admgrAlert.h7 = { campaigns: [{ name: '테스트2', adsets: [
-      { id: 's1', name: '루즈핏 니트_R1_28_261001', spend: 280000, purchases: 25, purchases_1dv: 5, value: 1000000 },   // 클릭 20 → 구매당 14,000 / 마진 28,000 = 50% → 대상
-      { id: 's2', name: '루즈핏 니트_R2_28_261001', spend: 100000, purchases: 12, purchases_1dv: 2, value: 600000 },    // 클릭 10 → 10,000 = 36% → 대상
-      { id: 's3', name: '루즈핏 니트_R3_28_261001', spend: 80000, purchases: 10, purchases_1dv: 0, value: 500000 },     // 8,000 = 29% → 좋은 세트, 제외
-      { id: 's4', name: '루즈핏 니트_R4_28_261001', spend: 100000, purchases: 10, purchases_1dv: 0, value: 500000 } ] }] };`, ctx);   // 꺼짐 → 제외
-  const T = g('admgrWeekendTargets')({ wkLo: 35, wkHi: 50, weekendPct: 25 });
-  assert.equal(T.map(x => x.id + ':' + x.from + '→' + x.to + ':' + x.ratio).join(), 's1:50000→38000:50,s2:30000→23000:36');   // 50,000×0.75=37,500→38,000 · 30,000×0.75=22,500→23,000
+      { id: 's1', spend: 280000, purchases: 25, value: 1680000 },   // 600% → 대상
+      { id: 's2', spend: 100000, purchases: 12, value: 850000 },    // 850% → 대상
+      { id: 's3', spend: 80000, purchases: 10, value: 800000 },     // 1000% → 좋은 세트, 제외
+      { id: 's4', spend: 100000, purchases: 10, value: 600000 },    // 꺼짐 → 제외
+      { id: 's5', spend: 100000, purchases: 10, value: 500000 } ] }] };`, ctx);   // 500% → 예산 조정 후보 몫, 제외
+  const T = g('admgrWeekendTargets')({ wkRoasLo: 550, wkRoasHi: 900, weekendPct: 25 });
+  assert.equal(T.map(x => x.id + ':' + x.from + '→' + x.to + ':' + x.roas).join(), 's1:50000→38000:600,s2:30000→23000:850');   // 50,000×0.75=37,500→38,000 · 30,000×0.75=22,500→23,000
   assert.equal(g('admgrWeekendFri')('2026-10-26') + ',' + g('admgrWeekendFri')('2026-10-30') + ',' + g('admgrWeekendFri')('2026-11-01'), '2026-10-30,2026-10-30,2026-10-30');   // 월·금·일 → 같은 주말의 금요일
   vm.runInContext("admgrAlert.h7 = null; admgr.data = null;", ctx);
 });
 
-test('admgrAdjCalc: 느슨한 방식 — 80%↑ OFF · 60~80% 절반 · 40~60% 유지 · 35%↓ 증액 · 대기 (마진 20,000 · 오늘 10/28 수)', () => {
-  const f = g('admgrAdjCalc'), m = () => 20000;
+test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액 · 대기 (기본값 창 · 오늘 10/28 수)', () => {
+  const f = g('admgrAdjCalc');
   const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });
-  const W = (spend, purchases) => ({ spend, purchases, purchases_7d: purchases });
+  const W = (spend, purchases, roas) => ({ spend, purchases, value: spend * roas, purchases_7d: 0, value_7d: 0 });   // 클릭 7일 값이 0이어도 기본값 창으로 판정해야 함
   const ids = 'abcdefghijk'.split(''), sets = ids.map(id => S(id, 40000, id === 'h' ? { _cbo: true } : id === 'i' ? { created: '2026-10-27T10:00:00+0900' } : {}));
-  const s7 = new Map([['a', W(200000, 10)], ['b', W(140000, 10)], ['c', W(60000, 10)], ['d', W(130000, 10)], ['e', W(70000, 10)], ['f', W(110000, 10)], ['g', W(140000, 10)], ['h', W(140000, 1)], ['i', W(140000, 1)], ['j', W(30000, 1)], ['k', W(90000, 10)]]);
-  const s3 = new Map(ids.map(id => [id, W(30000, 1)]));   // 3일은 참고만 — 결과에 영향 없어야 함
+  const s7 = new Map([['a', W(200000, 10, 3)], ['b', W(140000, 10, 5)], ['c', W(60000, 10, 12)], ['d', W(130000, 10, 5.2)], ['e', W(70000, 10, 9.5)], ['f', W(110000, 10, 7)], ['g', W(140000, 10, 5)], ['h', W(140000, 1, 1)], ['i', W(140000, 1, 1)], ['j', W(30000, 1, 2)], ['k', W(90000, 10, 6)]]);
+  const s3 = new Map(ids.map(id => [id, W(30000, 1, 1)]));   // 3일은 참고만 — 결과에 영향 없어야 함
   const hist = [{ level: 'adset', object_id: 'd', time: '2026-10-25T03:00:00Z', old_value: 80000, new_value: 40000 }, { level: 'adset', object_id: 'g', time: '2026-10-27T03:00:00Z', old_value: 80000, new_value: 40000 }];
-  const by = Object.fromEntries(f(sets, s7, s3, hist, '2026-10-28', 3, m).map(x => [x.s.id, x.act + (x.act === 'half' || x.act === 'up' ? ':' + x.to : '')]));
-  // a 100% OFF / b 70% 절반 / c 30% +30% / d 10/25 감액 뒤 65%(60%↑) OFF / e 35% +20% / f 55%·k 45% 유지 / g 10/27 감액 · 70% 대기 / h CBO·i 신규·j 표본 부족 제외
+  const by = Object.fromEntries(f(sets, s7, s3, hist, '2026-10-28', 3).map(x => [x.s.id, x.act + (x.act === 'half' || x.act === 'up' ? ':' + x.to : '')]));
+  // a 300% OFF / b 500% 절반 / c 1200% +30% / d 10/25 감액 뒤 520%(550% 미만) OFF / e 950% +20% / f 700%·k 600% 유지 / g 10/27 감액 · 500% 대기 / h CBO·i 신규·j 표본 부족 제외
   assert.equal(JSON.stringify(by), JSON.stringify({ a: 'off', b: 'half:20000', c: 'up:52000', d: 'off', e: 'up:48000', f: 'watch', g: 'cool', k: 'watch' }));
-  assert.equal(f([S('g', 40000)], new Map([['g', W(170000, 10)]]), new Map(), hist, '2026-10-28', 3, m)[0].act, 'off');   // 대기 중이어도 80%↑면 OFF
-  assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 10)]]), new Map(), [], '2026-10-30', 5, m).length, 0);   // 금요일엔 증액 없음
-  assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 9)]]), new Map(), [], '2026-10-28', 3, m).length, 0);    // 구매 10건 미만은 증액 없음
+  assert.equal(f([S('g', 40000)], new Map([['g', W(170000, 10, 4)]]), new Map(), hist, '2026-10-28', 3)[0].act, 'off');   // 대기 중이어도 450% 미만이면 OFF
+  assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 10, 12)]]), new Map(), [], '2026-10-30', 5).length, 0);   // 금요일엔 증액 없음
+  assert.equal(f([S('u', 40000)], new Map([['u', W(55000, 9, 12)]]), new Map(), [], '2026-10-28', 3).length, 0);    // 구매 10건 미만은 증액 없음
+  assert.equal(f([S('z', 40000)], new Map([['z', W(50000, 0, 0)]]), new Map(), [], '2026-10-28', 3)[0].act, 'off');   // 구매 0이어도 지출 5만이면 판단 → ROAS 0 OFF
+  assert.equal(f([S('z', 40000)], new Map([['z', W(49000, 4, 2)]]), new Map(), [], '2026-10-28', 3).length, 0);      // 구매 4건·지출 4.9만 — 표본 부족
   const ev = (t, o, n) => ({ level: 'adset', object_id: 'r', time: t, old_value: o, new_value: n });
-  const R1 = h => f([S('r', 40000)], new Map([['r', W(130000, 10)]]), new Map(), h, '2026-10-28', 3, m)[0].act;   // 7일 65%
+  const R1 = h => f([S('r', 40000)], new Map([['r', W(130000, 10, 5)]]), new Map(), h, '2026-10-28', 3)[0].act;   // 7일 500%
   assert.equal(R1([ev('2026-10-24T14:45:00Z', 40000, 30000), ev('2026-10-26T14:45:00Z', 30000, 40000)]), 'half');   // 주말 −25% 뒤 원복 → 감액 이력 아님 → 절반
   assert.equal(R1([ev('2026-10-23T03:00:00Z', 40000, 4000), ev('2026-10-23T14:45:00Z', 4000, 40000)]), 'half');     // 낮 ÷10 뒤 23:45 원복 → 절반
-  assert.equal(R1([ev('2026-10-23T03:00:00Z', 80000, 40000)]), 'off');                                                // 진짜 절반 감액 뒤에도 60%↑ → OFF
+  assert.equal(R1([ev('2026-10-23T03:00:00Z', 80000, 40000)]), 'off');                                                // 진짜 절반 감액 뒤에도 550% 미만 → OFF
+});
+
+test('admgrFastOf·admgrFastRevertOf: 3일 ROAS 1000%↑ → 2배 후보 · 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기 (10/28 ROAS 기준)', () => {
+  const D = (sp, p, v) => new Map([['r', { sp, p, v }]]);
+  vm.runInContext("admgr.fast.boost = { items: {} };", ctx);
+  const setDays = (a, b, c) => { ctx.__d = [a, b, c]; vm.runInContext("admgr.fast.days = __d;", ctx); };
+  const r = { id: 'r', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 20000 };   // 3만 미만 → 3일 4건부터
+  setDays(D(10000, 1, 100000), D(10000, 2, 100000), D(10000, 1, 100000));   // 3일 4건 · ROAS 1000%
+  assert.equal(Math.round(g('admgrFastOf')(r).roas * 100), 1000);
+  setDays(D(10000, 1, 90000), D(10000, 2, 90000), D(10000, 1, 90000));      // 900% → 아님
+  assert.equal(g('admgrFastOf')(r), null);
+  assert.equal(g('admgrFastOf')({ ...r, budget: 40000 }), null);              // 3만↑은 6건부터
+  vm.runInContext(`admgr.fast.boost = { items: { r: { from: 10000, to: 20000, day: todayStr(-4) } } };`, ctx);
+  setDays(D(0, 0, 0), D(20000, 2, 100000), D(20000, 1, 100000));            // 이틀 ROAS 500% → 되돌리기
+  assert.equal(g('admgrFastRevertOf')(r).from, 10000);
+  setDays(D(0, 0, 0), D(20000, 2, 120000), D(20000, 1, 120000));            // 600% → 그대로
+  assert.equal(g('admgrFastRevertOf')(r), null);
+  setDays(D(0, 0, 0), D(0, 0, 0), D(0, 0, 0));                              // 이틀 지출 없음 → 판단 안 함
+  assert.equal(g('admgrFastRevertOf')(r), null);
+  vm.runInContext("admgr.fast.days = null; admgr.fast.boost = null;", ctx);
 });
 
 console.log('주간 리포트');
@@ -461,19 +486,20 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
-test('admgrRecommend: D+2·지출 3만부터, 우수 = 구매 3↑ & 구매당 ≤ 마진 60%, OFF = 구매당 > 마진 (2026-10-13 기준)', () => {
-  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT };", ctx);   // 마진 28,000 → 우수선 16,800
-  const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: m.reg || '2026-01-01', st: 'eval', meta: m.meta || {}, spend: m.sp ?? 50000, purchases: m.pur, value: m.pur * 50000 });
+test('admgrRecommend: D+2부터, 우수 = 구매 3↑ & ROAS 550%↑, OFF = ROAS 450% 미만 · 구매 0은 3만↑ (10/28 ROAS 기준)', () => {
+  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT };", ctx);
+  const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: m.reg || '2026-01-01', st: 'eval', meta: m.meta || {}, spend: m.sp ?? 50000, purchases: m.pur, value: m.val ?? m.pur * 50000 });
   const k = m => g('admgrRecommend')(ad(m)).k;
-  assert.equal(k({ pur: 1 }), 'off');                       // 구매당 5만 > 마진 2.8만
-  assert.equal(k({ pur: 0 }), 'off');                       // 마진만큼 쓰고 구매 0
-  assert.equal(k({ pur: 3 }), 'good');                      // 구매당 16,667 ≤ 16,800
-  assert.equal(k({ pur: 2 }), 'wait');                      // 구매당 2.5만 — 60~100%
-  const s = g('admgrRecommend')(ad({ sp: 30000, pur: 2 })); assert.equal(s.k + ':' + !!s.sample, 'wait:true');   // 구매당 1.5만으로 좋지만 2건
-  assert.equal(k({ pur: 3, sp: 20000 }), 'good');           // 금액 조건 없음(2026-10-14) — 2만원에 3장, 구매당 6,667 ≤ 16,800
+  assert.equal(k({ pur: 1 }), 'off');                         // ROAS 100%
+  assert.equal(k({ pur: 0 }), 'off');                         // 구매 0 · 5만 씀 (3만↑)
+  assert.equal(k({ pur: 0, sp: 20000 }), 'wait');             // 구매 0 · 2만 — 아직
+  assert.equal(k({ pur: 6 }), 'good');                        // ROAS 600%
+  assert.equal(k({ pur: 5 }), 'wait');                        // ROAS 500% — 450~550%
+  const s = g('admgrRecommend')(ad({ pur: 2, val: 300000 })); assert.equal(s.k + ':' + !!s.sample, 'wait:true');   // 600%로 좋지만 2건
+  assert.equal(k({ pur: 3, sp: 20000, val: 120000 }), 'good');   // 금액 조건 없음 — 2만원에 3장, ROAS 600%
   assert.equal(k({ pur: 3, reg: g('todayStr')(-1) }), 'watch');   // D+1
-  assert.equal(g('admgrRecommend')(ad({ pur: 3, meta: { verdict: 'off' } })), null);   // 확정한 건 추천 안 함
-  assert.equal(k({ set: '없는상품_R1_test', pur: 3 }), 'good');   // 미매칭 → ROAS 3 ≥ 3 & 구매 3 (고정 기준)
+  assert.equal(g('admgrRecommend')(ad({ pur: 6, meta: { verdict: 'off' } })), null);   // 확정한 건 추천 안 함
+  assert.equal(k({ set: '없는상품_R1_test', pur: 6 }), 'good');   // 상품을 못 찾아도 같은 ROAS 기준
 });
 
 test('admgrTestStage: 테스트 중 → 판정할 차례 → 판정 끝, OFF 판정은 상태만 (광고 상태 무관)', () => {
@@ -640,15 +666,15 @@ test('admgrReportBuild(pro): 태그 기여도·예산 누수·팀 속도·회고
 });
 
 test('admgrReportConf: 구매 표본으로 ROAS 범위, 기준선 넘으면 뒤집힐 수 있음', () => {
-  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);   // 손익분기 1.79 · 우수 2.68
+  vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null;", ctx);   // 기준선 = ADMGR_ROAS (우수 5.5 · OFF 4.5, 10/28)
   const ad = (id, m) => ({ id, adset_id: 's' + id, adset_name: '루즈핏 니트_R' + id + '_28_260910_test', name: 'ad' + id, reg_date: '2026-09-01', st: 'eval', gone: false,
     effective_status: 'ACTIVE', spend: 50000, purchases: m.pur, value: m.val, meta: {} });
-  const C = g('admgrReportConf')([ad('1', { pur: 6, val: 150000 }), ad('2', { pur: 30, val: 250000 }), ad('3', { pur: 0, val: 0 })]);
+  const C = g('admgrReportConf')([ad('1', { pur: 6, val: 300000 }), ad('2', { pur: 30, val: 400000 }), ad('3', { pur: 0, val: 0 })]);
   const m = Object.fromEntries(C.map(x => [x.a.id, x]));
-  assert.equal(m['1'].lvl + ',' + m['1'].risky, '참고 가능,true');     // ROAS 3.0인데 범위 1.8~4.2 → 우수 기준 2.68 아래까지 걸친다
-  assert.equal(m['2'].lvl + ',' + m['2'].risky, '판정 가능,false');    // 구매 30 → 범위 4.1~5.9, 기준선 위
+  assert.equal(m['1'].lvl + ',' + m['1'].risky, '참고 가능,true');     // ROAS 6.0인데 범위 3.6~8.4 → 우수 기준 5.5 아래까지 걸친다
+  assert.equal(m['2'].lvl + ',' + m['2'].risky, '판정 가능,false');    // 구매 30 → 범위 6.5~9.5, 기준선 위
   assert.equal(m['3'].lvl + ',' + m['3'].r.k, '구매 없음,off');
-  assert.ok(Math.abs(m['1'].lo - 1.775) < 0.01 && Math.abs(m['1'].hi - 4.225) < 0.01);
+  assert.ok(Math.abs(m['1'].lo - 3.551) < 0.01 && Math.abs(m['1'].hi - 8.449) < 0.01);
 });
 
 test('admgrTodoMerge: 저장본 done 유지 · 지난주 미완료 이어받기 · 지난주 완료율', () => {

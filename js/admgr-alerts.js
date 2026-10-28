@@ -4,7 +4,7 @@
    검사는 admgrAlert.checks에 함수로 등록: (cfg) → [{ key, lvl:'red'|'yellow'|'blue', text(html), act?:{label, onclick} }]. '오늘 하루 숨기기'는 이 브라우저에만.
    (index.html에서 분리 로드 — 전역 함수·변수를 그대로 공유) */
 'use strict';
-const ADMGR_ALERT_DEF = { cap: 4500000, hog: 60, hogCpa: 60, fatigue: 25, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkLo: 35, wkHi: 50 };   // weekend: 주말 모드 켬(1)/끔(0) · 금 23:45 −pct% · 대상 구간(7일 클릭 구매당÷마진 %)
+const ADMGR_ALERT_DEF = { cap: 4500000, hog: 60, hogRoas: 550, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 900 };   // 10/28 구매당 비용 → ROAS: 독식 = ROAS 550% 미만 · 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~900%(유지 구간) 테스트 세트
 const admgrAlert = { cfg: null, ver: null, loading: false, checks: [] };
 function admgrAlertCfg() { return Object.assign({}, ADMGR_ALERT_DEF, admgrAlert.cfg || {}); }
 async function admgrAlertCfgEnsure() {
@@ -47,9 +47,9 @@ function admgrAlertCfgModal() {
   const c = admgrAlertCfg();
   const f = (k, label, unit, step) => `<label style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:.8rem;"><span style="flex:1;">${label}</span><input id="alc-${k}" class="inp" type="number" min="0" step="${step || 1}" value="${c[k]}" style="width:120px;text-align:right;" /><span style="width:28px;color:#6b7280;">${unit}</span></label>`;
   $('abm-title').textContent = '알림 기준'; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `${f('cap', '켜진 일예산 합계 상한 (0 = 경고 안 함)', '원', 10000)}${f('hog', 'CBO 독식 — 한 광고가 캠페인 지출의', '%')}${f('hogCpa', '독식 경고 조건 — 그 광고 구매당 비용이 마진의', '%', 5)}${f('fatigue', '소재 피로 — 전주 대비 구매당 비용 상승', '%', 5)}${f('fatigueMinPur', '피로 감지에 필요한 지난주 구매', '건')}${f('fatigueCooldown', '같은 상품 피로 재알림 간격', '일')}
-    <div style="font-size:.74rem;font-weight:800;color:#6b7280;margin:10px 0 2px;">주말 모드 (금 23:45 감액 → 일 23:45 원복)</div>${f('weekend', '켬 1 / 끔 0', '')}${f('weekendPct', '금요일 밤 감액 폭', '%', 5)}${f('wkLo', '대상 구간 — 구매당÷마진 초과', '%', 5)}${f('wkHi', '대상 구간 — 구매당÷마진 이하', '%', 5)}
-    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 독식 60% · 마진의 60% · 피로 25% · 20건 · 7일 · 주말 모드 켬 −25% 35~50%)</div>
+  $('abm-body').innerHTML = `${f('cap', '켜진 일예산 합계 상한 (0 = 경고 안 함)', '원', 10000)}${f('hog', 'CBO 독식 — 한 광고가 캠페인 지출의', '%')}${f('hogRoas', '독식 경고 조건 — 그 광고 ROAS가 이 아래', '%', 50)}${f('fatigueRoas', '소재 피로 — 전주 대비 ROAS 하락', '%', 5)}${f('fatigueMinPur', '피로 감지에 필요한 지난주 구매', '건')}${f('fatigueCooldown', '같은 상품 피로 재알림 간격', '일')}
+    <div style="font-size:.74rem;font-weight:800;color:#6b7280;margin:10px 0 2px;">주말 모드 (금 23:45 감액 → 일 23:45 원복)</div>${f('weekend', '켬 1 / 끔 0', '')}${f('weekendPct', '금요일 밤 감액 폭', '%', 5)}${f('wkRoasLo', '대상 구간 — 7일 ROAS 이상', '%', 50)}${f('wkRoasHi', '대상 구간 — 7일 ROAS 미만', '%', 50)}
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 독식 60% · ROAS 550% 미만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~900%)</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button><button class="btn-analyze" onclick="admgrAlertCfgSave()">저장</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
@@ -64,7 +64,7 @@ async function admgrAlertCfgSave() {
 }
 
 /* ── 검사 ③ CBO 독식 (2026-10-23): CBO 캠페인(캠페인 예산 있음·켜짐) 안에서 광고 하나가 지출의 hog% 이상을 먹고,
-   그 광고의 구매당 비용이 마진×hogCpa% 를 넘거나(구매 0이면 마진만큼 쓴 경우) → 빨강 + [이 광고 끄기 임시 저장]. 데이터는 지금 화면 기간 기준 */
+   그 광고의 ROAS가 hogRoas% 미만이면(구매 0 포함, 10/28 구매당 비용 → ROAS) → 빨강 + [이 광고 끄기 임시 저장]. 데이터는 지금 화면 기간 기준 */
 function admgrCheckHog(cfg) {
   const out = [], R = admgrRows();
   const per = admgr.preset === 'custom' && admgr.customRange ? `${admgr.customRange.since.slice(5)}~${admgr.customRange.until.slice(5)}` : (ADMGR_PRESETS[admgr.preset] || '오늘');
@@ -74,12 +74,10 @@ function admgrCheckHog(cfg) {
     const total = ads.reduce((a, x) => a + x.spend, 0); if (total < 30000 || ads.length < 2) continue;
     const top = ads.slice().sort((x, y) => y.spend - x.spend)[0], share = top.spend / total;
     if (share * 100 < cfg.hog) continue;
-    const m = typeof admgrMarginOf === 'function' ? admgrMarginOf({ id: top.id, name: top.name }).m : null;
-    const cpa = top.purchases > 0 ? top.spend / top.purchases : null;
-    const bad = m ? (cpa == null ? top.spend >= m : cpa > m * cfg.hogCpa / 100) : cpa == null;
-    if (!bad) continue;
+    const roas = admgrVJ(top) / top.spend;
+    if (roas * 100 >= cfg.hogRoas) continue;
     out.push({ key: 'hog:' + c.id + ':' + top.id, lvl: 'red',
-      text: `<b>CBO 독식</b> ${esc(c.name)} — "${esc(top.name)}"가 ${per} 지출의 <b>${Math.round(share * 100)}%</b>(${won(top.spend)}) · 구매당 ${cpa == null ? '<b>구매 0</b>' : `<b>${won(cpa)}</b>`}${m ? ` (마진 ${comma(m)}의 ${cpa == null ? '—' : Math.round(cpa / m * 100) + '%'})` : ''}`,
+      text: `<b>CBO 독식</b> ${esc(c.name)} — "${esc(top.name)}"가 ${per} 지출의 <b>${Math.round(share * 100)}%</b>(${won(top.spend)}) · ${admgrPJ(top) ? `ROAS <b>${Math.round(roas * 100)}%</b>` : '<b>구매 0</b>'} <small>(${cfg.hogRoas}% 미만)</small>`,
       act: { label: '이 광고 끄기 임시 저장', onclick: `admgrHogOff('${esc(top.id)}')` } });
   }
   return out;
@@ -111,14 +109,14 @@ admgrAlert.checks.push(admgrCheckHog, admgrCheck2345);
    상품 CBO 후보 = 한 상품에 우수 세트(7일 구매 10↑ · ROAS 손익×2.5↑, 상품 모르면 5↑) 2개↑ 이고 상품 7일 구매 60↑ · 상품 CBO 없음
    테스트 소재 탭 데이터(_test 이름 기준)가 아니라 캠페인 기준인 이유: 테스트 완료로 _test를 뗀 세트가 테스트 캠페인에 그대로 돌아가는데 그게 승격 대상이라서.
    7일 계층 데이터는 패널이 열릴 때 한 번(30분 유지) 따로 받는다 — 서버 5분 캐시라 Meta 추가 호출은 거의 없음 */
-const ADMGR_PROMO = { pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 100, goodMin: 2, prodPct: 35, trend: 1.15, allPct: 30, outPct: 40 };   // 종합 CBO (2026-10-26 사용자 승인): 넣기 = 세트 7일 30건↑ · 7일 구매당 비용 ≤ 마진 30% · 3일 안 꺾임(ROAS 5 기준 대체 — 헤이 나그랑처럼 마진 얇은 상품이 들어가던 것) / 빼기 = 광고 3일 구매당 비용 > 마진 40%   // 상품 CBO (2026-10-26 사용자 승인): 7일 100건↑ · 상품 7일 구매당 비용 ≤ 마진 35% · 최근 3일 구매당 비용 ≤ 7일 × 1.15 (꺾이는 상품 제외) — 하울·슬리즈가 60건 기준으로 꺾이는 중에 올라갔던 것
+const ADMGR_PROMO = { on: false, pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, prodPur: 100, goodMin: 2, prodPct: 35, trend: 1.15, allPct: 30, outPct: 40 };   // 종합 CBO (2026-10-26 사용자 승인): 넣기 = 세트 7일 30건↑ · 7일 구매당 비용 ≤ 마진 30% · 3일 안 꺾임(ROAS 5 기준 대체 — 헤이 나그랑처럼 마진 얇은 상품이 들어가던 것) / 빼기 = 광고 3일 구매당 비용 > 마진 40%   // 상품 CBO (2026-10-26 사용자 승인): 7일 100건↑ · 상품 7일 구매당 비용 ≤ 마진 35% · 최근 3일 구매당 비용 ≤ 7일 × 1.15 (꺾이는 상품 제외) — 하울·슬리즈가 60건 기준으로 꺾이는 중에 올라갔던 것
 async function admgrPromoEnsure() {
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000) || Date.now() - (A.h7FailAt || 0) < 5 * 60000) return;
   A.h7Loading = true;
   try { const [h7, h3] = await Promise.all([metaGet({ action: 'hierarchy', preset: 'last_7d' }), metaGet({ action: 'hierarchy', preset: 'custom', since: todayStr(-3), until: todayStr(-1) }).catch(() => null)]);   // h3 = 어제까지 3일 — 상품 CBO 추세 확인용
     A.h7 = h7; A.h3 = h3; A.h7At = Date.now(); A.h7FailAt = 0; renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; A.h7FailAt = Date.now(); }   // 실패하면 5분 쉼 — 렌더마다 재시도하던 것 (2026-10-26 점검)
   /* CBO 캠페인에서 이미 돌아가는 소재(영상·이미지·이름) — 세트 이름의 [→] 표시가 없어도(메타에서 직접 복사, 표시 정리 뒤) 후보에서 빼기 위해 (2026-10-26 사용자 지적) */
-  try {
+  if (ADMGR_PROMO.on) try {
     const cboSets = []; for (const c of ((A.h7 || {}).campaigns || [])) if (c.budget > 0 && c.status === 'ACTIVE') for (const s of (c.adsets || [])) if (s.status === 'ACTIVE') cboSets.push(s.id);
     const keys = new Set(), names = new Set();
     for (let i = 0; i < cboSets.length; i += 100) { const d = await metaGet({ action: 'creatives', set_ids: cboSets.slice(i, i + 100).join(',') }); for (const a of (d.ads || [])) { if (a.effective_status !== 'ACTIVE') continue; if (a.video_id) keys.add('v:' + a.video_id); if (a.image_hash) keys.add('i:' + a.image_hash); names.add(admgrPromoBase(a.name)); } }
@@ -133,6 +131,7 @@ async function admgrPromoEnsure() {
 const admgrPromoBase = n => String(n || '').normalize('NFC').replace(/\s*-\s*사본\s*\d*$/g, '').replace(/\s*\/\s*CBO\d*/gi, '').replace(/\s*\[→[^\]]+\]/g, '').replace(/[_\s-]*재?test\s*$/i, '').replace(/\s+/g, ' ').trim();
 const admgrPromoInCbo = s => { const A = admgrAlert; if (!A.setKeys) return false; const L = A.setKeys.get(String(s.id)) || []; return L.some(k => k.startsWith('n:') ? (A.cboNames || new Set()).has(k.slice(2)) : (A.cboKeys || new Set()).has(k)); };   // 같은 영상·이미지·이름의 광고가 CBO 캠페인에서 켜져 있음
 function admgrPromoCands() {
+  if (!ADMGR_PROMO.on) return { ads: [], prods: [], ready: true };   // 2026-10-28 사용자: CBO 승격 없이 ABO로만 운영해 보기 — 다시 켜려면 ADMGR_PROMO.on = true
   const h = admgrAlert.h7; if (!h || !h.campaigns) { if (!admgr.demo && admgrCfg()) setTimeout(() => admgrPromoEnsure(), 0); return { ads: [], prods: [], ready: false }; }   // 테스트 소재 메뉴로 바로 들어와 광고관리자 데이터가 없어도 7일 성과는 따로 받는다
   const prodCbo = new Set(h.campaigns.filter(c => /^상품CBO_/.test(admgrBase(c.name)) && c.status === 'ACTIVE').map(c => admgrNorm(admgrBase(c.name).replace(/^상품CBO_/, '').replace(/_\d{6}$/, ''))));
   const rows = [];
@@ -167,7 +166,7 @@ function admgrCheckPromo() {
 admgrAlert.checks.push(admgrCheckPromo);
 /* 종합 CBO 빼기 후보 (2026-10-26 사용자 승인): 종합CBO 안에서 켜져 있는 광고 중 어제까지 3일 구매당 비용 > 마진 40% (구매 0이면 3일 지출 ≥ 마진) */
 function admgrZongOut() {
-  const A = admgrAlert; if (!A.h3 || !admgr.data) return [];
+  const A = admgrAlert; if (!ADMGR_PROMO.on || !A.h3 || !admgr.data) return [];
   const live = new Map(admgrRows().ads.map(a => [a.id, a]));
   const out = [];
   for (const c of (A.h3.campaigns || [])) { if (!/^종합CBO/.test(admgrBase(c.name))) continue;
@@ -231,16 +230,16 @@ function admgrPromoCut(ids) {   // 승격한 소재의 원본 테스트 세트 �
   toast(`테스트 세트 ${n}개 예산 1,000원을 임시 저장했어요 — 상단 [게시]로 반영`); closeModal('admgr-budget-modal'); renderAdmgr(true);
 }
 
-/* ── 검사 ⑧ 소재 피로 → 추가소재 요청 자동 등록 (2026-10-23): 상품 단위로 "이번 주(최근 7일) 구매당 비용"이 "지난주(8~14일 전)"보다 fatigue% 이상 오르고
+/* ── 검사 ⑧ 소재 피로 → 추가소재 요청 자동 등록 (2026-10-23): 상품 단위로 "이번 주(최근 7일) ROAS"가 "지난주(8~14일 전)"보다 fatigueRoas% 이상 떨어지고 (10/28 구매당 비용 → ROAS)
    지난주 구매가 fatigueMinPur 이상이면 → 그 상품의 가장 잘 된 테스트 소재에 '추가소재 요청'을 자동으로 올리고(메모에 숫자), 알림판에 한 줄.
    같은 상품은 fatigueCooldown일 안에 다시 올리지 않음(계정 공유 fatigue_log). 이미 열린 요청(요청만 되고 제작완료 전)이 있으면 올리지 않고 알림만 */
-function admgrFatigueCalc(hNow, hPrev, cfg) {   // 순수 계산 — [{ prod, cpaNow, cpaPrev, purNow, purPrev, up }]
-  const agg = h => { const m = new Map(); for (const c of (h && h.campaigns) || []) for (const s of c.adsets || []) { if (!(s.spend > 0)) continue; const k = admgrProductOf(s); const o = m.get(k) || { spend: 0, pur: 0 }; o.spend += s.spend; o.pur += s.purchases || 0; m.set(k, o); } return m; };
+function admgrFatigueCalc(hNow, hPrev, cfg) {   // 순수 계산 — [{ prod, roasNow, roasPrev, purNow, purPrev, drop }]
+  const agg = h => { const m = new Map(); for (const c of (h && h.campaigns) || []) for (const s of c.adsets || []) { if (!(s.spend > 0)) continue; const k = admgrProductOf(s); const o = m.get(k) || { spend: 0, pur: 0, val: 0 }; o.spend += s.spend; o.pur += admgrPJ(s); o.val += admgrVJ(s); m.set(k, o); } return m; };
   const now = agg(hNow), prev = agg(hPrev), out = [];
-  for (const [prod, a] of now) { const b = prev.get(prod); if (!b || b.pur < cfg.fatigueMinPur || a.pur < 5) continue;
-    const cpaNow = a.spend / a.pur, cpaPrev = b.spend / b.pur, up = (cpaNow - cpaPrev) / cpaPrev;
-    if (up * 100 >= cfg.fatigue) out.push({ prod, cpaNow, cpaPrev, purNow: a.pur, purPrev: b.pur, up }); }
-  return out.sort((x, y) => y.up - x.up);
+  for (const [prod, a] of now) { const b = prev.get(prod); if (!b || b.pur < cfg.fatigueMinPur || a.pur < 5 || !(b.val > 0)) continue;
+    const roasNow = a.val / a.spend, roasPrev = b.val / b.spend, drop = 1 - roasNow / roasPrev;
+    if (drop * 100 >= cfg.fatigueRoas) out.push({ prod, roasNow, roasPrev, purNow: a.pur, purPrev: b.pur, drop }); }
+  return out.sort((x, y) => y.drop - x.drop);
 }
 async function admgrFatigueEnsure() {
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.fLoading || (A.hPrev && Date.now() - A.hPrevAt < 30 * 60000) || Date.now() - (A.fFailAt || 0) < 5 * 60000) return;
@@ -270,7 +269,7 @@ async function admgrFatigueAuto() {   // 자동 등록 — 테스트 소재 데�
       // 테스트 완료로 _test를 뗀 소재(gone, 60일 보관)도 요청 대상 — 완료된 소재가 곧 그 상품의 대표 소재라서. 켜진 것 먼저, 구매 많은 순
       const ads = ((t.data || {}).ads || []).filter(a => admgrProductOf(a) === h.prod && !(t.state.get(a.id) || {}).hidden).sort((x, y) => (x.gone ? 1 : 0) - (y.gone ? 1 : 0) || (y.purchases || 0) - (x.purchases || 0));
       const a = ads[0]; if (!a) { none[h.prod] = today; continue; }   // 테스트 소재 기록이 전혀 없는 상품(CBO만·옛 세트) — 요청 올릴 자리가 없어 알림만
-      const cur = t.state.get(a.id) || {}, note = `자동 · 피로 감지 ${today.slice(5)}: 구매당 ${comma(Math.round(h.cpaPrev))}→${comma(Math.round(h.cpaNow))}원 (+${Math.round(h.up * 100)}%)`;
+      const cur = t.state.get(a.id) || {}, note = `자동 · 피로 감지 ${today.slice(5)}: ROAS ${Math.round(h.roasPrev * 100)}→${Math.round(h.roasNow * 100)}% (−${Math.round(h.drop * 100)}%)`;
       await admgrTestSave(a.id, { asset_req_at: new Date().toISOString(), memo: ((cur.memo ? cur.memo + ' / ' : '') + note).slice(0, 500) });
       log[h.prod] = today;
     }
@@ -284,10 +283,10 @@ function admgrCheckFatigue(cfg) {
   const A = admgrAlert; if (!A.h7 || !A.hPrev) { if (A.h7 && admgr.data && !admgr.demo) setTimeout(() => admgrFatigueEnsure(), 0); return []; }
   const hits = admgrFatigueCalc(A.h7, A.hPrev, cfg); if (!hits.length) return [];
   const log = (A.fLog && A.fLog.prods) || {}, none = (A.fLog && A.fLog.none) || {}, today = todayStr(0);
-  const line = h => `${esc(h.prod)} ${comma(Math.round(h.cpaPrev))}→<b>${comma(Math.round(h.cpaNow))}</b>원(+${Math.round(h.up * 100)}%)`;
+  const line = h => `${esc(h.prod)} ROAS ${Math.round(h.roasPrev * 100)}→<b>${Math.round(h.roasNow * 100)}</b>%(−${Math.round(h.drop * 100)}%)`;
   const done = hits.filter(h => log[h.prod]), manual = hits.filter(h => !log[h.prod] && none[h.prod]), wait = hits.filter(h => !log[h.prod] && !none[h.prod]);
   const out = [];
-  if (done.length) out.push({ key: 'fatigue:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${done.length}개 상품 — 추가소재 요청을 올려뒀어요 <small>(구매당 비용 지난주→이번 주)</small><br/>${done.map(line).join(' · ')}`, act: { label: '요청 보기', onclick: 'admgrReqListModal()' } });
+  if (done.length) out.push({ key: 'fatigue:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${done.length}개 상품 — 추가소재 요청을 올려뒀어요 <small>(ROAS 지난주→이번 주)</small><br/>${done.map(line).join(' · ')}`, act: { label: '요청 보기', onclick: 'admgrReqListModal()' } });
   if (manual.length) out.push({ key: 'fatigue-m:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${manual.length}개 상품 — 테스트 소재가 없어(세트명에 test 없음·CBO만) 요청은 직접 올려주세요<br/>${manual.map(line).join(' · ')}` });
   if (wait.length) out.push({ key: 'fatigue-w:' + today, lvl: 'yellow', text: `<b>소재 피로</b> ${wait.length}개 상품 ${dnrbCan('creative') ? '— 테스트 소재를 확인하는 대로 추가소재 요청을 올려요' : ''}<br/>${wait.map(line).join(' · ')}` });
   return out;
@@ -414,10 +413,10 @@ async function admgrPlanApply() {
 }
 admgrAlert.checks.push(admgrCheckPlan);
 
-/* ── 주말 모드 (2026-10-26 사용자 요청): 금~일 매출이 약한 쇼핑몰 주기에 맞춰, 7일 클릭 기준 구매당÷마진이 중간(35~50%)인 테스트 세트만
-   금요일 23:45에 −25% 예약 → 일요일 23:45에 원복 예약. 좋은 세트(≤35%)는 주말에도 좋아서 안 건드리고, 나쁜 세트(50%↑)는 플랜에서 이미 줄인다.
+/* ── 주말 모드 (2026-10-26 사용자 요청): 금~일 매출이 약한 쇼핑몰 주기에 맞춰, 7일 ROAS가 유지 구간(550~900%)인 테스트 세트만 (10/28 구매당÷마진 35~50% → ROAS)
+   금요일 23:45에 −25% 예약 → 일요일 23:45에 원복 예약. 좋은 세트(900%↑)는 주말에도 좋아서 안 건드리고, 나쁜 세트(550% 미만)는 예산 조정 후보에서 이미 줄인다.
    예약은 서버 schedule(23:45 반영, PIN)을 그대로 쓴다 — 23:45 전에 걸어야 그날 반영. 금요일에 건 금액은 shared_state weekend_log에 적어 일요일 원복 때 쓴다 */
-function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, ratio }] — 지금 켜져 있고 예산 있는 테스트 세트 중 7일 클릭 비율이 (wkLo, wkHi]
+function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, roas }] — 지금 켜져 있고 예산 있는 테스트 세트 중 7일 ROAS(%)가 [wkRoasLo, wkRoasHi)
   const h = admgrAlert.h7; if (!h || !h.campaigns) return null;
   const s7 = new Map(h.campaigns.flatMap(c => (c.adsets || []).map(s => [s.id, s])));
   const out = [];
@@ -425,10 +424,9 @@ function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, ratio }] — 지
     if (s.status !== 'ACTIVE' || !(s.budget > 1000) || !/테스트/.test(s._campName || '')) continue;
     if (((admgr.budget && admgr.budget.byObj && admgr.budget.byObj.get(s.id)) || []).some(e => e.new_value < e.old_value) || admgrDraft[s.id] || admgrSDraft[s.id]) continue;   // 오늘 이미 감액·임시 저장한 세트는 주말 감액에서 빼기 (예산 조정 후보와 겹쳐 두 번 깎이지 않게, 2026-10-28)
     const w = s7.get(s.id); if (!w || !(w.spend > 0)) continue;
-    const p = admgrP7(w); if (!(p > 0)) continue;
-    const m = (admgrMarginOf({ id: s.id, name: s.name }) || {}).m; if (!(m > 0)) continue;
-    const ratio = (w.spend / p) / m * 100;
-    if (ratio > cfg.wkLo && ratio <= cfg.wkHi) out.push({ id: s.id, name: s.name, from: s.budget, to: Math.max(1000, Math.round(s.budget * (1 - cfg.weekendPct / 100) / 1000) * 1000), ratio: Math.round(ratio) });
+    if (!(admgrPJ(w) > 0)) continue;
+    const roas = admgrVJ(w) / w.spend * 100;
+    if (roas >= cfg.wkRoasLo && roas < cfg.wkRoasHi) out.push({ id: s.id, name: s.name, from: s.budget, to: Math.max(1000, Math.round(s.budget * (1 - cfg.weekendPct / 100) / 1000) * 1000), roas: Math.round(roas) });
   }
   return out.sort((a, b) => b.from - a.from);
 }
@@ -447,8 +445,8 @@ function admgrCheckWeekend(cfg) {
   const L = A.wkLog, thisWeek = L && L.week === fri ? L : null;
   if (dow === 5 && hm < 23 * 60 + 45 && !thisWeek) {   // 금요일: 아직 안 걸었으면
     const T = admgrWeekendTargets(cfg); if (!T) return [];
-    if (!T.length) return [{ key: 'wk-none:' + today, lvl: 'blue', text: `<b>주말 모드</b> 오늘은 ${cfg.wkLo}~${cfg.wkHi}% 구간 세트가 없어 걸 게 없어요` }];
-    return [{ key: 'wk-cut:' + today, lvl: 'yellow', text: `<b>주말 모드</b> ${cfg.wkLo}~${cfg.wkHi}% 세트 <b>${T.length}개</b>를 오늘 23:45에 <b>−${cfg.weekendPct}%</b> 예약 (일예산 ${admgrW(T.reduce((a, t) => a + t.from, 0))} → ${admgrW(T.reduce((a, t) => a + t.to, 0))}) · 일요일 23:45 원복`, act: dnrbCan('budget') ? { label: '예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
+    if (!T.length) return [{ key: 'wk-none:' + today, lvl: 'blue', text: `<b>주말 모드</b> 오늘은 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 테스트 세트가 없어 걸 게 없어요` }];
+    return [{ key: 'wk-cut:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 세트 <b>${T.length}개</b>를 오늘 23:45에 <b>−${cfg.weekendPct}%</b> 예약 (일예산 ${admgrW(T.reduce((a, t) => a + t.from, 0))} → ${admgrW(T.reduce((a, t) => a + t.to, 0))}) · 일요일 23:45 원복`, act: dnrbCan('budget') ? { label: '예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
   }
   if (thisWeek && thisWeek.cut && thisWeek.cut.length && !thisWeek.restored_at) {
     if (dow === 0 && hm < 23 * 60 + 45) return [{ key: 'wk-restore:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 금요일에 −${cfg.weekendPct}% 한 세트 <b>${thisWeek.cut.length}개</b> — 오늘 23:45에 원래 예산으로 원복 예약`, act: dnrbCan('budget') ? { label: '원복 예약 걸기', onclick: 'admgrWeekendRestore()' } : null }];
@@ -487,18 +485,17 @@ async function admgrWeekendRestore() {
 }
 
 /* ═══ 예산 조정 후보 (2026-10-28 사용자 요청: "말 안 했으면 언제 하려고 했냐" — 매일 자동으로, 놓치는 세트 없게) ═══
-   대상: CBO가 아닌 켜진 세트(운영·테스트 모두) · 일예산 1,000원 초과 · 만든 지 3일↑ · 상품 마진을 아는 세트.
-   비율 = 구매당 비용 ÷ 마진 (클릭 후 7일 구매), 어제까지 7일. 3일은 참고로만 보여 줌.
-   근거: 2025-01~2026-10 세트 3,269개 백테스트(.insight-tmp/hist-analyze*.mjs, sim.mjs) — 3일 규칙을 더해도 손해 세트 포착 55→56%로 거의 그대로,
-   신호 뒤 회복 11%(3일 안)·7%(4~10일). 2026-10-28 사장님 결정으로 '느슨한 방식' — 주문 한 건이 광고 상품가의 평균 1.5배라 60~80%도 주문 전체로는 남을 수 있어서
-   OFF는 80%↑만, 60~80%는 절반 뒤 재확인. 백테스트상 순이익은 엄격안(60% OFF)과 같고 광고비·매출은 약 30% 더 유지.
-   판단 : 7일 구매 5건↑ 또는 7일 지출이 마진의 2배↑일 때만 (표본 부족이면 건너뜀)
-   OFF  : 7일 80%↑ · 또는 4~10일 전에 감액했는데 7일이 아직 60%↑ ("줄였는데도 계속 나쁨")
-   절반 : 7일 60~80%
-   유지 : 7일 40~60% — 손대지 않고 증액만 금지 (표시만)
-   증액 : 7일 35%↓ & 7일 구매 10↑ & 3일 안 증액 없음 — 금·토 제외 (30%↓ +30%, 35%↓ +20%. 좋은 세트도 다음 주 42%만 유지돼서 조금씩)
+   대상: CBO가 아닌 켜진 세트(운영·테스트 모두) · 일예산 1,000원 초과 · 만든 지 3일↑. 상품 마진은 안 씀(같이 산 상품까지 든 전환값으로 보려고).
+   기준 = 어제까지 7일 ROAS (ADMGR_ROAS — 2026-10-28 사용자 확정: 구매당 비용÷마진 대신 ROAS, 최소 550%, 2주는 메타 기본값 창). 3일은 참고로만 보여 줌.
+   근거: 9/8~10/26 세트 27,051건 — 줄일 세트 고르기는 구매당 비용·ROAS가 같고, 키울 세트 고르기는 ROAS가 훨씬 나음(다음 주 광고비 1원당 이익 2.32 vs 2.81).
+   백테스트(.insight-tmp/sim-cbo.mjs L550): 최근 6개월 기본값 550% 기준이면 광고비 7.13억 → 3.43억 (클릭 7일 550%는 2.19억).
+   판단 : 7일 구매 5건↑ 또는 7일 지출 5만원↑일 때만 (표본 부족이면 건너뜀)
+   OFF  : 7일 450% 미만 · 또는 4~10일 전에 감액했는데 7일이 아직 550% 미만 ("줄였는데도 계속 나쁨")
+   절반 : 7일 450~550%
+   유지 : 7일 550~900% — 손대지 않음 (표시만)
+   증액 : 7일 900%↑ & 7일 구매 10↑ & 3일 안 증액 없음 — 금·토 제외 (1100%↑ +30%, 900%↑ +20%)
    대기 : 최근 3일 안에 감액한 세트 — OFF 조건만 빼고 3일은 다시 건드리지 않음 */
-const ADMGR_ADJ = { offR7: 0.8, reR7: 0.6, cutR7: 0.6, holdR7: 0.4, upR7: 0.35, upBig: 0.30, upMinPur: 10, minPur: 5, cool: 3, back: 10, minAge: 3 };
+const ADMGR_ADJ = { minPur: 5, minSpend: 50000, upMinPur: 10, cool: 3, back: 10, minAge: 3 };   // ROAS 선은 ADMGR_ROAS (js/admgr.js)
 async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액 날짜 → 대기·재확인)
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.adjLoading || (A.adjHist && Date.now() - A.adjHistAt < 30 * 60000) || Date.now() - (A.adjFailAt || 0) < 5 * 60000) return;
   A.adjLoading = true;
@@ -507,8 +504,8 @@ async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액
   A.adjLoading = false;
 }
 const admgrKstDay = t => { const k = new Date(new Date(t).getTime() + 9 * 3600e3); return k.toISOString().slice(0, 10); };
-function admgrAdjCalc(sets, s7, s3, hist, today, dow, marginOf) {   // 순수 계산 — 테스트용으로 인자 전부 받음
-  const C = ADMGR_ADJ, last = new Map();   // 세트 id → { cut: 가장 최근 감액일, up: 가장 최근 증액일 }
+function admgrAdjCalc(sets, s7, s3, hist, today, dow) {   // 순수 계산 — 테스트용으로 인자 전부 받음
+  const C = ADMGR_ADJ, R = ADMGR_ROAS, pc = v => Math.round(v * 100) + '%', last = new Map();   // 세트 id → { cut: 가장 최근 감액일, up: 가장 최근 증액일 }
   // 시간순으로 본다. 감액 뒤 원래 예산 이하로 되올린 건 '원복'(주말 모드·낮 감액 23:45 원복 등) — 감액도 증액도 아닌 것으로 지운다 (2026-10-28)
   for (const e of [...(hist || [])].sort((x, y) => String(x.time).localeCompare(String(y.time)))) { if (e.level !== 'adset' || !(e.old_value > 0)) continue; const d = admgrKstDay(e.time), o = last.get(e.object_id) || {};
     if (e.new_value < e.old_value) { if (!o.cut) o.cutFrom = e.old_value; o.cut = d; }
@@ -519,55 +516,52 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, marginOf) {   // 순수 �
   for (const s of sets) {
     if (s.status !== 'ACTIVE' || s._cbo || !(s.budget > 1000)) continue;
     if (s.created && admgrKstDay(s.created) > ageTo) continue;   // 신규(3일 미만)는 테스트 판정이 맡는다
-    const m = marginOf(s); if (!(m > 0)) continue;
     const w = s7.get(s.id); if (!w || !(w.spend > 0)) continue;
-    const p7 = admgrP7(w), r7 = p7 ? w.spend / p7 / m : (w.spend >= m ? 9 : null); if (r7 == null) continue;   // 7일 지출이 마진도 안 되고 구매 0 — 판단 이름
-    const t = s3.get(s.id), sp3 = t ? t.spend || 0 : 0, p3 = t ? admgrP7(t) : 0, r3 = p3 ? sp3 / p3 / m : (sp3 >= m ? 9 : null);
-    if (!(p7 >= C.minPur || w.spend >= 2 * m)) continue;   // 표본 부족
+    const p7 = admgrPJ(w), r7 = admgrVJ(w) / w.spend;   // 7일 ROAS (구매 0이면 0)
+    if (!(p7 >= C.minPur || w.spend >= C.minSpend)) continue;   // 표본 부족
+    const t = s3.get(s.id), sp3 = t ? t.spend || 0 : 0, p3 = t ? admgrPJ(t) : 0, r3 = sp3 > 0 ? admgrVJ(t) / sp3 : null;
     const L = last.get(s.id) || {}, cool = !!(L.cut && L.cut >= coolFrom), prevCut = !!(L.cut && !cool && L.cut >= backFrom);
-    const base = { s, m, r7, r3, p7, p3, sp7: w.spend, sp3, from: s.budget, lastCut: L.cut || null };
-    if (r7 > C.offR7 || (prevCut && r7 > C.reR7)) { out.push({ ...base, act: 'off', to: 0, why: r7 > C.offR7 ? `7일 ${C.offR7 * 100}%↑ — 회복 가능성 낮음` : `${L.cut.slice(5)} 감액 뒤에도 7일 ${C.reR7 * 100}%↑` }); continue; }
+    const base = { s, r7, r3, p7, p3, sp7: w.spend, sp3, from: s.budget, lastCut: L.cut || null };
+    if (r7 < R.off || (prevCut && r7 < R.keep)) { out.push({ ...base, act: 'off', to: 0, why: r7 < R.off ? `7일 ROAS ${pc(R.off)} 미만 — 회복 가능성 낮음` : `${L.cut.slice(5)} 감액 뒤에도 7일 ROAS ${pc(R.keep)} 미만` }); continue; }
     if (cool) { out.push({ ...base, act: 'cool', to: s.budget, why: `${L.cut.slice(5)}에 감액 — 3일 뒤 다시 확인` }); continue; }
-    if (r7 > C.cutR7) { out.push({ ...base, act: 'half', to: r1k(s.budget / 2), why: `7일 ${C.cutR7 * 100}~${C.offR7 * 100}% — 3일 뒤 ${C.reR7 * 100}%↑면 OFF` }); continue; }
-    if (r7 > C.holdR7) { out.push({ ...base, act: 'watch', to: s.budget, why: `7일 ${C.holdR7 * 100}~${C.cutR7 * 100}% — 유지 · 증액 금지` }); continue; }
-    const upOk = dow !== 5 && dow !== 6 && r7 <= C.upR7 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom);
-    if (upOk) out.push({ ...base, act: 'up', to: r1k(s.budget * (r7 <= C.upBig ? 1.3 : 1.2)), why: r7 <= C.upBig ? '7일 30%↓ → +30%' : '7일 30~35% → +20%' });
+    if (r7 < R.keep) { out.push({ ...base, act: 'half', to: r1k(s.budget / 2), why: `7일 ROAS ${pc(R.off)}~${pc(R.keep)} — 3일 뒤에도 ${pc(R.keep)} 미만이면 OFF` }); continue; }
+    if (r7 < R.up) { out.push({ ...base, act: 'watch', to: s.budget, why: `7일 ROAS ${pc(R.keep)}~${pc(R.up)} — 유지` }); continue; }
+    const upOk = dow !== 5 && dow !== 6 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom);
+    if (upOk) out.push({ ...base, act: 'up', to: r1k(s.budget * (r7 >= R.upBig ? 1.3 : 1.2)), why: r7 >= R.upBig ? `7일 ROAS ${pc(R.upBig)}↑ → +30%` : `7일 ROAS ${pc(R.up)}~${pc(R.upBig)} → +20%` });
   }
   return out;
 }
 function admgrAdjRows() {
   const A = admgrAlert; if (!A.h7 || !A.h3) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPromoEnsure(), 0); return null; }
   if (!A.adjHist) { if (admgr.data && !admgr.demo) setTimeout(() => admgrAdjEnsure(), 0); return null; }
-  if (!admgr.products) return null;
   const M = h => new Map(((h && h.campaigns) || []).flatMap(c => (c.adsets || []).map(s => [s.id, s])));
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : new Date().getDay();
-  return admgrAdjCalc(admgrRows().sets, M(A.h7), M(A.h3), A.adjHist, todayStr(0), dow, s => (admgrMarginOf({ id: s.id, name: s.name }) || {}).m);
+  return admgrAdjCalc(admgrRows().sets, M(A.h7), M(A.h3), A.adjHist, todayStr(0), dow);
 }
 function admgrCheckAdj() {
   if (!dnrbCan('budget')) return [];
   const R = admgrAdjRows(); if (!R) return [];
   const n = k => R.filter(x => x.act === k && !admgrDraft[x.s.id] && !admgrSDraft[x.s.id]).length, off = n('off'), half = n('half'), up = n('up');
   if (!off && !half && !up) return [];
-  return [{ key: 'adj:' + todayStr(0), lvl: off ? 'red' : 'yellow', text: `<b>예산 조정 후보</b> OFF ${off} · 절반 ${half}${up ? ` · 증액 ${up}` : ''} <small>최근 7일 · 클릭7일 구매당 비용÷마진 · 유지 ${R.filter(x => x.act === 'watch').length} · 감액 뒤 대기 ${R.filter(x => x.act === 'cool').length}</small>`, act: { label: '보기', onclick: 'admgrAdjModal()' } }];
+  return [{ key: 'adj:' + todayStr(0), lvl: off ? 'red' : 'yellow', text: `<b>예산 조정 후보</b> OFF ${off} · 절반 ${half}${up ? ` · 증액 ${up}` : ''} <small>최근 7일 ROAS · ${admgrAttrTxt()} · 유지 ${R.filter(x => x.act === 'watch').length} · 감액 뒤 대기 ${R.filter(x => x.act === 'cool').length}</small>`, act: { label: '보기', onclick: 'admgrAdjModal()' } }];
 }
 admgrAlert.checks.push(admgrCheckAdj);
 function admgrAdjModal() {
-  const R = admgrAdjRows() || [], pct = r => r == null ? '—' : r >= 9 ? '구매0' : Math.round(r * 100) + '%';
-  const per = (sp, p) => p ? `구매당 ${comma(Math.round(sp / p))}원` : `구매 0 · 지출 ${comma(Math.round(sp || 0))}원`;   // 클릭7일 기준
-  const line = (k, r, sp, p, bold) => `${k} ${bold ? '<b>' : ''}${pct(r)} · ${per(sp, p)}${bold ? '</b>' : ''} (${p || 0}건)`;
+  const R = admgrAdjRows() || [], man = v => admgrW(Math.round(v || 0));
+  const line = (k, r, sp, p, bold) => `${k} ${bold ? '<b>' : ''}ROAS ${r == null ? '—' : Math.round(r * 100) + '%'}${bold ? '</b>' : ''} · 구매 ${p || 0}건 · 지출 ${man(sp)}`;
   const role = x => admgrIsTest(x.s) ? '<span class="status-badge badge-gray" style="font-size:.58rem;">테스트</span>' : '<span class="status-badge badge-blue" style="font-size:.58rem;">운영</span>';
   const row = x => { const pend = admgrDraft[x.s.id] || admgrSDraft[x.s.id];
     return `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:.76rem;cursor:pointer;${pend ? 'opacity:.55;' : ''}"><input type="checkbox" class="adj-ck" data-id="${esc(x.s.id)}" data-act="${x.act}" data-to="${x.to}" ${pend ? '' : 'checked'} />
       <span style="flex:1;min-width:0;word-break:break-all;">${role(x)} ${esc(admgrBase(x.s.name))}<div style="color:#6b7280;font-size:.68rem;">${esc(x.why)}${pend ? ' · 이미 임시 저장됨' : ''}</div></span>
-      <span style="flex:none;text-align:right;color:#374151;font-size:.72rem;"><div>${line('7일', x.r7, x.sp7, x.p7, true)}</div><div style="color:#6b7280;">${line('3일', x.r3, x.sp3, x.p3)}</div><div style="color:#6b7280;font-size:.68rem;">마진 ${comma(Math.round(x.m))}원</div><div>${comma(x.from)} → <b style="color:${x.act === 'off' ? '#b91c1c' : x.act === 'up' ? '#15803d' : '#b45309'};">${x.act === 'off' ? 'OFF' : comma(x.to)}</b></div></span></label>`; };
-  const sec = (k, t, c) => { const L = R.filter(x => x.act === k).sort((a, b) => (b.r7 || 0) - (a.r7 || 0)); return L.length ? `<div style="margin:10px 0 4px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L.length}</div>${L.map(row).join('')}` : ''; };
-  const info = (k, t) => { const L = R.filter(x => x.act === k); return L.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:.74rem;color:#6b7280;">${t} ${L.length}개 (손대지 않음)</summary>${L.map(x => `<div style="font-size:.72rem;color:#6b7280;padding:2px 0;">${esc(admgrBase(x.s.name))} — ${line('7일', x.r7, x.sp7, x.p7)} · ${line('3일', x.r3, x.sp3, x.p3)} · 마진 ${comma(Math.round(x.m))}원 · ${esc(x.why)}</div>`).join('')}</details>` : ''; };
+      <span style="flex:none;text-align:right;color:#374151;font-size:.72rem;"><div>${line('7일', x.r7, x.sp7, x.p7, true)}</div><div style="color:#6b7280;">${line('3일', x.r3, x.sp3, x.p3)}</div><div>${comma(x.from)} → <b style="color:${x.act === 'off' ? '#b91c1c' : x.act === 'up' ? '#15803d' : '#b45309'};">${x.act === 'off' ? 'OFF' : comma(x.to)}</b></div></span></label>`; };
+  const sec = (k, t, c) => { const L = R.filter(x => x.act === k).sort((a, b) => k === 'up' ? b.r7 - a.r7 : a.r7 - b.r7); return L.length ? `<div style="margin:10px 0 4px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L.length}</div>${L.map(row).join('')}` : ''; };
+  const info = (k, t) => { const L = R.filter(x => x.act === k); return L.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:.74rem;color:#6b7280;">${t} ${L.length}개 (손대지 않음)</summary>${L.map(x => `<div style="font-size:.72rem;color:#6b7280;padding:2px 0;">${esc(admgrBase(x.s.name))} — ${line('7일', x.r7, x.sp7, x.p7)} · ${line('3일', x.r3, x.sp3, x.p3)} · ${esc(x.why)}</div>`).join('')}</details>` : ''; };
   const sum = () => { let a = 0, b = 0; R.filter(x => ['off', 'half', 'up'].includes(x.act)).forEach(x => { a += x.from; b += x.to; }); return { a, b }; }, S = sum(), B = admgrBudgetTotal(false);
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : 1;
   $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일의 <b>구매당 비용 ÷ 마진</b>(클릭 후 7일 구매)으로 골랐어요. 80%↑ OFF · 60~80% 절반(3일 뒤 60%↑면 OFF) · 40~60% 유지 · 35%↓ 증액. 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일 <b>ROAS</b>(${admgrAttrTxt()})로 골랐어요. 450% 미만 OFF · 450~550% 절반(3일 뒤에도 550% 미만이면 OFF) · 550~900% 유지 · 900%↑ 증액(1100%↑ +30%). 7일 구매 5건 또는 지출 5만원부터 판단 · 3일은 참고용이에요. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
       <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
-    <div style="max-height:50vh;overflow:auto;">${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}${info('watch', '유지 (7일 40~60% · 증액 금지)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
+    <div style="max-height:50vh;overflow:auto;">${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}${info('watch', '유지 (7일 ROAS 550~900%)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrAdjApply()">체크한 것 임시 저장에 넣기</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }

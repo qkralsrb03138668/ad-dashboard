@@ -44,10 +44,11 @@ function admgrCpaTrend(a) {
   return d < 0 ? `<span class="tt-tr" style="color:#16a34a;" title="구매당비용이 어제보다 ${Math.round(-d * 100)}% 낮아짐 — 좋아지는 중">↘ ${Math.round(-d * 100)}%</span>`
     : `<span class="tt-tr" style="color:#dc2626;" title="구매당비용이 어제보다 ${Math.round(d * 100)}% 높아짐 — 나빠지는 중">↗ ${Math.round(d * 100)}%</span>`;
 }
+const admgrRoasCol = v => v >= ADMGR_ROAS.keep ? '#22c55e' : v >= ADMGR_ROAS.off ? '#f59e0b' : '#ef4444';   // ROAS 색: 550%↑ 초록 · 450~550% 주황 · 그 아래 빨강
 function admgrTtCpa(a) {
   const pu = a.purchases || 0; if (!pu) return '<span style="color:#9ca3af;">구매 없음</span>';
-  const cpa = a.spend / pu, be = admgrBreakEven(a), m = be && be.margin, J = admgrTJudge;
-  const bar = m ? `<span class="tt-cbar" title="마진 ${won(Math.round(m))} 대비 ${Math.round(cpa / m * 100)}% — 세로선이 ${Math.round(J.goodCpa * 100)}%"><i style="width:${Math.min(100, cpa / m * 100)}%;background:${cpa <= m * J.goodCpa ? '#22c55e' : cpa <= m ? '#f59e0b' : '#ef4444'};"></i><b style="left:${J.goodCpa * 100}%;"></b></span>` : '';
+  const cpa = a.spend / pu, R = ADMGR_ROAS, roas = (a.value || 0) / a.spend, col = admgrRoasCol(roas);   // 막대 = ROAS (10/28 구매당 비용÷마진 → ROAS) · 끝 = 1100% · 세로선 = 550%
+  const bar = `<span class="tt-cbar" title="ROAS ${Math.round(roas * 100)}% — 세로선이 ${Math.round(R.keep * 100)}% (우수선) · 빨강 = ${Math.round(R.off * 100)}% 미만"><i style="width:${Math.min(100, roas / R.upBig * 100)}%;background:${col};"></i><b style="left:${R.keep / R.upBig * 100}%;"></b></span><b style="font-size:.66rem;color:${col};margin-left:4px;">${Math.round(roas * 100)}%</b>`;
   return `<span style="white-space:nowrap;">${won(Math.round(cpa))}${bar}</span>${admgrCpaTrend(a)}`;
 }
 function admgrTtVerdictBtns(a, rec) {
@@ -84,17 +85,17 @@ function renderAdmgrTest() {
       ${dd(`테스트 끝난 소재 (${by('gone').length})`, "admgrTtStage('gone')", 'fa-box-archive')}
       ${dd(`숨긴 소재 (${by('hidden').length})`, "admgrTtStage('hidden')", 'fa-eye-slash')}
     </div></details></div>`;
-  const pct = Math.round(J.goodCpa * 100);
   const judgeBox = t.judgeOpen ? `<div class="tt-crit tt-edit">
       <label>판정 시작: D+<input class="inp" type="number" min="0" value="${J.days}" onchange="admgrTJudgeSet('days',this.value)"></label>
-      <label>우수: 구매 <input class="inp" type="number" min="0" value="${J.goodPurch}" onchange="admgrTJudgeSet('goodPurch',this.value)">건↑ & 구매당비용 ≤ 마진의 <input class="inp" type="number" min="1" max="100" value="${pct}" onchange="admgrTJudgeSet('goodCpa',this.value)">%</label>
-      <span style="color:#6b7280;">OFF: 구매당비용 > 마진 · 그 사이 애매</span>
+      <label>우수: 구매 <input class="inp" type="number" min="0" value="${J.goodPurch}" onchange="admgrTJudgeSet('goodPurch',this.value)">건↑ & ROAS ${Math.round(ADMGR_ROAS.keep * 100)}%↑</label>
+      <label>구매 0이면 OFF: 지출 <input class="inp" type="number" min="0" step="5000" value="${J.spend}" onchange="admgrTJudgeSet('spend',this.value)">원↑</label>
+      <span style="color:#6b7280;">OFF: ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만 · 그 사이 애매 (ROAS 선은 예산 조정 후보와 같음)</span>
       <button class="btn-ghost" onclick="admgrTJudgeReset()">기본값</button><button class="btn-ghost" onclick="admgrTJudgeToggle()">닫기</button></div>` : '';
   const tile = ([k, label, sub]) => { const n = by(k).length;
     const s = k === 'judge' ? `D+${J.days}부터 — 추천 보고 확정` : sub;
     return `<button class="tt-stage ${stage === k ? 'on' : ''}" onclick="admgrTtStage('${k}')"><span class="t">${label}</span>${k === 'judge' && n ? '<span class="n">오늘 할 일</span>' : ''}<b>${n}개</b>${n && !admgrMobile() ? admgrTtStageNums(by(k), k) : ''}<small>${s}</small></button>`; };
   const extra = stage === 'gone' || stage === 'hidden' ? `<div class="tt-crit">${stage === 'gone' ? '테스트 완료로 이름에서 test가 빠진 소재예요 (60일 보관) — 늦은 판정도 여기서 할 수 있어요' : '숨긴 소재예요 — 체크하고 아래 [다시 보이기]'} <a href="#" onclick="admgrTtStage('${by('judge').length ? 'judge' : 'run'}');return false;">← 돌아가기</a></div>` : '';
-  const crit = stage === 'judge' ? `<div class="tt-crit"><b>판정 기준</b> · 우수 = 구매 ${J.goodPurch}건↑ & 구매당비용이 마진의 ${pct}% 이하 · OFF = 구매당비용 > 마진 (또는 마진만큼 쓰고 구매 0) · 그 사이 애매 &nbsp;|&nbsp; <b style="color:#4f46e5;">파란 테두리</b> = 추천, 누르면 확정 · OFF로 확정해도 광고는 자동으로 안 꺼져요</div>`
+  const crit = stage === 'judge' ? `<div class="tt-crit"><b>판정 기준</b> · 우수 = 구매 ${J.goodPurch}건↑ & ROAS ${Math.round(ADMGR_ROAS.keep * 100)}%↑ · OFF = ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만 (또는 구매 0으로 ${won(J.spend)}↑ 씀) · 그 사이 애매 &nbsp;|&nbsp; <b style="color:#4f46e5;">파란 테두리</b> = 추천, 누르면 확정 · OFF로 확정해도 광고는 자동으로 안 꺼져요</div>`
     : stage === 'done' ? `<div class="tt-crit">판정을 확정한 소재예요 — 체크하고 <b>테스트 완료</b>를 누르면 세트 이름에서 _test를 지우고 리포트를 만들어요 · 판정을 바꾸려면 다른 버튼, 취소는 같은 버튼을 다시</div>`
     : stage === 'run' ? `<div class="tt-crit">아직 판정 전이에요 — D+${J.days}가 되면 금액과 상관없이 '판정할 차례'로 넘어가요</div>` : '';
   return head + judgeBox + `<div class="tt-stages">${TT_STAGES.map(tile).join('')}${admgrMobile() ? '' : admgrTtWeekRate()}</div>` + extra + crit + (admgrMobile() ? admgrTtList(rows, stage) : admgrTtTable(rows, stage)) + admgrTtBar(rows, stage);
@@ -216,20 +217,19 @@ const TT_SORT = { name: a => admgrTtShort(a), reg: a => a.reg_date || '', spend:
 /* 일별 구매당비용 — 누적 스냅샷 차이로 하루씩 (D+ 기준). 마지막 칸은 오늘 지금까지 */
 function admgrCpaDaily(a) {
   const L = ((admgr.test.trend && admgr.test.trend.get(a.id)) || []).slice().sort((x, y) => String(x.day).localeCompare(String(y.day)));
-  const pts = L.map(r => ({ day: r.day, spend: +r.spend || 0, purchases: +r.purchases || 0 }));
-  if (!pts.length || pts[pts.length - 1].day !== todayStr(0)) pts.push({ day: todayStr(0), spend: a.spend || 0, purchases: a.purchases || 0 });
-  else pts[pts.length - 1] = { day: todayStr(0), spend: a.spend || 0, purchases: a.purchases || 0 };
-  const out = []; let prev = a.reg_date && pts[0].day > a.reg_date ? null : { spend: 0, purchases: 0 };
-  for (const p of pts) { if (prev) { const sp = p.spend - prev.spend, pu = p.purchases - prev.purchases; out.push({ day: p.day, dp: a.reg_date ? daysBetween(a.reg_date, p.day) : null, spend: sp, purchases: pu, cpa: pu > 0 ? sp / pu : null }); } prev = p; }
+  const pts = L.map(r => ({ day: r.day, spend: +r.spend || 0, purchases: +r.purchases || 0, value: +r.value || 0 }));
+  if (!pts.length || pts[pts.length - 1].day !== todayStr(0)) pts.push({ day: todayStr(0), spend: a.spend || 0, purchases: a.purchases || 0, value: a.value || 0 });
+  else pts[pts.length - 1] = { day: todayStr(0), spend: a.spend || 0, purchases: a.purchases || 0, value: a.value || 0 };
+  const out = []; let prev = a.reg_date && pts[0].day > a.reg_date ? null : { spend: 0, purchases: 0, value: 0 };
+  for (const p of pts) { if (prev) { const sp = p.spend - prev.spend, pu = p.purchases - prev.purchases; out.push({ day: p.day, dp: a.reg_date ? daysBetween(a.reg_date, p.day) : null, spend: sp, purchases: pu, cpa: pu > 0 ? sp / pu : null, roas: sp > 0 ? (p.value - prev.value) / sp : null }); } prev = p; }
   return out.slice(-7);
 }
-function admgrCpaChart(a, m) {   // 마우스 올리면 뜨는 작은 막대 — 높이 = 그날 구매당비용, 초록 = 마진 60% 이하, 빨강 = 마진 초과
+function admgrCpaChart(a) {   // 마우스 올리면 뜨는 작은 막대 — 높이 = 그날 ROAS, 초록 = 550%↑, 빨강 = 450% 미만 (10/28 구매당 비용 → ROAS)
   const D = admgrCpaDaily(a); if (D.length < 2) return '';
-  const max = Math.max(...D.map(d => d.cpa || 0), m || 0) || 1, J = admgrTJudge;
-  return `<div class="tt-pop"><div style="font-weight:800;margin-bottom:6px;">하루별 구매당비용</div><div class="tt-pop-bars">${D.map(d => { const h = d.cpa ? Math.max(4, d.cpa / max * 60) : 2;
-    const col = d.cpa == null ? '#e5e7eb' : !m ? '#818cf8' : d.cpa <= m * J.goodCpa ? '#22c55e' : d.cpa <= m ? '#f59e0b' : '#ef4444';
-    return `<div><span>${d.cpa ? (d.cpa / 10000).toFixed(1) + '만' : d.spend > 0 ? '구매0' : '–'}</span><i style="height:${h}px;background:${col};"></i><small>${d.dp != null ? 'D+' + d.dp : fmtMD(d.day)}</small></div>`; }).join('')}</div>
-    ${m ? `<div style="color:#6b7280;margin-top:4px;">마진 ${won(Math.round(m))} · 우수선 ${won(Math.round(m * J.goodCpa))}</div>` : ''}</div>`;
+  const max = Math.max(...D.map(d => d.roas || 0), ADMGR_ROAS.keep) || 1;
+  return `<div class="tt-pop"><div style="font-weight:800;margin-bottom:6px;">하루별 ROAS</div><div class="tt-pop-bars">${D.map(d => { const h = d.roas ? Math.max(4, d.roas / max * 60) : 2;
+    return `<div><span>${d.roas != null ? Math.round(d.roas * 100) + '%' : '–'}</span><i style="height:${h}px;background:${d.roas == null ? '#e5e7eb' : admgrRoasCol(d.roas)};"></i><small>${d.dp != null ? 'D+' + d.dp : fmtMD(d.day)}</small></div>`; }).join('')}</div>
+    <div style="color:#6b7280;margin-top:4px;">우수선 ROAS ${Math.round(ADMGR_ROAS.keep * 100)}% · OFF선 ${Math.round(ADMGR_ROAS.off * 100)}%</div></div>`;
 }
 /* 단계 카드 숫자 + 이번 주 우수율 */
 function admgrTtStageNums(L, k) {
@@ -273,7 +273,7 @@ function admgrTtTable(rows, stage) {
       <td class="ctr">${judge}</td>
       ${C.funnel ? `<td>${admgrFunnelCell(a, base)}</td>` : ''}
       <td class="num"><b>${won(a.spend || 0)}</b></td><td class="num">${comma(a.purchases || 0)}</td>
-      <td class="num tt-cpa-td">${admgrTtCpa(a)}${admgrCpaChart(a, be && be.margin)}</td>
+      <td class="num tt-cpa-td">${admgrTtCpa(a)}${admgrCpaChart(a)}</td>
       ${C.roas ? `<td class="num">${admgrRoasTd(a)}${admgrSparkHtml(admgrTrend(a), be && be.be)}</td>` : ''}
       ${C.asset ? `<td class="ctr">${admgrAssetCell({ ...a, st: a.meta.verdict === 'good' ? 'good' : a.st })}</td>` : ''}
       ${C.memo ? `<td class="ell" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="${a.meta.memo ? esc(a.meta.memo) + ' — 클릭해서 수정' : '클릭해서 메모'}" style="cursor:text;font-size:.72rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? esc(a.meta.memo) : '메모…'}</td>` : ''}</tr>`;

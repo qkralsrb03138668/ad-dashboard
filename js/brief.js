@@ -88,8 +88,8 @@ function briefStoreTile(b, delta) {
     <div class="kt-sub" style="display:flex;gap:8px;flex-wrap:wrap;">${delta(c.order_amount, prev, 1, '그제')}${avg != null ? delta(c.order_amount, avg, 1, `${wk.length}일 평균`) : ''}<span style="color:#6b7280;">주문 ${comma(c.paid_qty || 0)}개 · 취소 ${comma(c.cancel_qty || 0)}</span></div></div>`;
 }
 /* ═══ 소재 진열 (2026-10-13) — 보고서 날짜 하루치 Meta 광고 데이터를 같은 소재끼리 합쳐서
-   잘된 소재 / 지켜볼 소재 카드로. 기준은 테스트 소재 판정과 같은 admgrTJudge (지출 3만↑, 우수 = 구매 3↑ & 한 장 광고비 ≤ 마진 60%, 손해 = 한 장 광고비 > 마진)
-   + 식는 중 = 그제보다 한 장 광고비가 40% 넘게 오름. 썸네일 누르면 Meta 미리보기 ═══ */
+   잘된 소재 / 지켜볼 소재 카드로. 기준은 테스트 소재 판정과 같은 선 (지출 3만↑, 잘됨 = 구매 3↑ & ROAS 550%↑, 손해 = ROAS 450% 미만 — 10/28 한 장 광고비÷마진 → ROAS)
+   + 식는 중 = 그제보다 ROAS가 30% 넘게 떨어짐. 썸네일 누르면 Meta 미리보기 ═══ */
 brief.ads = {};
 const briefKey = n => String(n || '').normalize('NFC').replace(/\s*\[→[^\]]*\]/g, '').replace(/\s*\/\s*CBO\s*\d+\s*$/i, '').replace(/\s*-\s*사본\s*$/, '').replace(/[_\s-]*test\s*$/i, '').trim();   // [→캠페인]·' / CBO3'·_test 꼬리 제거
 function briefAgg(h) {   // hierarchy → Map(소재 키 → 합계) — CBO 복사본처럼 같은 소재가 여러 캠페인에 있으면 하나로
@@ -112,13 +112,13 @@ async function briefAdsLoad(date) {
     const [h, h0] = await Promise.all([metaGet({ action: 'hierarchy', preset: 'custom', since: date, until: date }), metaGet({ action: 'hierarchy', preset: 'custom', since: prev, until: prev }).catch(() => null)]);
     const A = briefAgg(h), B = h0 ? briefAgg(h0) : new Map(), J = admgrTJudge;
     const rows = [...A.values()].filter(x => x.spend >= J.spend).map(x => {
-      const be = admgrBreakEven({ adset_name: x.key, name: x.key, adset_id: x.set_id }), m = be && be.margin, cpa = x.purchases ? x.spend / x.purchases : null, roas = x.spend ? x.value / x.spend : 0;
-      const p = B.get(x.key), pc = p && p.purchases ? p.spend / p.purchases : null;
+      const R = ADMGR_ROAS, cpa = x.purchases ? x.spend / x.purchases : null, roas = x.spend ? x.value / x.spend : 0;
+      const p = B.get(x.key), pc = p && p.purchases ? p.spend / p.purchases : null, proas = p && p.spend ? p.value / p.spend : null;
       let kind = null, why = '';
-      if (x.purchases >= J.goodPurch && (m ? cpa <= m * J.goodCpa : roas >= J.goodRoas)) { kind = 'good'; why = m ? `한 장 광고비가 마진의 ${Math.round(cpa / m * 100)}%` : `ROAS ${roas.toFixed(2)}`; }
-      else if (m ? (x.purchases ? cpa > m : x.spend >= m) : roas < J.offRoas) { kind = 'watch'; why = x.purchases ? '팔수록 손해 (한 장 광고비 > 마진)' : '마진만큼 쓰고 0장'; }
-      else if (cpa && pc && cpa > pc * 1.4) { kind = 'watch'; why = `식는 중 — 한 장 광고비가 그제보다 ${Math.round((cpa / pc - 1) * 100)}% 올랐어요`; }
-      return { ...x, margin: m || null, cpa, roas, prev: p || null, pcpa: pc, kind, why, fmt: admgrFmtOf(x.key), maker: MAKER_NAMES[admgrMakerOf(x.id, x.set_id, x.set)] || '' };
+      if (x.purchases >= J.goodPurch && roas >= R.keep) { kind = 'good'; why = `ROAS ${Math.round(roas * 100)}% (${Math.round(R.keep * 100)}%↑)`; }
+      else if (roas < R.off) { kind = 'watch'; why = x.purchases ? `ROAS ${Math.round(roas * 100)}% — ${Math.round(R.off * 100)}% 미만` : `${won(J.spend)}↑ 쓰고 0장`; }
+      else if (proas && roas < proas * 0.7) { kind = 'watch'; why = `식는 중 — ROAS가 그제 ${Math.round(proas * 100)}%에서 ${Math.round(roas * 100)}%로 떨어졌어요`; }
+      return { ...x, cpa, roas, prev: p || null, pcpa: pc, kind, why, fmt: admgrFmtOf(x.key), maker: MAKER_NAMES[admgrMakerOf(x.id, x.set_id, x.set)] || '' };
     });
     st.good = rows.filter(r => r.kind === 'good').sort((a, b) => b.purchases - a.purchases).slice(0, 12);
     st.watch = rows.filter(r => r.kind === 'watch').sort((a, b) => b.spend - a.spend).slice(0, 12);
@@ -138,7 +138,7 @@ function briefAdsHtml(date, aiGood, aiWatch) {
   const arrow = (cur, prev, goodDown, unit) => { if (cur == null || prev == null || !prev) return ''; const d = cur / prev - 1; if (Math.abs(d) < 0.05) return '<span class="bf-d">→</span>';
     const good = goodDown ? d < 0 : d > 0; return `<span class="bf-d" style="color:${good ? '#16a34a' : '#dc2626'};">${d > 0 ? '▲' : '▼'}${Math.round(Math.abs(d) * 100)}%</span>`; };
   const card = r => {
-    const th = st.thumbs[r.id], col = !r.cpa ? '#9ca3af' : !r.margin ? '#374151' : r.cpa <= r.margin * J.goodCpa ? '#15803d' : r.cpa <= r.margin ? '#b45309' : '#dc2626';
+    const th = st.thumbs[r.id], col = r.roas >= ADMGR_ROAS.keep ? '#15803d' : r.roas >= ADMGR_ROAS.off ? '#b45309' : '#dc2626';   // 색 = ROAS 선
     const name = r.key, prod = name.split('_')[0], tail = name.slice(prod.length).replace(/^_/, '');
     const isNew = r.created && daysBetween(r.created, admgrShiftDay(date, 1)) <= 3;
     return `<div class="bf-card ${r.kind}">
@@ -146,13 +146,13 @@ function briefAdsHtml(date, aiGood, aiWatch) {
       <div class="bf-b"><b class="bf-p">${esc(prod)}</b><div class="bf-t">${esc(tail)}</div>
         <div class="bf-s">${[r.created ? fmtMD(r.created) + ' 업로드' : '', r.fmt.fmt !== '기타' ? r.fmt.fmt : '', r.fmt.kind, r.maker].filter(Boolean).map(esc).join(' · ')}</div>
         <div class="bf-m"><div><i>팔린 수</i><b>${comma(r.purchases)}장</b>${arrow(r.purchases, r.prev && r.prev.purchases, false)}</div>
-          <div><i>한 장 팔 때 광고비</i><b style="color:${col};">${r.cpa ? man(r.cpa) + '원' : '–'}</b>${arrow(r.cpa, r.pcpa, true)}</div>
-          <div><i>광고비</i><b>${man(r.spend)}원</b></div><div><i>ROAS</i><b>${r.roas.toFixed(2)}</b></div></div>
-        <div class="bf-why ${r.kind}">${esc(r.why)}${r.margin && r.cpa && r.kind === 'good' ? '' : ''}</div></div></div>`;
+          <div><i>한 장 팔 때 광고비</i><b>${r.cpa ? man(r.cpa) + '원' : '–'}</b>${arrow(r.cpa, r.pcpa, true)}</div>
+          <div><i>광고비</i><b>${man(r.spend)}원</b></div><div><i>ROAS</i><b style="color:${col};">${Math.round(r.roas * 100)}%</b>${arrow(r.roas, r.prev && r.prev.spend ? r.prev.value / r.prev.spend : null, false)}</div></div>
+        <div class="bf-why ${r.kind}">${esc(r.why)}</div></div></div>`;
   };
   const memo = L => L && L.length ? `<details class="bf-ai"><summary>AI 메모 ${L.length}줄</summary><ul>${L.map(t => `<li>${esc(t)}</li>`).join('')}</ul></details>` : '';
   const grid = (L, empty) => L.length ? `<div class="bf-grid">${L.map(card).join('')}</div>` : `<div style="font-size:.82rem;color:#9ca3af;padding:6px 2px;">${empty}</div>`;
-  return `<div class="bf-sec"><div class="bf-h">✅ 잘된 소재 <span>${st.good.length}개 · 지출 ${won(J.spend)}↑, ${J.goodPurch}장 이상 팔렸고 한 장 팔 때 광고비가 마진의 ${Math.round(J.goodCpa * 100)}% 이하 · 많이 팔린 순</span></div>${memo(aiGood)}${grid(st.good, '기준을 넘은 소재가 없어요')}</div>
-    <div class="bf-sec"><div class="bf-h">👀 지켜볼 소재 <span>${st.watch.length}개 · 팔수록 손해이거나, 그제보다 한 장 광고비가 40% 넘게 오른 소재 · 광고비 큰 순</span></div>${memo(aiWatch)}${grid(st.watch, '지켜볼 소재가 없어요')}</div>
+  return `<div class="bf-sec"><div class="bf-h">✅ 잘된 소재 <span>${st.good.length}개 · 지출 ${won(J.spend)}↑, ${J.goodPurch}장 이상 팔렸고 ROAS ${Math.round(ADMGR_ROAS.keep * 100)}%↑ · 많이 팔린 순</span></div>${memo(aiGood)}${grid(st.good, '기준을 넘은 소재가 없어요')}</div>
+    <div class="bf-sec"><div class="bf-h">👀 지켜볼 소재 <span>${st.watch.length}개 · ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만이거나, 그제보다 ROAS가 30% 넘게 떨어진 소재 · 광고비 큰 순</span></div>${memo(aiWatch)}${grid(st.watch, '지켜볼 소재가 없어요')}</div>
     <div style="font-size:.7rem;color:#9ca3af;margin:-4px 2px 12px;">${fmtMD(date)} 하루 Meta 광고 데이터 · 이름은 광고세트명 (CBO처럼 여러 소재를 담은 세트는 광고명) · 같은 이름은 합쳐서 · ▲▼ = 그제 대비 · 썸네일을 누르면 광고 미리보기</div>`;
 }

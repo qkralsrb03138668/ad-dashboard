@@ -824,9 +824,9 @@ async function admgrEndReportMake(sets) {
     const rows = ads.map(a => { const r = admgrEndResult(a, base), set = ids.get(String(a.adset_id)) || a.adset_name;
       return { id: a.id, set, prod: admgrProductOf({ adset_name: set }), dp: admgrDPlus(a), reg: a.reg_date || '', ...admgrFmtOf(set), maker: MAKER_NAMES[admgrMakerOf(a.id, a.adset_id, a.adset_name)] || '', margin: (admgrBreakEven(a) || {}).margin || null,
         spend: Math.round(a.spend || 0), purch: a.purchases || 0, value: Math.round(a.value || 0), thumb: thumbs[a.id] || '', ...r }; })
-      .sort((x, y) => x.prod.localeCompare(y.prod, 'ko') || (x.purch ? x.spend / x.purch : 1e12) - (y.purch ? y.spend / y.purch : 1e12));
+      .sort((x, y) => x.prod.localeCompare(y.prod, 'ko') || (y.spend ? y.value / y.spend : 0) - (x.spend ? x.value / x.spend : 0));
     const cnt = new Map(); rows.forEach(r => cnt.set(r.prod, (cnt.get(r.prod) || 0) + 1));
-    rows.forEach((r, i) => { r.win = cnt.get(r.prod) > 1 && r.purch > 0 && (i === 0 || rows[i - 1].prod !== r.prod); });   // 같은 상품 중 구매당비용 1등
+    rows.forEach((r, i) => { r.win = cnt.get(r.prod) > 1 && r.purch > 0 && (i === 0 || rows[i - 1].prod !== r.prod); });   // 같은 상품 중 ROAS 1등 (10/28 구매당 비용 → ROAS)
     const missing = sets.filter(s => !rows.some(r => r.set === s.name)).map(s => s.name);
     const now = new Date().toISOString();
     const rec = { id: now, at: now, by: (AUTH.me && (AUTH.me.name || AUTH.me.email)) || ADMGR_USER, sets: sets.length, rows, missing };
@@ -878,10 +878,9 @@ function admgrEndReportHtml(rec) {   // 표 형식 (2026-10-13 3차) — 인쇄�
   const TH = 'padding:7px 8px;font-size:.7rem;color:#6b7280;font-weight:600;background:#fafbfc;border-bottom:1px solid #e7e8ee;white-space:nowrap;';
   const TD = 'padding:7px 8px;border-top:1px solid #f1f2f6;vertical-align:middle;font-size:.78rem;text-align:left;';
   const N = TD + 'text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;';
-  const cpaCell = r => { if (!r.purch) return '<span style="color:#9ca3af;">–</span>'; const c = r.spend / r.purch;
-    const col = !r.margin ? '#374151' : c <= r.margin * J.goodCpa ? '#15803d' : c <= r.margin ? '#b45309' : '#dc2626';
-    return `<b style="color:${col};">${won(Math.round(c))}</b>${r.margin ? `<div style="font-size:.64rem;color:#9ca3af;">마진의 ${Math.round(c / r.margin * 100)}%</div>` : ''}`; };
-  // 상품별 묶음 — 우수가 있는 상품 먼저, 같은 상품 안에서는 구매당비용 순 (rows가 이미 그 순서)
+  const cpaCell = r => r.purch ? won(Math.round(r.spend / r.purch)) : '<span style="color:#9ca3af;">–</span>';
+  const roasCell = r => { if (!r.spend) return '–'; const v = r.value / r.spend; return `<b style="color:${v >= ADMGR_ROAS.keep ? '#15803d' : v >= ADMGR_ROAS.off ? '#b45309' : '#dc2626'};">${Math.round(v * 100)}%</b>`; };
+  // 상품별 묶음 — 우수가 있는 상품 먼저, 같은 상품 안에서는 ROAS 순 (rows가 이미 그 순서)
   const prods = []; R.forEach(r => { let g = prods.find(x => x.name === r.prod); if (!g) prods.push(g = { name: r.prod, rows: [] }); g.rows.push(r); });
   prods.sort((x, y) => y.rows.filter(r => r.res === 'good').length - x.rows.filter(r => r.res === 'good').length || x.name.localeCompare(y.name, 'ko'));
   const row = r => `<tr>
@@ -890,7 +889,7 @@ function admgrEndReportHtml(rec) {   // 표 형식 (2026-10-13 3차) — 인쇄�
         <div style="font-size:.66rem;color:#9ca3af;">${[r.reg ? fmtMD(r.reg) + ' 업로드' : '', r.fmt && r.fmt !== '기타' ? r.fmt : '', r.kind, r.maker].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
       <td style="${TD}text-align:center;">${pill(r.res)}</td>
       <td style="${N}">${won(r.spend)}</td><td style="${N}"><b>${comma(r.purch)}</b>장</td><td style="${N}">${cpaCell(r)}</td>
-      <td style="${N}">${r.spend ? (r.value / r.spend).toFixed(2) : '–'}</td>
+      <td style="${N}">${roasCell(r)}</td>
       <td style="${TD}color:${r.res === 'good' ? '#166534' : r.res === 'off' ? '#b91c1c' : '#4b5563'};">${esc(ADMGR_EASY[r.diagK] || r.diag || '–')}</td></tr>`;
   const grpRow = g => { const sp = g.rows.reduce((s, r) => s + r.spend, 0), pu = g.rows.reduce((s, r) => s + r.purch, 0), va = g.rows.reduce((s, r) => s + r.value, 0), ng = g.rows.filter(r => r.res === 'good').length;
     return `<tr style="background:#f8fafc;"><td style="${TD}font-weight:800;color:#1e1b4b;" colspan="2">${esc(g.name)} <span style="font-weight:600;color:#6b7280;font-size:.7rem;">${g.rows.length}개${ng ? ` · 우수 ${ng}` : ''}</span></td>
@@ -906,7 +905,7 @@ function admgrEndReportHtml(rec) {   // 표 형식 (2026-10-13 3차) — 인쇄�
   return `<div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">테스트 완료 리포트 <span style="font-weight:600;color:#6b7280;font-size:.8rem;margin-left:4px;">${esc(new Date(rec.at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }))} · ${esc(rec.by)} · 소재 ${R.length}개</span></div>
     <div style="margin:12px 0;padding:12px 14px;background:#eef2ff;border-radius:12px;font-size:.95rem;line-height:1.6;color:#1e1b4b;">${esc(S.lead)}</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;" class="rp-why">${kpi('우수 / 애매 / OFF', `${S.n.good} / ${S.n.meh} / ${S.n.off}`)}${kpi('광고비', man(S.sp))}${kpi('팔린 수', comma(S.pu) + '장')}${kpi('한 장 팔 때 광고비', S.pu ? man(S.sp / S.pu) : '–')}</div>
-    ${h3('📊 소재별 결과', '상품별로 묶음 · 🏆 같은 상품 중 1등 · 한 장 팔 때 광고비 색: 초록 = 마진의 ' + Math.round(J.goodCpa * 100) + '% 이하, 주황 = 마진 안, 빨강 = 마진 초과')}${table}
+    ${h3('📊 소재별 결과', '상품별로 묶음 · 🏆 같은 상품 중 ROAS 1등 · ROAS 색: 초록 = 550%↑, 주황 = 450~550%, 빨강 = 450% 미만')}${table}
     ${fmtTable}
     ${h3('📋 다음 제작 요청')}<div style="border:1px solid #ddd6fe;background:#faf5ff;border-radius:12px;padding:8px 14px;">${S.todo.length ? S.todo.map(x => `<div style="font-size:.86rem;padding:4px 0;${x.kind === 'off' ? 'color:#b91c1c;' : 'color:#1e1b4b;'}">☐ ${esc(x.text)}</div>`).join('') : '<div style="font-size:.82rem;color:#6b7280;">우수·OFF로 갈린 소재가 없어요</div>'}</div>
     ${rec.missing && rec.missing.length ? `<div style="font-size:.72rem;color:#b45309;margin-top:8px;">테스트 데이터에 없어 빠진 세트 ${rec.missing.length}개: ${esc(rec.missing.join(', '))}</div>` : ''}
@@ -1300,10 +1299,10 @@ function admgrFunnelCell(a, base) {
 
 /* ── 판정 추천 (2026-10-13 사용자 기준) — D+2부터 판정.
    2026-10-14 금액 조건 뺌(사용자: 소액이어도 잘 나오는 소재가 있다) — 날짜만.
-   우수 = 구매 3건↑ & 구매당비용 ≤ 상품 마진×60% · OFF = 구매당비용 > 마진 (또는 마진만큼 쓰고 구매 0) · 그 사이 애매.
-   마진 = 판매가 − 공급가×1.1 (admgrBreakEven, 광고세트 탭 오늘의 판정과 같은 식). 상품을 못 찾으면 ROAS 고정값(offRoas/goodRoas).
+   2026-10-28 사용자: 구매당 비용 → ROAS (ADMGR_ROAS, 예산 조정 후보와 같은 선). 우수 = 구매 3건↑ & ROAS 550%↑ · OFF = ROAS 450% 미만 (구매 0이면 3만원↑ 쓴 경우) · 그 사이 애매.
+   상품 마진을 안 쓰니 카페24에서 상품을 못 찾은 소재도 같은 기준. offRoas/goodRoas는 베스트 탭·추세선의 '상품 못 찾음' 기준으로만 남음.
    추천만 — 확정은 사람이 버튼으로. 기준은 화면 ⋯ > 판정 기준에서 바꾸고 브라우저에 기억 ── */
-const ADMGR_TJUDGE_DEFAULT = { days: 2, spend: 30000, goodPurch: 3, goodCpa: 0.6, offRoas: 1, goodRoas: 3 };
+const ADMGR_TJUDGE_DEFAULT = { days: 2, spend: 30000, goodPurch: 3, offRoas: 1, goodRoas: 3 };   // spend = 구매 0일 때 OFF로 보는 지출
 let admgrTJudge = Object.assign({}, ADMGR_TJUDGE_DEFAULT, lsGet('adc_admgr_tjudge2', null) || {});   // 키 바꿈 — 옛 기준(D+3·ROAS 배수)이 남아 덮어쓰지 않게
 /* 손익분기 ROAS = 판매가 ÷ (판매가 − 공급가×1.1) — 광고세트 탭 오늘의 판정과 같은 마진 식(admgrMarginOf). 세트 id로 직접 입력한 마진도 반영. 상품 못 찾으면 null */
 function admgrBreakEven(a) {
@@ -1315,24 +1314,14 @@ function admgrBreakEven(a) {
 }
 function admgrRecommend(a) {   // null = 추천 대상 아님(판정 끝·테스트 종료·검토중). k: off | good | wait(애매, sample=구매 수 부족) | watch(기준 전)
   if (a.gone || (a.meta && a.meta.verdict) || !['eval', 'off'].includes(a.st)) return null;
-  const J = admgrTJudge, dp = admgrDPlus(a) ?? 0, sp = a.spend || 0, pu = a.purchases || 0, cpa = pu ? sp / pu : null;
-  const be = admgrBreakEven(a);
-  const out = r => ({ ...r, cpa, be: be ? be.be : null, margin: be ? be.margin : null, offR: be ? be.be : J.offRoas, goodR: be ? be.price / (be.margin * J.goodCpa) : J.goodRoas });
+  const J = admgrTJudge, R = ADMGR_ROAS, dp = admgrDPlus(a) ?? 0, sp = a.spend || 0, pu = a.purchases || 0, cpa = pu ? sp / pu : null, roas = sp ? (a.value || 0) / sp : 0;
+  const out = r => ({ ...r, cpa, roas, offR: R.off, goodR: R.keep }), pc = v => Math.round(v * 100) + '%';
   if (dp < J.days) return out({ k: 'watch', label: '지켜보기', why: `D+${dp} — 판정은 D+${J.days}부터 (금액 조건 없음)` });
-  const pctTxt = Math.round(J.goodCpa * 100) + '%';
-  if (be) {
-    const m = be.margin, pct = cpa ? Math.round(cpa / m * 100) : null;
-    if ((pu && cpa > m) || (!pu && sp >= m)) return out({ k: 'off', label: 'OFF 추천', why: pu ? `구매당 ${won(Math.round(cpa))} > 마진 ${won(Math.round(m))} — 팔수록 손해` : `마진(${won(Math.round(m))})만큼 쓰고 구매 0` });
-    if (cpa && cpa <= m * J.goodCpa) {
-      if (pu >= J.goodPurch) return out({ k: 'good', label: '우수 추천', why: `구매당 ${won(Math.round(cpa))} = 마진의 ${pct}% (${pctTxt} 이하) · 구매 ${pu}건` });
-      return out({ k: 'wait', sample: true, label: '애매 추천', why: `구매당은 마진의 ${pct}%로 좋지만 구매 ${pu}건 — ${J.goodPurch}건부터 우수` });
-    }
-    return out({ k: 'wait', label: '애매 추천', why: pu ? `구매당 ${won(Math.round(cpa))} = 마진의 ${pct}% (${pctTxt}~100% 사이)` : `구매 0 · 지출이 아직 마진(${won(Math.round(m))}) 전` });
-  }
-  const roas = sp ? (a.value || 0) / sp : 0;   // 카페24 상품을 못 찾음 → ROAS 고정 기준
-  if (roas < J.offRoas) return out({ k: 'off', label: 'OFF 추천', why: `ROAS ${roas.toFixed(2)} < ${J.offRoas} (상품 마진을 못 찾아 고정 기준)` });
-  if (roas >= J.goodRoas && pu >= J.goodPurch) return out({ k: 'good', label: '우수 추천', why: `ROAS ${roas.toFixed(2)} ≥ ${J.goodRoas} · 구매 ${pu}건 (고정 기준)` });
-  return out({ k: 'wait', sample: roas >= J.goodRoas, label: '애매 추천', why: `ROAS ${roas.toFixed(2)} · 구매 ${pu}건 (상품 마진을 못 찾아 고정 기준)` });
+  if (!pu) return sp >= J.spend ? out({ k: 'off', label: 'OFF 추천', why: `구매 0 · ${won(J.spend)} 넘게 씀` }) : out({ k: 'wait', label: '애매 추천', why: `구매 0 · 지출 ${won(Math.round(sp))} — ${won(J.spend)}까지 지켜봐요` });
+  if (roas < R.off) return out({ k: 'off', label: 'OFF 추천', why: `ROAS ${pc(roas)} — ${pc(R.off)} 미만` });
+  if (roas >= R.keep) return pu >= J.goodPurch ? out({ k: 'good', label: '우수 추천', why: `ROAS ${pc(roas)} (${pc(R.keep)}↑) · 구매 ${pu}건` })
+    : out({ k: 'wait', sample: true, label: '애매 추천', why: `ROAS ${pc(roas)}로 좋지만 구매 ${pu}건 — ${J.goodPurch}건부터 우수` });
+  return out({ k: 'wait', label: '애매 추천', why: `ROAS ${pc(roas)} (${pc(R.off)}~${pc(R.keep)} 사이)` });
 }
 const ADMGR_REC_RANK = { off: 0, good: 0, wait: 1, watch: 2 };
 function admgrTJudgeCmp(x, y) {
@@ -1349,7 +1338,7 @@ function admgrRecBadge(a) {
   return `<div style="margin-bottom:3px;"><span class="status-badge ${cls}" title="${esc(r.why)}" style="font-size:.62rem;">${r.k === 'watch' ? '' : '▶ '}${r.label}</span></div>`;
 }
 function admgrTJudgeToggle() { admgr.test.judgeOpen = !admgr.test.judgeOpen; renderAdmgr(true); }
-function admgrTJudgeSet(k, v) { admgrTJudge[k] = k === 'goodCpa' ? (Number(v) / 100 || ADMGR_TJUDGE_DEFAULT.goodCpa) : (Number(v) || ADMGR_TJUDGE_DEFAULT[k]); lsSet('adc_admgr_tjudge2', admgrTJudge); renderAdmgr(true); }
+function admgrTJudgeSet(k, v) { admgrTJudge[k] = Number(v) || ADMGR_TJUDGE_DEFAULT[k]; lsSet('adc_admgr_tjudge2', admgrTJudge); renderAdmgr(true); }
 function admgrTJudgeReset() { admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT }; lsSet('adc_admgr_tjudge2', admgrTJudge); renderAdmgr(true); }
 
 /* ── 행 썸네일: 리포트용 캐시(t.thumbs)를 표에도 — 없는 세트만 100개씩 조회 후 다시 그림 ── */
