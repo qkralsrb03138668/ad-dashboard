@@ -490,11 +490,20 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   /* 만든 사람 거르기 (2026-09-20): 광고세트 탭 — 평소엔 아무 표시 없고, '만든 사람 ▾'로 골랐을 때만 그 사람 세트 + 알림 한 줄 */
   let mkBan = '';
   if (isSet && admgr.mk.filter !== 'all') { vis = vis.filter(r => admgrMakerPass(null, r.id, r.name)); mkBan = admgrMakerBanner(vis, true); }
-  /* 역할 보기 (2026-10-26 사용자 승인): 전체 · 테스트 · 운영 · CBO — 세 탭 공통 필터, 버튼에 그 역할의 개수·지출·구매. 캠페인 탭은 CBO/세트 예산 둘만 */
-  const roleSum = L => { let sp = 0, pu = 0; for (const r of L) { sp += r.spend || 0; pu += r.purchases || 0; } return `${sp >= 1e4 ? (Math.round(sp / 1000) / 10).toLocaleString() + '만' : comma(sp)} · ${comma(pu)}건`; };
+  /* 역할 보기 (2026-10-26 사용자 승인): 전체 · 테스트 · 운영 · CBO — 세 탭 공통 필터, 버튼에 그 역할의 개수·예산·지출(10/28부터, 구매 뺌). 캠페인 탭은 CBO/세트 예산 둘만 */
+  /* 2026-10-28 사용자 요청: 칩 = 개수 · 예산(켜진 일예산 합) · 지출(선택 기간) — 구매 건수는 뺌. 예산은 알림판 '켜진 일예산'(admgrBudgetTotal)과 같은 셈:
+     켜진 캠페인 안 켜진 세트 예산 + 켜진 CBO 캠페인 예산(한 번만). 광고 탭은 광고가 속한 세트로 센다 */
+  const wan = v => v >= 1e4 ? (Math.round(v / 1000) / 10).toLocaleString() + '만' : comma(Math.round(v));
+  const campById = new Map(R.camps.map(c => [c.id, c])), setById = new Map(R.sets.map(x => [x.id, x]));
+  const roleBudget = L => { const seen = new Set(); let b = 0;
+    const camp = c => { if (!c || c.status !== 'ACTIVE' || seen.has('c' + c.id)) return; seen.add('c' + c.id); if (c.budget > 0) b += c.budget; else for (const x of (c.adsets || [])) if (x.status === 'ACTIVE') b += x.budget || 0; };
+    const set = x => { if (!x) return; const c = campById.get(x._campId); if (!c || c.status !== 'ACTIVE' || x.status !== 'ACTIVE') return; if (x._cbo) return camp(c); if (seen.has('s' + x.id)) return; seen.add('s' + x.id); b += x.budget || 0; };
+    for (const r of L) { if (r.adsets) camp(r); else if (r._setId) set(setById.get(r._setId)); else set(r); }
+    return b; };
+  const roleSum = L => { const sp = L.reduce((t, r) => t + (r.spend || 0), 0); return `예산 ${wan(roleBudget(L))} · 지출 ${wan(sp)}`; };
   const ROLES = isCamp ? [['all', '전체'], ['ops', '세트 예산'], ['cbo', 'CBO']] : [['all', '전체'], ['test', '테스트'], ['ops', '운영'], ['cbo', 'CBO']];
   const roleCur = isCamp && admgr.role === 'test' ? 'ops' : admgr.role;
-  const roleRow = `<div class="filter-tabs ag-role" style="margin-bottom:10px;"><span class="ag-lbl">역할</span>${ROLES.map(([k, l]) => { const L = vis.filter(r => admgrRolePass(r, k)); return `<button class="filter-tab ${roleCur === k ? 'active' : ''}" onclick="admgrRoleSet('${k}')" title="${k === 'test' ? '테스트 캠페인 안 _test 세트' : k === 'ops' ? (isCamp ? '캠페인 예산이 없는 캠페인' : '테스트 캠페인 안 test 없는 세트') : k === 'cbo' ? '캠페인 예산이 있는 캠페인 (리타겟팅 포함)' : '모든 역할'}">${l} <small class="ag-muted">${L.length} · ${roleSum(L)}</small></button>`; }).join('')}</div>`;
+  const roleRow = `<div class="filter-tabs ag-role" style="margin-bottom:10px;"><span class="ag-lbl">역할</span>${ROLES.map(([k, l]) => { const L = vis.filter(r => admgrRolePass(r, k)); return `<button class="filter-tab ${roleCur === k ? 'active' : ''}" onclick="admgrRoleSet('${k}')" title="${k === 'test' ? '테스트 캠페인 안 _test 세트' : k === 'ops' ? (isCamp ? '캠페인 예산이 없는 캠페인' : '테스트 캠페인 안 test 없는 세트') : k === 'cbo' ? '캠페인 예산이 있는 캠페인 (리타겟팅 포함)' : '모든 역할'} · 예산 = 켜진 세트·CBO 일예산 합, 지출 = 선택한 기간에 쓴 금액">${l} <small class="ag-muted">${L.length} · ${roleSum(L)}</small></button>`; }).join('')}</div>`;
   if (admgr.role !== 'all') vis = vis.filter(r => admgrRolePass(r, admgr.role));
 
   /* '최근 변경' 열(오늘·캠페인/세트 탭) · '자정세팅' 열 · '판정' 열 표시 여부 (원본 규칙) */
