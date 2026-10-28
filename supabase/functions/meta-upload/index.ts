@@ -191,10 +191,10 @@ Deno.serve(async (req) => {
     const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (me.perms) {   // SSO 사용자: 워크스페이스 세부 권한. 미디어 업로드(image/video_*)는 소재 등록에도 필요하므로 creative 권한으로도 허용
       const media = ["image", "video_start", "video_chunk", "video_finish"].includes(action);
-      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", campaign_copy: "upload", adset_repost: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
+      const need = ({ create: "upload", validate: "upload", diagnose: "upload", verify: "upload", ad_copy: "upload", campaign_copy: "upload", adset_repost: "upload", ad_recreate: "upload", adset_rename: "upload", marker_sync: "upload", creative_add: "creative", creative_save: "creative", creative_del: "delete" } as Record<string, "upload" | "creative" | "delete">)[action];
       if (media && !canAct(me, "upload") && !canAct(me, "creative")) return denyAct("upload");
       if (need && !canAct(me, need)) return denyAct(need);
-    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "campaign_copy", "adset_repost", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
+    } else if (["create", "validate", "diagnose", "verify", "ad_copy", "campaign_copy", "adset_repost", "ad_recreate", "adset_rename", "marker_sync"].includes(action) && me.role !== "admin") return json({ error: "권한이 없습니다 (관리자만)" }, 403);
 
     if (action === "status") return json({ token_set: !!env("META_WRITE_TOKEN"), pin_set: !!env("WRITE_PIN"), account: ACCOUNT });
     if (action === "model") return json(await readModel(url.searchParams.get("ad_id") ?? ""));
@@ -292,7 +292,7 @@ Deno.serve(async (req) => {
     const CREATIVE_ACTIONS = ["creative_add", "creative_save", "creative_del"];
     const COPY_ACTIONS = ["ad_copy", "adset_rename", "marker_sync", "ig_media"];   // ig_media = 인스타 게시물 목록 읽기(쓰기 아님)   // 광고 복사·세트 이름 표시 (2026-09-16) — 예산 변경이 아니라 PIN 없이 로그인 역할로
     // 미디어 업로드·소재 기록은 로그인 역할(마케터/관리자)만으로 허용 — 등록 PIN 폐지(2026-09-11 사용자 요청). PIN은 광고 생성(create/verify)에만.
-    const dryRepost = action === "adset_repost" && body.validate === true;   // 지난 소재: Meta validate_only로 세트 설정만 검사 — 아무것도 안 만들어서 PIN 없이 (2026-10-27)
+    const dryRepost = (action === "adset_repost" || action === "ad_recreate") && body.validate === true;   // 지난 소재: Meta validate_only로 세트 설정만 검사 — 아무것도 안 만들어서 PIN 없이 (2026-10-27)
     if (!CREATIVE_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action) && !COPY_ACTIONS.includes(action) && action !== "media_urls" && !dryRepost) {   // media_urls = 미리보기 주소 읽기(쓰기 아님) — PIN 없이
       const pinErr = await checkPin(body.pin);
       if (pinErr) return json({ error: pinErr }, 403);
@@ -393,6 +393,62 @@ Deno.serve(async (req) => {
     }
     /* 지난 소재 다시 테스트 (2026-10-27 사용자 요청) — 고른 지난 광고마다: 그 광고가 돌던 세트의 타겟 + 고른 캠페인 지금 세트의 입찰·최적화·전환 이벤트로 새 세트 1개 +
        같은 소재로 광고 1개. 이름은 화면이 끌올 규칙으로 지어 보낸다. 세트·광고 모두 켜진 상태(사용자 지정) — 바로 돈이 나가므로 PIN */
+    /* 카탈로그 뺀 새 소재로 광고 다시 만들기 (2026-10-28 사용자 요청) — 끌올 소재 중 카탈로그 상품 세트가 붙은 것은 카탈로그 없는 캠페인에서
+       "product_catalog_id를 캠페인에 설정하거나 광고에서 제품 세트를 삭제" 오류로 거부됨. 원본 소재의 사진·영상·문구·강화옵션은 그대로 두고
+       제품 세트만 뺀 새 소재를 만들어, 이미 만들어 둔(빈) 세트에 광고로 넣고 세트를 켠다. validate:true면 아무것도 안 만들고 검사만(PIN 없이) */
+    if (action === "ad_recreate") {
+      const items = (body.items ?? []) as { src_ad_id?: unknown; adset_id?: unknown }[];
+      if (!Array.isArray(items) || !items.length || items.length > 5) return json({ error: "1~5개씩 보내세요" }, 400);
+      const CRE_FIELDS = "name,object_story_spec,asset_feed_spec,degrees_of_freedom_spec,url_tags,contextual_multi_ads,product_set_id,object_type";
+      const created: Rec[] = [], failed: Rec[] = [];
+      for (const it of items) {
+        const srcId = String(it.src_ad_id ?? ""), adsetId = String(it.adset_id ?? "");
+        if (!/^\d{5,25}$/.test(srcId) || !/^\d{5,25}$/.test(adsetId)) { failed.push({ src_ad_id: srcId, error: "항목 오류" }); continue; }
+        try {
+          const set = await graph(adsetId, { params: { fields: "name,ads.limit(1){id},destination_type,promoted_object,optimization_goal,billing_event" } });
+          const name = String(set.name ?? "").normalize("NFC");
+          if (body.validate !== true && ((set.ads as Rec)?.data as Rec[] ?? []).length) { failed.push({ src_ad_id: srcId, name, error: "이미 광고가 있는 세트 — 건너뜀" }); continue; }
+          const src = await graph(srcId, { params: { fields: `creative{${CRE_FIELDS}}` } });
+          const cre = (src.creative ?? {}) as Rec;
+          const oss = JSON.parse(JSON.stringify(cre.object_story_spec ?? {})) as Rec;
+          const removed: string[] = [];
+          for (const k of ["link_data", "video_data"]) {   // 상품 세트를 가리키는 키만 뺀다
+            const d = oss[k] as Rec | undefined; if (!d) continue;
+            for (const x of ["retailer_item_ids", "product_set_id", "multi_share_end_card", "multi_share_optimized", "child_attachments"]) if (d[x] !== undefined) { removed.push(`${k}.${x}`); delete d[x]; }
+          }
+          if (oss.template_data) { removed.push("template_data"); delete oss.template_data; }
+          for (const k of ["link_data", "video_data"]) {   // 읽어 온 버튼엔 링크가 빠져 있다 — 그대로 보내면 Meta가 WhatsApp 버튼으로 보고 거부(실측)
+            const d = oss[k] as Rec | undefined, cta = d?.call_to_action as Rec | undefined, link = d?.link ?? (cta?.value as Rec)?.link;
+            if (cta && !(cta.value as Rec)?.link && link) cta.value = { ...((cta.value ?? {}) as Rec), link };
+          }
+          const vd = oss.video_data as Rec | undefined;   // 읽어 오면 썸네일이 image_url·image_hash 둘 다 온다 — 하나만 보내야 생성됨
+          if (vd?.image_hash && vd.image_url) delete vd.image_url;
+          const p: Record<string, string> = { name, object_story_spec: JSON.stringify(oss) };
+          if (cre.asset_feed_spec) p.asset_feed_spec = JSON.stringify(cre.asset_feed_spec);
+          if (cre.degrees_of_freedom_spec) {
+            const dof = JSON.parse(JSON.stringify(cre.degrees_of_freedom_spec)) as Rec;
+            const feats = (dof.creative_features_spec ?? {}) as Rec;
+            for (const k of Object.keys(feats)) if (/^standard_enhancements|^advantage_plus_creative$|product_extension|catalog|carousel/.test(k)) { removed.push(`dof.${k}`); delete feats[k]; }
+            p.degrees_of_freedom_spec = JSON.stringify(dof);
+          }
+          if (cre.product_set_id) removed.push("product_set_id");
+          if (cre.url_tags) p.url_tags = String(cre.url_tags);
+          p.contextual_multi_ads = JSON.stringify(cre.contextual_multi_ads ?? { enroll_status: "OPT_OUT" });
+          if (body.validate === true) {
+            try { await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: { ...p, ...VALIDATE } }); }   // 소재만 검사 — 광고에 소재를 바로 넣어 검사하면 Meta가 엉뚱한 WhatsApp 오류를 냄(실측)
+            catch (e) { failed.push({ src_ad_id: srcId, name, error: String((e as Error).message).slice(0, 300), removed, spec: p, set }); continue; }   // 검사 때는 무엇을 보냈는지 같이
+            created.push({ src_ad_id: srcId, name, removed, validated: true, dof: Object.keys(((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) });
+            continue;
+          }
+          const cr = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });
+          const ad = await graph(`${ACCOUNT}/ads`, { method: "POST", params: { name, adset_id: adsetId, creative: JSON.stringify({ creative_id: String(cr.id) }), status: "ACTIVE" } });
+          await graph(adsetId, { method: "POST", params: { status: "ACTIVE" } });   // 옮긴 다른 세트와 같게 켬 — 캠페인이 꺼져 있으면 지출 없음
+          created.push({ src_ad_id: srcId, name, adset_id: adsetId, new_ad_id: String(ad.id), removed });
+        } catch (e) { failed.push({ src_ad_id: srcId, error: maskTok(String((e as Error).message)).slice(0, 300) }); }
+      }
+      if (created.length && body.validate !== true) await clearMetaCaches();
+      return json({ created, failed, ...(body.validate === true ? { validate_only: true } : {}) });
+    }
     if (action === "adset_repost") {
       const campId = String(body.campaign_id ?? "");
       if (!/^\d{5,25}$/.test(campId)) return json({ error: "캠페인을 골라주세요" }, 400);
