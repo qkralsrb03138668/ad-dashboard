@@ -1312,13 +1312,17 @@ function admgrBreakEven(a) {
   if (p && p.price > 0) { const m = manual > 0 ? manual : p.price - (p.supply || 0) * 1.1; return m > 0 ? { be: p.price / m, price: p.price, margin: m, name: p.name } : null; }
   return null;
 }
-function admgrRecommend(a) {   // null = 추천 대상 아님(판정 끝·테스트 종료·검토중). k: off | good | wait(애매, sample=구매 수 부족) | watch(기준 전)
+const admgrWkHold = now => [5, 6, 0].includes(new Date(now + 9 * 3600e3).getUTCDay());   // 금·토·일(KST) — 금·토가 낀 판정은 일요일까지 보고 월요일에
+function admgrRecommend(a, now = Date.now()) {   // null = 추천 대상 아님(판정 끝·테스트 종료·검토중). k: off | good | wait(애매, sample=구매 수 부족, weekend=주말 보류) | watch(기준 전)
   if (a.gone || (a.meta && a.meta.verdict) || !['eval', 'off'].includes(a.st)) return null;
   const J = admgrTJudge, R = ADMGR_ROAS, dp = admgrDPlus(a) ?? 0, sp = a.spend || 0, pu = a.purchases || 0, cpa = pu ? sp / pu : null, roas = sp ? (a.value || 0) / sp : 0;
   const out = r => ({ ...r, cpa, roas, offR: R.off, goodR: R.keep }), pc = v => Math.round(v * 100) + '%';
   if (dp < J.days) return out({ k: 'watch', label: '지켜보기', why: `D+${dp} — 판정은 D+${J.days}부터 (금액 조건 없음)` });
   if (!pu) return sp >= J.spend ? out({ k: 'off', label: 'OFF 추천', why: `구매 0 · ${won(J.spend)} 넘게 씀` }) : out({ k: 'wait', label: '애매 추천', why: `구매 0 · 지출 ${won(Math.round(sp))} — ${won(J.spend)}까지 지켜봐요` });
-  if (roas < R.off) return out({ k: 'off', label: 'OFF 추천', why: `ROAS ${pc(roas)} — ${pc(R.off)} 미만` });
+  /* 2026-10-29 사용자 확정: 금·토가 낀 첫 판정은 실제보다 나쁘게 나온다 (.insight-tmp/wk-newsets.mjs — 금요일 시작 테스트 첫 2일 323%로 최저인데
+     계속 돌린 세트는 3~9일째 606%로 최고, 2일 OFF였던 세트도 566%) → ROAS 450% 미만 OFF는 금~일엔 보류, 월요일에 판정. 구매 0·3만↑ OFF는 그대로 */
+  if (roas < R.off) return admgrWkHold(now) ? out({ k: 'wait', weekend: true, label: '월요일에 판정', why: `ROAS ${pc(roas)} — ${pc(R.off)} 미만이지만 금·토가 낀 판정이라 일요일까지 보고 월요일에 판단 (주말엔 테스트 첫 성적이 낮게 나와요)` })
+    : out({ k: 'off', label: 'OFF 추천', why: `ROAS ${pc(roas)} — ${pc(R.off)} 미만` });
   if (roas >= R.keep) return pu >= J.goodPurch ? out({ k: 'good', label: '우수 추천', why: `ROAS ${pc(roas)} (${pc(R.keep)}↑) · 구매 ${pu}건` })
     : out({ k: 'wait', sample: true, label: '애매 추천', why: `ROAS ${pc(roas)}로 좋지만 구매 ${pu}건 — ${J.goodPurch}건부터 우수` });
   return out({ k: 'wait', label: '애매 추천', why: `ROAS ${pc(roas)} (${pc(R.off)}~${pc(R.keep)} 사이)` });

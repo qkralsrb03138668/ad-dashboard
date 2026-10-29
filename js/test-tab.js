@@ -89,13 +89,13 @@ function renderAdmgrTest() {
       <label>판정 시작: D+<input class="inp" type="number" min="0" value="${J.days}" onchange="admgrTJudgeSet('days',this.value)"></label>
       <label>우수: 구매 <input class="inp" type="number" min="0" value="${J.goodPurch}" onchange="admgrTJudgeSet('goodPurch',this.value)">건↑ & ROAS ${Math.round(ADMGR_ROAS.keep * 100)}%↑</label>
       <label>구매 0이면 OFF: 지출 <input class="inp" type="number" min="0" step="5000" value="${J.spend}" onchange="admgrTJudgeSet('spend',this.value)">원↑</label>
-      <span style="color:#6b7280;">OFF: ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만 · 그 사이 애매 (ROAS 선은 예산 조정 후보와 같음)</span>
+      <span style="color:#6b7280;">OFF: ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만 (금~일엔 월요일로 보류) · 그 사이 애매 (ROAS 선은 예산 조정 후보와 같음)</span>
       <button class="btn-ghost" onclick="admgrTJudgeReset()">기본값</button><button class="btn-ghost" onclick="admgrTJudgeToggle()">닫기</button></div>` : '';
   const tile = ([k, label, sub]) => { const n = by(k).length;
     const s = k === 'judge' ? `D+${J.days}부터 — 추천 보고 확정` : sub;
     return `<button class="tt-stage ${stage === k ? 'on' : ''}" onclick="admgrTtStage('${k}')"><span class="t">${label}</span>${k === 'judge' && n ? '<span class="n">오늘 할 일</span>' : ''}<b>${n}개</b>${n && !admgrMobile() ? admgrTtStageNums(by(k), k) : ''}<small>${s}</small></button>`; };
   const extra = stage === 'gone' || stage === 'hidden' ? `<div class="tt-crit">${stage === 'gone' ? '테스트 완료로 이름에서 test가 빠진 소재예요 (60일 보관) — 늦은 판정도 여기서 할 수 있어요' : '숨긴 소재예요 — 체크하고 아래 [다시 보이기]'} <a href="#" onclick="admgrTtStage('${by('judge').length ? 'judge' : 'run'}');return false;">← 돌아가기</a></div>` : '';
-  const crit = stage === 'judge' ? `<div class="tt-crit"><b>판정 기준</b> · 우수 = 구매 ${J.goodPurch}건↑ & ROAS ${Math.round(ADMGR_ROAS.keep * 100)}%↑ · OFF = ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만 (또는 구매 0으로 ${won(J.spend)}↑ 씀) · 그 사이 애매 &nbsp;|&nbsp; <b style="color:#4f46e5;">파란 테두리</b> = 추천, 누르면 확정 · OFF로 확정해도 광고는 자동으로 안 꺼져요</div>`
+  const crit = stage === 'judge' ? `<div class="tt-crit"><b>판정 기준</b> · 우수 = 구매 ${J.goodPurch}건↑ & ROAS ${Math.round(ADMGR_ROAS.keep * 100)}%↑ · OFF = ROAS ${Math.round(ADMGR_ROAS.off * 100)}% 미만 (금~일엔 월요일로 보류) 또는 구매 0으로 ${won(J.spend)}↑ 씀 · 그 사이 애매 &nbsp;|&nbsp; <b style="color:#4f46e5;">파란 테두리</b> = 추천, 누르면 확정 · OFF로 확정해도 광고는 자동으로 안 꺼져요</div>`
     : stage === 'done' ? `<div class="tt-crit">판정을 확정한 소재예요 — 체크하고 <b>테스트 완료</b>를 누르면 세트 이름에서 _test를 지우고 리포트를 만들어요 · 판정을 바꾸려면 다른 버튼, 취소는 같은 버튼을 다시</div>`
     : stage === 'run' ? `<div class="tt-crit">아직 판정 전이에요 — D+${J.days}가 되면 금액과 상관없이 '판정할 차례'로 넘어가요</div>` : '';
   return head + judgeBox + `<div class="tt-stages">${TT_STAGES.map(tile).join('')}${admgrMobile() ? '' : admgrTtWeekRate()}</div>` + extra + crit + (admgrMobile() ? admgrTtList(rows, stage) : admgrTtTable(rows, stage)) + admgrTtBar(rows, stage);

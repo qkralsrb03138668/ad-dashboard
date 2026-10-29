@@ -493,13 +493,18 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
 test('admgrRecommend: D+2부터, 우수 = 구매 3↑ & ROAS 550%↑, OFF = ROAS 450% 미만 · 구매 0은 3만↑ (10/28 ROAS 기준)', () => {
   vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT };", ctx);
   const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: m.reg || '2026-01-01', st: 'eval', meta: m.meta || {}, spend: m.sp ?? 50000, purchases: m.pur, value: m.val ?? m.pur * 50000 });
-  const k = m => g('admgrRecommend')(ad(m)).k;
+  const WED = Date.parse('2026-10-28T03:00:00Z'), k = (m, now = WED) => g('admgrRecommend')(ad(m), now).k;   // 평일 기준 — 금~일 보류는 아래에서 따로
   assert.equal(k({ pur: 1 }), 'off');                         // ROAS 100%
   assert.equal(k({ pur: 0 }), 'off');                         // 구매 0 · 5만 씀 (3만↑)
   assert.equal(k({ pur: 0, sp: 20000 }), 'wait');             // 구매 0 · 2만 — 아직
   assert.equal(k({ pur: 6 }), 'good');                        // ROAS 600%
   assert.equal(k({ pur: 5 }), 'wait');                        // ROAS 500% — 450~550%
-  const s = g('admgrRecommend')(ad({ pur: 2, val: 300000 })); assert.equal(s.k + ':' + !!s.sample, 'wait:true');   // 600%로 좋지만 2건
+  const s = g('admgrRecommend')(ad({ pur: 2, val: 300000 }), WED); assert.equal(s.k + ':' + !!s.sample, 'wait:true');   // 600%로 좋지만 2건
+  // 10/29: 금·토·일(KST)엔 ROAS 450% 미만 OFF를 월요일로 보류, 구매 0·3만↑ OFF와 우수는 그대로
+  const FRI = Date.parse('2026-10-30T03:00:00Z'), SUN23 = Date.parse('2026-11-01T14:30:00Z'), MON = Date.parse('2026-11-01T15:30:00Z');   // 일 23:30 · 월 00:30 KST
+  assert.equal([FRI, SUN23, MON].map(n => k({ pur: 1 }, n)).join(), 'wait,wait,off');
+  assert.equal(g('admgrRecommend')(ad({ pur: 1 }), FRI).weekend, true);
+  assert.equal(k({ pur: 0 }, FRI) + ',' + k({ pur: 6 }, FRI), 'off,good');
   assert.equal(k({ pur: 3, sp: 20000, val: 120000 }), 'good');   // 금액 조건 없음 — 2만원에 3장, ROAS 600%
   assert.equal(k({ pur: 3, reg: g('todayStr')(-1) }), 'watch');   // D+1
   assert.equal(g('admgrRecommend')(ad({ pur: 6, meta: { verdict: 'off' } })), null);   // 확정한 건 추천 안 함
