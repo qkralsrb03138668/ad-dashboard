@@ -201,7 +201,7 @@ function regPresetFilter(auto) {
   box.innerHTML = rows.map(p => `<div onclick="regPresetPick('${p.product_no}')" style="display:flex;align-items:center;gap:10px;padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;">
       ${mediaThumbHtml(p.image, 'image', 40)}<div style="flex:1;min-width:0;"><div style="font-size:.84rem;color:#1e1b4b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>
       <div style="font-size:.7rem;color:#9ca3af;">${regVerTag(p.name) ? esc(regVerTag(p.name)) + ' · ' : ''}${esc(p.core)} · 등록 ${p.created ? p.created.slice(2).replace(/-/g, '.') : '-'} · 마진 ${Math.floor(Math.max(0, p.price - p.supply_price) / 1000)}</div></div></div>`).join('')
-    || '<div style="padding:12px;font-size:.8rem;color:#9ca3af;">검색 결과 없음 — 진열·판매 중 상품만 나와요</div>';
+    || '<div style="padding:12px;font-size:.8rem;color:#9ca3af;">검색 결과 없음 — 진열·판매 중 상품과 최근 60일 등록 상품만 나와요</div>';
   if (auto && rows.length === 1 && !reg.preset) regPresetPick(String(rows[0].product_no));
 }
 function regPresetPick(no) {

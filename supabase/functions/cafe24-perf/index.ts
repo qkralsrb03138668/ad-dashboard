@@ -342,6 +342,15 @@ Deno.serve(async (req) => {
         });
         if (page.length < 100) break;
       }
+      // 최근 60일 등록 상품은 진열·판매 전이어도 포함 — 소재는 상품 오픈 전에 먼저 올리니까 (신상품 검색 안 되던 실사례 2026-10-30)
+      const day = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+      const since = `${day(-60)}&created_end_date=${day(1)}`, seen = new Set(rows.map((r) => r.product_no));
+      const recent = ((await apiGet(
+        `${API_BASE}/admin/products?created_start_date=${since}&fields=product_no,product_name,list_image,price,supply_price,created_date&limit=100`, token)).products ?? []) as Record<string, unknown>[];
+      for (const pr of recent) if (!seen.has(Number(pr.product_no))) rows.push({
+        product_no: Number(pr.product_no), name: String(pr.product_name ?? "").trim(), image: String(pr.list_image ?? ""),
+        price: Number(pr.price ?? 0) || 0, supply_price: Number(pr.supply_price ?? 0) || 0, created: String(pr.created_date ?? "").slice(0, 10),
+      });
       return respond({ product_count: rows.length, rows });
     }
 
