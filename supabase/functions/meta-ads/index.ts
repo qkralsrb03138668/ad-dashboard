@@ -809,8 +809,12 @@ async function handle(req: Request): Promise<Response> {
     // 사용자가 화면을 아무리 새로고침해도 Meta 호출은 늘지 않는다. 쿨다운 중이면 건너뛴다.
     // ponytail: 고정 2종만 수집. 어제/7일/30일 칩은 여전히 사용자 요청 시 5분 캐시 — 필요해지면 최근 요청 키를 기록해 같이 수집
     if (action === "sync") {
+      // 시각 예약(주말 모드 금 17시·일 15시) 반영 — 새 cron 없이 이 5분 cron에 얹는다. 읽기 쿨다운과 무관하게 먼저 (2026-10-29)
+      const timed = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/meta-budget?action=run_timed`, { method: "POST", headers: { "x-cron-secret": Deno.env.get("CRON_SECRET") ?? "" } })
+        .then((r) => r.json()).catch((e) => ({ error: String(e) }));
+      if (timed?.due) await cacheSet("meta:timed:last", { at: new Date().toISOString(), ...timed });
       const until = await cooldownUntil();
-      if (until) return json({ skipped: "cooldown", cooldown_until: until });
+      if (until) return json({ skipped: "cooldown", cooldown_until: until, timed });
       const t = seoulToday();
       setCurKey(`meta:hierarchy:today:${t}`);
       const h = await fetchHierarchy(c, "today");

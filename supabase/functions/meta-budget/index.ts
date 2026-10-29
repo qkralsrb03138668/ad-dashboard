@@ -8,6 +8,8 @@
 //   POST ?action=verify   { pin } → PIN 인증만 (메뉴의 'PIN 인증' 버튼 — 세션 단위 활성화)
 //   POST ?action=apply    { object_id, level, new_budget, pin } → 즉시 적용
 //   POST ?action=schedule { object_id, object_name, level, new_budget, pin } → 23:45 예약 (23:45 전이면 오늘, 지나면 내일)
+//        + at:"YYYY-MM-DDTHH:MM"(KST), expect → 그 시각 예약(mode=timed, 지난 시각이면 다음 실행에). expect = 반영 직전 기대 예산, 다르면 건너뜀
+//   POST ?action=run_timed(헤더 x-cron-secret) → apply_at이 지난 timed 예약 반영 — meta-ads sync(5분 cron)가 부른다
 //   POST ?action=cancel   { id, pin } → 예약 취소
 //   POST ?action=run_reset(헤더 x-cron-secret) → 23:45 KST: 원복 승인분 적용(예약 있는 세트 제외) → 예약분 적용
 //   POST ?action=run      (헤더 x-cron-secret) → 00:00 KST: 남은 예약분 적용(23:45 실행을 놓쳤을 때의 보조)
@@ -154,10 +156,12 @@ async function runReset(): Promise<Record<string, unknown>> {
   const cur = new Map((await metaAllAdsets()).map((s) => [s.id, s]));
   // 23:45 예약이 걸린 세트는 원복하지 않는다 — 바로 이어지는 runPending이 예약 금액을 넣는다 (2026-09-07 사용자 확인)
   const reserved = new Set(((await pg(`budget_writes?status=eq.pending&mode=eq.midnight&apply_date=lte.${day}&select=object_id`, "GET")) as { object_id: string }[]).map((r) => String(r.object_id)));
+  // 오늘 시각 예약(주말 모드 금 17시 감액·일 15시 원복)이 반영된 세트는 그 금액이 오늘의 기준 — 00:10 스냅샷으로 되돌리면 주말 모드가 풀린다 (2026-10-29)
+  const timedToday = new Map(((await pg(`budget_writes?status=eq.applied&mode=eq.timed&applied_at=gte.${addDays(day, -1)}T15:00:00Z&order=applied_at.asc&select=object_id,new_budget`, "GET")) as { object_id: string; new_budget: number }[]).map((r) => [String(r.object_id), num(r.new_budget)]));
   let ok = 0, fail = 0, same = 0, skipped = 0;
   const todo: { id: string; target: number; now: { name: string; budget: number } }[] = [];
   for (const s of snap) {
-    const id = String(s.adset_id), target = Math.round(num(s.budget));
+    const id = String(s.adset_id), target = Math.round(timedToday.get(id) ?? num(s.budget));
     const now = cur.get(id); if (!now) continue;
     if (reserved.has(id)) { skipped++; continue; }
     if (Math.round(now.budget) === target) { same++; continue; }
@@ -207,7 +211,7 @@ async function checkPin(pin: string): Promise<string | null> {
 async function runPending(includeToday = true): Promise<Record<string, unknown>> {
   const today = seoulToday();
   // 00:00 보조 실행은 어제까지의 예약만 — 23:45 뒤에 '내일 23:45'로 잡은 예약이 날짜가 바뀌는 순간 적용되던 것 (2026-10-26 점검)
-  const due = (await pg(`budget_writes?status=eq.pending&mode=neq.reset_approve&apply_date=${includeToday ? "lte" : "lt"}.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];   // 승인 행(object_id "*")은 예산 적용 대상이 아님 — runReset이 끊긴 날 00:00 보조 실행이 "*"에 예산을 넣으려다 실패 기록을 남겼다 (2026-09-13)
+  const due = (await pg(`budget_writes?status=eq.pending&mode=eq.midnight&apply_date=${includeToday ? "lte" : "lt"}.${today}&order=requested_at.asc`, "GET")) as Record<string, unknown>[];   // 승인 행(object_id "*")은 예산 적용 대상이 아님 — runReset이 끊긴 날 00:00 보조 실행이 "*"에 예산을 넣으려다 실패 기록을 남겼다 (2026-09-13)
   let ok = 0, fail = 0;
   for (let i = 0; i < due.length; i += 10) {   // runReset과 같은 이유로 10개씩 동시 (2026-09-13)
     await Promise.all(due.slice(i, i + 10).map(async (row) => {
@@ -226,6 +230,37 @@ async function runPending(includeToday = true): Promise<Record<string, unknown>>
   return { due: due.length, applied: ok, failed: fail };
 }
 
+// 시각 예약 반영 — apply_at ≤ 지금인 timed pending. old_budget(기대 예산)과 지금 예산이 다르면 그 사이 누가 바꾼 것이라 건너뜀
+async function runTimed(): Promise<Record<string, unknown>> {
+  const due = (await pg(`budget_writes?status=eq.pending&mode=eq.timed&apply_at=lte.${new Date().toISOString()}&order=apply_at.asc&limit=200`, "GET")) as Record<string, unknown>[];
+  if (!due.length) return { due: 0 };
+  let ok = 0, skip = 0, fail = 0;
+  const token = env("META_ACCESS_TOKEN") || env("META_WRITE_TOKEN");
+  for (let i = 0; i < due.length; i += 10) {
+    await Promise.all(due.slice(i, i + 10).map(async (row) => {
+      // 먼저 잡아 둔다 — 5분 cron이 겹쳐 돌아도 같은 행을 두 번 반영하지 않게
+      const got = (await pg(`budget_writes?id=eq.${row.id}&status=eq.pending`, "PATCH", { status: "running" })) as unknown[];
+      if (!got.length) return;
+      try {
+        if (!env("META_WRITE_TOKEN")) throw new Error("META_WRITE_TOKEN 미설정");
+        const cur = await metaGetObj(String(row.object_id), token);
+        if (row.old_budget != null && Math.round(cur.daily) !== Math.round(num(row.old_budget))) {
+          await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "canceled", applied_at: new Date().toISOString(), error: `그 사이 예산이 바뀌어 건너뜀 (예상 ${Math.round(num(row.old_budget))} · 지금 ${Math.round(cur.daily)})` });
+          skip++; return;
+        }
+        await metaSetBudget(String(row.object_id), num(row.new_budget));
+        await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "applied", applied_at: new Date().toISOString() });
+        ok++;
+      } catch (e) {
+        await pg(`budget_writes?id=eq.${row.id}`, "PATCH", { status: "failed", applied_at: new Date().toISOString(), error: String(e).slice(0, 300) }).catch(() => {});
+        fail++;
+      }
+    }));
+  }
+  if (ok) await clearMetaCaches();
+  return { due: due.length, applied: ok, skipped: skip, failed: fail };
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -234,10 +269,11 @@ Deno.serve(async (req) => {
 
   try {
     // 자정 실행 경로 — 접근키 대신 cron 비밀 헤더
-    if (action === "run" || action === "snapshot" || action === "run_reset" || action === "rename_ads") {
+    if (action === "run" || action === "snapshot" || action === "run_reset" || action === "rename_ads" || action === "run_timed") {
       const secret = env("CRON_SECRET");
       if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
       if (action === "snapshot") return json(await snapshotDayStart(url.searchParams.get("backfill") === "1"));
+      if (action === "run_timed") return json(await runTimed());
       // 광고명 일괄 변경 (2026-09-09 사용자 요청: 광고명을 광고세트명과 동일하게) — 이름만 바꾸는 쓰기라 cron 비밀키로. budget_writes에 mode=rename으로 기록(error 칸에 이전 이름)
       if (action === "rename_ads") {
         const items = ((await req.json().catch(() => ({}))).items ?? []) as { id: string; name: string; old?: string; level?: string }[];
@@ -291,7 +327,8 @@ Deno.serve(async (req) => {
       const hmNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
       const runDay = hmNow >= "23:45" ? seoulToday() : addDays(seoulToday(), -1);
       const lastrun = await pg(`budget_writes?mode=in.(reset,midnight,reset_approve)&status=in.(applied,failed)&applied_at=gte.${runDay}T14:45:00Z&applied_at=lt.${runDay}T15:45:00Z&order=applied_at.asc&limit=500&select=id,mode,status,object_id,object_name,old_budget,new_budget,applied_at,error`, "GET");   // 23:45~00:45 실행 창만 — 낮에 승인 취소한 행(canceled)이 "실패"로 뜨던 오탐 제거 (2026-09-12)
-      return json({ pending, recent, daystart, lastrun, run_day: runDay });
+      const timed = await pg(`budget_writes?mode=eq.timed&status=neq.pending&apply_at=gte.${addDays(seoulToday(), -3)}T00:00:00Z&order=apply_at.asc&limit=300&select=id,status,object_id,object_name,old_budget,new_budget,apply_at,applied_at,error`, "GET");   // 최근 3일 시각 예약 결과 — 주말 모드 알림용
+      return json({ pending, recent, daystart, lastrun, run_day: runDay, timed });
     }
 
     // 이하 쓰기 — 매 요청 PIN 검증
@@ -376,9 +413,25 @@ Deno.serve(async (req) => {
       return json({ ok: true, old_budget: cur.daily, new_budget: newBudget });
     }
 
+    if (action === "schedule" && body.at) {   // 시각 예약 (2026-10-29 주말 모드) — 같은 대상·같은 시각 예약만 대체
+      const at = String(body.at);
+      if (!/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(at)) return json({ error: "at은 YYYY-MM-DDTHH:MM (KST)" }, 400);
+      const t = Date.parse(`${at}:00+09:00`);
+      if (!(t < Date.now() + 8 * 24 * 3600e3)) return json({ error: "8일 안의 시각만 예약할 수 있어요" }, 400);
+      const applyAt = new Date(Math.max(t, Date.now())).toISOString();   // 지난 시각이면 다음 실행(5분 안)에
+      const expect = body.expect != null ? Math.round(num(body.expect)) : (cur.daily || null);
+      await pg(`budget_writes?object_id=eq.${objectId}&status=eq.pending&mode=eq.timed&apply_at=eq.${encodeURIComponent(new Date(t).toISOString())}`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
+      await pg("budget_writes", "POST", {
+        object_id: objectId, object_name: cur.name || String(body.object_name ?? ""), level,
+        old_budget: expect, new_budget: newBudget, mode: "timed", apply_at: applyAt,
+        apply_date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date(applyAt)), status: "pending", requested_by: who,
+      });
+      return json({ ok: true, apply_at: applyAt, new_budget: newBudget, expect });
+    }
+
     if (action === "schedule") {
-      // 같은 대상의 기존 예약은 자동 대체 (최신 예약 하나만 유효)
-      await pg(`budget_writes?object_id=eq.${objectId}&status=eq.pending`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
+      // 같은 대상의 기존 23:45 예약은 자동 대체 (최신 예약 하나만 유효) — 시각 예약(timed)은 건드리지 않는다
+      await pg(`budget_writes?object_id=eq.${objectId}&status=eq.pending&mode=eq.midnight`, "PATCH", { status: "canceled", applied_at: new Date().toISOString() }).catch(() => {});
       // 2026-09-07 저녁: 예약 시각 00:00 → 23:45. 지금이 23:45 전이면 오늘 23:45, 지났으면 내일 23:45
       const hm = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
       const applyDate = hm < "23:45" ? seoulToday() : addDays(seoulToday(), 1);

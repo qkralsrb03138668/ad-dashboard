@@ -4,7 +4,7 @@
    검사는 admgrAlert.checks에 함수로 등록: (cfg) → [{ key, lvl:'red'|'yellow'|'blue', text(html), act?:{label, onclick} }]. '오늘 하루 숨기기'는 이 브라우저에만.
    (index.html에서 분리 로드 — 전역 함수·변수를 그대로 공유) */
 'use strict';
-const ADMGR_ALERT_DEF = { cap: 4500000, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 900 };   // 10/28 구매당 비용 → ROAS: 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~900%(유지 구간) 테스트 세트
+const ADMGR_ALERT_DEF = { cap: 4500000, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 900, wkCutHour: 17, wkBackHour: 15 };   // 10/28 구매당 비용 → ROAS: 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~900%(유지 구간) 테스트 세트
 const admgrAlert = { cfg: null, ver: null, loading: false, checks: [] };
 function admgrAlertCfg() { return Object.assign({}, ADMGR_ALERT_DEF, admgrAlert.cfg || {}); }
 async function admgrAlertCfgEnsure() {
@@ -48,8 +48,8 @@ function admgrAlertCfgModal() {
   const f = (k, label, unit, step) => `<label style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:.8rem;"><span style="flex:1;">${label}</span><input id="alc-${k}" class="inp" type="number" min="0" step="${step || 1}" value="${c[k]}" style="width:120px;text-align:right;" /><span style="width:28px;color:#6b7280;">${unit}</span></label>`;
   $('abm-title').textContent = '알림 기준'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `${f('cap', '켜진 일예산 합계 상한 (0 = 경고 안 함)', '원', 10000)}${f('fatigueRoas', '소재 피로 — 전주 대비 ROAS 하락', '%', 5)}${f('fatigueMinPur', '피로 감지에 필요한 지난주 구매', '건')}${f('fatigueCooldown', '같은 상품 피로 재알림 간격', '일')}
-    <div style="font-size:.74rem;font-weight:800;color:#6b7280;margin:10px 0 2px;">주말 모드 (금 23:45 감액 → 일 23:45 원복)</div>${f('weekend', '켬 1 / 끔 0', '')}${f('weekendPct', '금요일 밤 감액 폭', '%', 5)}${f('wkRoasLo', '대상 구간 — 7일 ROAS 이상', '%', 50)}${f('wkRoasHi', '대상 구간 — 7일 ROAS 미만', '%', 50)}
-    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~900%)</div>
+    <div style="font-size:.74rem;font-weight:800;color:#6b7280;margin:10px 0 2px;">주말 모드 (금 ${c.wkCutHour}시 감액 → 일 ${c.wkBackHour}시 원복)</div>${f('weekend', '켬 1 / 끔 0', '')}${f('weekendPct', '금요일 감액 폭', '%', 5)}${f('wkCutHour', '금요일 감액 시각 (0~23)', '시')}${f('wkBackHour', '일요일 원복 시각 (0~23)', '시')}${f('wkRoasLo', '대상 구간 — 7일 ROAS 이상', '%', 50)}${f('wkRoasHi', '대상 구간 — 7일 ROAS 미만', '%', 50)}
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~900% · 금 17시 → 일 15시)</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button><button class="btn-analyze" onclick="admgrAlertCfgSave()">저장</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
@@ -392,8 +392,10 @@ async function admgrPlanApply() {
 admgrAlert.checks.push(admgrCheckPlan);
 
 /* ── 주말 모드 (2026-10-26 사용자 요청): 금~일 매출이 약한 쇼핑몰 주기에 맞춰, 7일 ROAS가 유지 구간(550~900%)인 테스트 세트만 (10/28 구매당÷마진 35~50% → ROAS)
-   금요일 23:45에 −25% 예약 → 일요일 23:45에 원복 예약. 좋은 세트(900%↑)는 주말에도 좋아서 안 건드리고, 나쁜 세트(550% 미만)는 예산 조정 후보에서 이미 줄인다.
-   예약은 서버 schedule(23:45 반영, PIN)을 그대로 쓴다 — 23:45 전에 걸어야 그날 반영. 금요일에 건 금액은 shared_state weekend_log에 적어 일요일 원복 때 쓴다 */
+   좋은 세트(900%↑)는 주말에도 좋아서 안 건드리고, 나쁜 세트(550% 미만)는 예산 조정 후보에서 이미 줄인다.
+   2026-10-29 시각 변경(사용자 확정): 카페24 시간대별 71주 — 금 19시부터 주문율·광고 효율 하락, 일 16시 회복·17~23시 평일보다 좋음 → 금 17시 감액 · 일 15시 원복.
+   금요일에 [예약 걸기] 한 번(PIN)으로 서버 시각 예약 두 개(mode=timed: 감액 at 금 17시 expect 지금 예산 / 원복 at 일 15시 expect 감액값)를 건다.
+   meta-ads sync(5분 cron)가 반영, 그 사이 예산이 바뀐 세트는 건너뜀. 건 내용은 shared_state weekend_log {week, cut[], back_at} */
 function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, roas }] — 지금 켜져 있고 예산 있는 테스트 세트 중 7일 ROAS(%)가 [wkRoasLo, wkRoasHi)
   const h = admgrAlert.h7; if (!h || !h.campaigns) return null;
   const s7 = new Map(h.campaigns.flatMap(c => (c.adsets || []).map(s => [s.id, s])));
@@ -415,23 +417,35 @@ async function admgrWeekendLogEnsure() {
   A.wkLoading = false;
 }
 function admgrWeekendFri(d) { const x = new Date(d + 'T00:00:00Z'), dow = x.getUTCDay(); return admgrShiftDay(d, dow >= 5 ? 5 - dow : dow === 0 ? -2 : 5 - dow); }   // 이번 주말의 금요일 날짜 (금·토·일 → 그 금요일, 월~목 → 다가오는 금요일)
+const admgrWeekendTimes = (fri, cfg) => { const h = n => String(n).padStart(2, '0') + ':00'; return { cut: `${fri}T${h(cfg.wkCutHour)}`, back: `${admgrShiftDay(fri, 2)}T${h(cfg.wkBackHour)}` }; };   // 서버 schedule의 at (KST)
+const admgrKstMs = at => Date.parse(at + ':00+09:00');
+function admgrWeekendRun(L, fromT, toT) {   // 그 주 세트들의 시각 예약 결과 { ok, skip, fail, wait } — meta-budget pending의 pending(timed)·timed(최근 3일 결과)
+  const ids = new Set(L.cut.map(t => String(t.id))), P = admgr.write.lastPending || {}, o = { ok: 0, skip: 0, fail: 0, wait: 0 };
+  for (const r of [...(P.pending || []).filter(r => r.mode === 'timed'), ...(P.timed || [])]) {
+    const t = Date.parse(r.apply_at); if (!ids.has(String(r.object_id)) || !(t >= fromT - 60e3 && t < toT)) continue;
+    o[r.status === 'applied' ? 'ok' : r.status === 'canceled' ? 'skip' : r.status === 'failed' ? 'fail' : 'wait']++;
+  }
+  return o;
+}
 function admgrCheckWeekend(cfg) {
   if (!cfg.weekend) return [];
   const A = admgrAlert; if (A.wkLog === undefined) { if (admgr.data && !admgr.demo) setTimeout(() => admgrWeekendLogEnsure(), 0); return []; }
   const k = admgrKst(new Date().toISOString()); if (!k) return [];
-  const dow = k.getUTCDay(), hm = k.getUTCHours() * 60 + k.getUTCMinutes(), today = todayStr(0), fri = admgrWeekendFri(today);
-  const L = A.wkLog, thisWeek = L && L.week === fri ? L : null;
-  if (dow === 5 && hm < 23 * 60 + 45 && !thisWeek) {   // 금요일: 아직 안 걸었으면
+  const dow = k.getUTCDay(), hm = k.getUTCHours() * 60 + k.getUTCMinutes(), today = todayStr(0), fri = admgrWeekendFri(today), now = Date.now();
+  const L = A.wkLog, thisWeek = L && L.week === fri ? L : null, W = admgrWeekendTimes(fri, cfg), cutT = admgrKstMs(W.cut), backT = admgrKstMs(W.back);
+  if (dow === 5 && !thisWeek) {   // 금요일: 아직 안 걸었으면 — 감액 시각이 지나서 걸면 5분 안에 반영
     const T = admgrWeekendTargets(cfg); if (!T) return [];
     if (!T.length) return [{ key: 'wk-none:' + today, lvl: 'blue', text: `<b>주말 모드</b> 오늘은 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 테스트 세트가 없어 걸 게 없어요` }];
-    return [{ key: 'wk-cut:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 세트 <b>${T.length}개</b>를 오늘 23:45에 <b>−${cfg.weekendPct}%</b> 예약 (일예산 ${admgrW(T.reduce((a, t) => a + t.from, 0))} → ${admgrW(T.reduce((a, t) => a + t.to, 0))}) · 일요일 23:45 원복`, act: dnrbCan('budget') ? { label: '예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
+    return [{ key: 'wk-cut:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 세트 <b>${T.length}개</b>를 ${now < cutT ? `오늘 ${cfg.wkCutHour}시에` : '지금(5분 안)'} <b>−${cfg.weekendPct}%</b> → 일요일 ${cfg.wkBackHour}시 원복, 한 번에 예약 (일예산 ${admgrW(T.reduce((a, t) => a + t.from, 0))} → ${admgrW(T.reduce((a, t) => a + t.to, 0))})`, act: dnrbCan('budget') ? { label: '예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
   }
-  if (thisWeek && thisWeek.cut && thisWeek.cut.length && !thisWeek.restored_at) {
-    if (dow === 0 && hm < 23 * 60 + 45) return [{ key: 'wk-restore:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 금요일에 −${cfg.weekendPct}% 한 세트 <b>${thisWeek.cut.length}개</b> — 오늘 23:45에 원래 예산으로 원복 예약`, act: dnrbCan('budget') ? { label: '원복 예약 걸기', onclick: 'admgrWeekendRestore()' } : null }];
-    if (dow === 5 || dow === 6 || dow === 0) return [{ key: 'wk-on:' + today, lvl: 'blue', text: `<b>주말 모드 적용 중</b> ${thisWeek.cut.length}개 세트 −${cfg.weekendPct}% (금 23:45 반영 · 일요일 밤 원복 예약은 일요일에 떠요)` }];
-    if (dow === 1 && hm < 12 * 60) return [{ key: 'wk-miss:' + today, lvl: 'red', text: `<b>주말 모드</b> 일요일 원복 예약을 안 걸어 ${thisWeek.cut.length}개 세트가 아직 −${cfg.weekendPct}% 상태예요`, act: dnrbCan('budget') ? { label: '지금 원복 예약(오늘 23:45)', onclick: 'admgrWeekendRestore()' } : null }];
-  }
-  return [];
+  if (!thisWeek || !thisWeek.cut || !thisWeek.cut.length || !thisWeek.back_at || !(dow === 5 || dow === 6 || dow === 0 || (dow === 1 && hm < 12 * 60))) return [];
+  const n = thisWeek.cut.length, c = admgrWeekendRun(thisWeek, cutT, backT), b = admgrWeekendRun(thisWeek, backT, backT + 2 * 86400e3);
+  const tail = o => `${o.skip ? ` · 예산이 바뀌어 건너뜀 ${o.skip}` : ''}${o.fail ? ` · <b>실패 ${o.fail}</b>` : ''}`;
+  if (now < backT) return [{ key: 'wk-on:' + today, lvl: c.fail ? 'yellow' : 'blue', text: now < cutT ? `<b>주말 모드 예약됨</b> ${n}개 세트 오늘 ${cfg.wkCutHour}시 −${cfg.weekendPct}% → 일요일 ${cfg.wkBackHour}시 자동 원복`
+    : `<b>주말 모드 적용 중</b> ${cfg.wkCutHour}시 감액 반영 ${c.ok}개${tail(c)}${c.wait ? ` · 대기 ${c.wait}` : ''} → 일요일 ${cfg.wkBackHour}시 자동 원복` }];
+  const late = now > backT + 15 * 60e3, bad = b.fail || (late && b.wait) || (late && b.ok + b.skip + b.fail + b.wait < c.ok);
+  if (bad) return [{ key: 'wk-miss:' + today, lvl: 'red', text: `<b>주말 모드 원복 확인 필요</b> 원복 ${b.ok}개${tail(b)}${b.wait ? ` · 아직 대기 ${b.wait}` : ''} — 감액된 ${c.ok}개 중 원래 예산으로 안 돌아간 세트가 있어요`, act: dnrbCan('budget') ? { label: '지금 원복', onclick: 'admgrWeekendRestore()' } : null }];
+  return dow === 0 ? [{ key: 'wk-done:' + today, lvl: 'blue', text: `<b>주말 모드 끝</b> ${cfg.wkBackHour}시 원복 ${b.ok}개${tail(b)}${b.wait ? ` · 대기 ${b.wait}` : ''}` }] : [];
 }
 admgrAlert.checks.push(admgrCheckWeekend);
 async function admgrWeekendSave(data) {
@@ -443,22 +457,29 @@ async function admgrWeekendSave(data) {
 async function admgrWeekendCut() {
   const w = admgr.write; if (!w.pin) { admgrPinPrompt(() => admgrWeekendCut()); return; }
   const cfg = admgrAlertCfg(), T = admgrWeekendTargets(cfg) || []; if (!T.length) { toast('걸 세트가 없어요'); return; }
+  const fri = admgrWeekendFri(todayStr(0)), W = admgrWeekendTimes(fri, cfg);
   toast(`${T.length}개 예약 거는 중…`);
   const done = [], failed = [];
-  for (const t of T) { try { await metaBudgetCall({ action: 'schedule' }, { object_id: t.id, object_name: t.name, level: 'adset', new_budget: t.to, pin: w.pin }); done.push(t); } catch (e) { failed.push(t.name + ': ' + e.message); if (/PIN/.test(e.message)) { admgrPinInvalidate(); break; } } }
-  try { await admgrWeekendSave({ week: admgrWeekendFri(todayStr(0)), cut: done.map(({ id, name, from, to }) => ({ id, name, from, to })), cut_at: new Date().toISOString(), pct: cfg.weekendPct, restored_at: null }); } catch (e) { toast(e.message); }
-  toast(`주말 모드: ${done.length}개 오늘 23:45 −${cfg.weekendPct}% 예약 완료${failed.length ? ` · 실패 ${failed.length}` : ''}`);
+  for (const t of T) {
+    const o = { object_id: t.id, object_name: t.name, level: 'adset', pin: w.pin };
+    try { await metaBudgetCall({ action: 'schedule' }, { ...o, new_budget: t.to, at: W.cut, expect: t.from }); } catch (e) { failed.push(t.name + ': ' + e.message); if (/PIN/.test(e.message)) { admgrPinInvalidate(); break; } continue; }
+    done.push(t);   // 감액이 걸렸으면 기록 — 원복 예약이 실패해도 일요일 알림이 빈 원복을 잡아 '지금 원복'을 띄운다
+    try { await metaBudgetCall({ action: 'schedule' }, { ...o, new_budget: t.from, at: W.back, expect: t.to }); } catch (e) { failed.push(t.name + ' 원복: ' + e.message); }
+  }
+  try { await admgrWeekendSave({ week: fri, cut: done.map(({ id, name, from, to }) => ({ id, name, from, to })), cut_at: new Date().toISOString(), pct: cfg.weekendPct, cut_hour: cfg.wkCutHour, back_at: W.back, restored_at: null }); } catch (e) { toast(e.message); }
+  toast(`주말 모드: ${done.length}개 금 ${cfg.wkCutHour}시 −${cfg.weekendPct}% · 일 ${cfg.wkBackHour}시 원복 예약 완료${failed.length ? ` · 실패 ${failed.length}` : ''}`);
   if (failed.length) console.warn('주말 모드 예약 실패', failed);
   admgrWritePending(); renderAdmgr(true);
 }
 async function admgrWeekendRestore() {
   const w = admgr.write; if (!w.pin) { admgrPinPrompt(() => admgrWeekendRestore()); return; }
   const L = admgrAlert.wkLog; if (!L || !L.cut || !L.cut.length) return;
-  toast(`${L.cut.length}개 원복 예약 거는 중…`);
+  const k = admgrKst(new Date().toISOString()), at = k.toISOString().slice(0, 16);   // 지금(KST) — 서버가 5분 안에 반영, 아직 감액값인 세트만(expect)
+  toast(`${L.cut.length}개 원복 거는 중…`);
   let n = 0; const failed = [];
-  for (const t of L.cut) { try { await metaBudgetCall({ action: 'schedule' }, { object_id: t.id, object_name: t.name, level: 'adset', new_budget: t.from, pin: w.pin }); n++; } catch (e) { failed.push(t.name + ': ' + e.message); if (/PIN/.test(e.message)) { admgrPinInvalidate(); break; } } }
+  for (const t of L.cut) { try { await metaBudgetCall({ action: 'schedule' }, { object_id: t.id, object_name: t.name, level: 'adset', new_budget: t.from, at, expect: t.to, pin: w.pin }); n++; } catch (e) { failed.push(t.name + ': ' + e.message); if (/PIN/.test(e.message)) { admgrPinInvalidate(); break; } } }
   try { await admgrWeekendSave({ ...L, restored_at: new Date().toISOString(), restore_n: n }); } catch (e) { toast(e.message); }
-  toast(`주말 모드: ${n}개 오늘 23:45 원복 예약 완료${failed.length ? ` · 실패 ${failed.length}` : ''}`);
+  toast(`주말 모드: ${n}개 원복 예약 — 5분 안에 반영 (그 사이 예산을 바꾼 세트는 건너뜀)${failed.length ? ` · 실패 ${failed.length}` : ''}`);
   admgrWritePending(); renderAdmgr(true);
 }
 

@@ -402,6 +402,22 @@ test('admgrWeekendTargets: 테스트 캠페인 켜진 세트 중 7일 ROAS 550~9
   vm.runInContext("admgrAlert.h7 = null; admgr.data = null;", ctx);
 });
 
+test('주말 모드 시각 (10/29): 금 17시 감액 · 일 15시 원복, 결과는 그 주 세트의 시각 예약만 센다', () => {
+  const W = g('admgrWeekendTimes')('2026-10-30', { wkCutHour: 17, wkBackHour: 15 });
+  assert.equal(W.cut + ',' + W.back, '2026-10-30T17:00,2026-11-01T15:00');
+  vm.runInContext(`admgr.write.lastPending = { pending: [
+      { mode: 'timed', status: 'pending', object_id: 's1', apply_at: '2026-11-01T06:00:00+00:00' },
+      { mode: 'midnight', status: 'pending', object_id: 's1', apply_at: null } ],
+    timed: [
+      { status: 'applied', object_id: 's1', apply_at: '2026-10-30T08:00:00+00:00' },
+      { status: 'canceled', object_id: 's2', apply_at: '2026-10-30T08:03:00+00:00' },
+      { status: 'applied', object_id: 'zz', apply_at: '2026-10-30T08:00:00+00:00' } ] };`, ctx);   // zz = 주말 모드 세트 아님
+  const L = { cut: [{ id: 's1' }, { id: 's2' }] }, ms = g('admgrKstMs'), run = g('admgrWeekendRun');
+  const c = run(L, ms(W.cut), ms(W.back)), b = run(L, ms(W.back), ms(W.back) + 2 * 86400e3);
+  assert.equal([c.ok, c.skip, c.fail, c.wait, b.ok, b.wait].join(), '1,1,0,0,0,1');
+  vm.runInContext('admgr.write.lastPending = null;', ctx);
+});
+
 test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액 · 대기 (기본값 창 · 오늘 10/28 수)', () => {
   const f = g('admgrAdjCalc');
   const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });

@@ -51,7 +51,8 @@ async function admgrWritePending() {
     const d = await metaBudgetCall({ action: 'pending' });
     const pend = d.pending || [];
     admgr.write.resetRow = pend.find(p => p.mode === 'reset_approve' && p.apply_date === todayStr(0)) || null;   // 오늘 23:45 원복 승인
-    admgr.write.pendingByObj = new Map(pend.filter(p => p.mode !== 'reset_approve').map(p => [p.object_id, p]));
+    admgr.write.pendingByObj = new Map(pend.filter(p => p.mode === 'midnight').map(p => [p.object_id, p]));   // 23:45 예약 — 자정세팅 열·예산 배지
+    admgr.write.timedByObj = new Map(pend.filter(p => p.mode === 'timed').sort((a, b) => String(b.apply_at).localeCompare(String(a.apply_at))).map(p => [p.object_id, p]));   // 시각 예약(주말 모드) — 대상별 가장 이른 것
     admgr.write.daystart = new Map((d.daystart || []).map(r => [String(r.adset_id), Number(r.budget)]));   // 오늘 시작 예산(00:10 스냅샷) — 자정세팅 열
     admgr.write.lastPending = d;   // 알림판(admgr-alerts.js admgrCheck2345)이 승인 상태·예약·반영 결과를 보여준다 — 팝업은 [자세히]로만
     renderAdmgr(true);
@@ -69,8 +70,8 @@ function admgrBudgetCell(r, level) {
       <i class="fa-solid fa-pen" style="font-size:.6rem;color:#9ca3af;margin-right:5px;"></i><b>₩${comma(r.budget)}</b><div style="font-size:.62rem;color:#9ca3af;padding-left:16px;">일일</div></span>
       ${dirty ? `<div style="font-size:.6rem;color:#b45309;padding-left:16px;">임시 저장 ₩${comma(d)}</div>` : ''}`;
   }
-  const pend = w.pendingByObj && w.pendingByObj.get(r.id);
-  if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="${pend.apply_date} 23:45에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 23:45 ${won(pend.new_budget)}</span></div>`;
+  const pend = (w.pendingByObj && w.pendingByObj.get(r.id)) || (w.timedByObj && w.timedByObj.get(r.id));
+  if (pend) base += `<div><span class="status-badge badge-yellow" style="margin-top:3px;font-size:.62rem;" title="${admgrPendWhen(pend)}에 자동 반영 예약"><i class="fa-regular fa-clock"></i> ${pend.mode === 'timed' ? admgrPendWhen(pend) : '23:45'} ${won(pend.new_budget)}</span></div>`;
   return base;
 }
 /* '자정세팅' 열 (2026-09-04 사용자 요청) — 버튼 한 번 = 현재 일예산 뒤에 0 하나 붙인 금액(×10)으로 자정 예약.
@@ -224,7 +225,7 @@ function admgrMoreMenu(ev) {
   </div>`);
 }
 function admgrMidItems() {   // 23:45 세팅 메뉴 항목 — PC 23:45 세팅 버튼과 폰 ⋯ 메뉴가 같이 쓴다 (2026-09-18)
-  const w = admgr.write, npend = w.pendingByObj ? w.pendingByObj.size : 0;
+  const w = admgr.write, npend = (w.pendingByObj ? w.pendingByObj.size : 0) + (w.timedByObj ? w.timedByObj.size : 0);
   const mid = w.midMode === 'setting' ? agItem('fa-check', '반영 세팅 완료하기', 'admgrMidBtn()', `예산을 클릭해 23:45 금액을 넣는 중${npend ? ` · 예약 ${npend}건` : ''}`)
     : w.midMode === 'done' ? agItem('fa-rotate-right', '새 세팅 시작', "admgr.write.midMode='setting';renderAdmgr(true);toast('23:45 반영 세팅 시작 — 예산을 클릭해 23:45에 반영될 금액을 입력하세요')")
     : agItem('fa-clock', '23:45 반영 세팅 시작', 'admgrMidBtn()', '예산을 클릭하면 즉시 대신 23:45 반영으로 저장돼요');
@@ -388,17 +389,18 @@ function admgrMidBtn() {
     renderAdmgr(true);
   }
 }
-function admgrMidList() {   // 자정 예약 목록 (히스토리 모달 껍데기 재사용)
+const admgrPendWhen = p => p.mode === 'timed' && p.apply_at ? admgrKst(p.apply_at).toISOString().slice(5, 16).replace('T', ' ') : `${p.apply_date} 23:45`;   // 시각 예약은 'MM-DD HH:MM'
+function admgrMidList() {   // 예약 목록 — 23:45 예약 + 시각 예약(주말 모드) (히스토리 모달 껍데기 재사용)
   const w = admgr.write;
-  const rows = [...(w.pendingByObj ? w.pendingByObj.values() : [])];
-  $('abm-title').textContent = '23:45 반영 예약 목록'; $('abm-sub').style.display = 'none';
+  const rows = [...(w.pendingByObj ? w.pendingByObj.values() : []), ...((w.lastPending && w.lastPending.pending) || []).filter(p => p.mode === 'timed')];
+  $('abm-title').textContent = '반영 예약 목록'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = (rows.length ? `<div class="table-wrap"><table style="font-size:.78rem;">
-      <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>23:45 반영값</th><th>적용</th><th></th></tr></thead>
+      <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>반영값</th><th>적용</th><th></th></tr></thead>
       <tbody>${rows.map(p => `<tr>
         <td class="name-cell" style="text-align:left;">${esc(p.object_name || p.object_id)}<div style="font-size:.64rem;color:#9ca3af;">${p.level === 'campaign' ? '캠페인' : '광고세트'}</div></td>
         <td style="white-space:nowrap;">${p.old_budget ? won(Math.round(p.old_budget)) : '—'}</td>
         <td style="white-space:nowrap;font-weight:800;color:#b45309;">${won(Math.round(p.new_budget))}</td>
-        <td style="white-space:nowrap;">${p.apply_date} 23:45</td>
+        <td style="white-space:nowrap;">${admgrPendWhen(p)}</td>
         <td><button class="btn-ghost btn-danger-ghost" style="padding:2px 10px;font-size:.7rem;" onclick="admgrMidCancel(${p.id})">취소</button></td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty-state" style="padding:20px;"><p>23:45 반영 예약이 없어요.</p></div>')
     + `<div style="display:flex;gap:6px;margin-top:10px;">
