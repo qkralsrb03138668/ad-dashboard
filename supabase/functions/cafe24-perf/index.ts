@@ -376,6 +376,29 @@ Deno.serve(async (req) => {
       return json({ row: (await r.json())[0], usage });
     }
 
+    // ── 시간대별 결제·방문 (2026-10-29 주말 모드 기준 분석용) — 애널리틱스 /sales/times(결제완료 기준, 기간 합계라 하루씩) + /visitors/view(format_type=hour)
+    //    GET ?action=hourly&start_date&end_date (최대 31일) → { rows:[[date, hour, orders, amount, buyers, visits]] }
+    if (action === "hourly") {
+      const s = url.searchParams.get("start_date"), e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const days: string[] = [];
+      for (let t = new Date(s).getTime(); t <= new Date(e).getTime(); t += dayMs) days.push(ymd(t));
+      if (!days.length || days.length > 31) return json({ error: "기간은 1~31일" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const list = (b: Record<string, unknown>) => (Object.values(b).find(Array.isArray) ?? []) as Record<string, unknown>[];   // 목록 키 이름이 문서에 없음
+      const get = (path: string, q: Record<string, string>) => apiGet(`${DATA_BASE}${path}?${new URLSearchParams({ mall_id: MALL_ID, device_type: "total", limit: "1000", ...q })}`, token);
+      const R = new Map<string, number[]>();
+      const row = (d: string, h: number) => { const k = `${d}|${h}`; let r = R.get(k); if (!r) R.set(k, r = [0, 0, 0, 0]); return r; };
+      for (const d of days) {
+        for (const x of list(await get("/sales/times", { start_date: d, end_date: d }))) {
+          const r = row(d, num(x.hour)); r[0] += num(x.order_count); r[1] += num(x.order_amount); r[2] += num(x.buyers_count);
+        }
+        // 방문자도 hour로 받으면 기간 합계(date 없음, 실측) → 하루씩
+        for (const v of list(await get("/visitors/view", { start_date: d, end_date: d, format_type: "hour" }))) row(d, num(v.hour))[3] += num(v.visit_count);
+      }
+      return respond({ period: { start: s, end: e }, rows: [...R].map(([k, r]) => { const [d, h] = k.split("|"); return [d, Number(h), ...r]; }) });
+    }
+
     if (action === "performance") {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
