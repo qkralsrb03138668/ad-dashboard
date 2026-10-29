@@ -444,6 +444,11 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   // 10/29: 7일 450% 미만이어도 3일 550%↑·3건↑(감액 이력 없음)이면 OFF 대신 절반, 3일 2건이거나 감액 뒤면 그대로 OFF
   const R3 = (p3, h) => { const x = f([S('q', 40000)], new Map([['q', W(170000, 10, 3.5)]]), new Map([['q', W(50000, p3, 6)]]), h || [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : ''); };
   assert.equal([R3(3), R3(2), R3(5, [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }])].join(), 'half:rescue,off,off');
+  // 10/29 상품이 식는 중: 상품 전체 3일 450% 미만·10건↑ → 그 상품 유지 구간 세트 중 자기 3일도 550% 미만이면 절반 (다른 상품·3일 좋은 세트는 그대로)
+  const N = (id, name) => S(id, 40000, { name }), ps = [N('m1', '슬리즈 원피스_R1_44_261020'), N('m2', '슬리즈 원피스_P4_44_261020'), N('m3', '다른 상품_R1_30_261001')];
+  const p7 = new Map(ps.map(x => [x.id, W(140000, 10, 6)]));   // 셋 다 7일 600% — 원래는 유지
+  const p3 = new Map([['m1', { ...W(60000, 8, 3.5), name: ps[0].name }], ['m2', { ...W(20000, 4, 6), name: ps[1].name }], ['m3', { ...W(60000, 8, 3.5), name: ps[2].name }]]);   // 슬리즈 3일 합 412%·12건, 다른 상품 8건
+  assert.equal(f(ps, p7, p3, [], '2026-10-28', 3).map(x => x.s.id + ':' + x.act + (x.prodDrop ? ':prod' : '')).join(), 'm1:half:prod,m2:watch,m3:watch');
 });
 
 test('admgrFastOf·admgrFastRevertOf: 3일 ROAS 1000%↑ → 2배 후보 · 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기 (10/28 ROAS 기준)', () => {

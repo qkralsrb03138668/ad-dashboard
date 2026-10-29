@@ -115,10 +115,10 @@ try {
 // 예산 조정 후보 (2026-10-28) — 대시보드 알림판 '예산 조정 후보'와 같은 함수(js/admgr-alerts.js admgrAdjCalc)·같은 선(js/admgr.js ADMGR_ROAS)을 그대로 불러 같은 기준으로 센다
 //   7일(어제까지) ROAS(메타 기본값 창, 2주 시험): 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액. 상품 마진은 안 씀
 try {
-  const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8'), base = fs.readFileSync(path.join(root, 'js/admgr.js'), 'utf8');
+  const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8'), base = fs.readFileSync(path.join(root, 'js/admgr.js'), 'utf8'), tabs = fs.readFileSync(path.join(root, 'js/admgr-tabs.js'), 'utf8');
   const grab = (re, t = src) => (t.match(re) || [])[0] || '';
-  const code = [...['admgrP7', 'admgrV7', 'ADMGR_ROAS', 'admgrPJ', 'admgrVJ'].map(k => grab(new RegExp(`const ${k} = [^\\n]+`), base)), grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
-  if (!/function admgrAdjCalc/.test(code) || !/const ADMGR_ROAS/.test(code)) throw new Error('admgrAdjCalc·ADMGR_ROAS를 못 찾음');
+  const code = [...['admgrP7', 'admgrV7', 'ADMGR_ROAS', 'admgrPJ', 'admgrVJ'].map(k => grab(new RegExp(`const ${k} = [^\\n]+`), base)), grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/const admgrProductOf = [^\n]+/, tabs), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
+  if (!/function admgrAdjCalc/.test(code) || !/const ADMGR_ROAS/.test(code) || !/const admgrProductOf/.test(code)) throw new Error('admgrAdjCalc·ADMGR_ROAS·admgrProductOf를 못 찾음');
   const ctx = { admgrShiftDay: addDays };
   vm.createContext(ctx); vm.runInContext(code + '\nthis.calc = admgrAdjCalc;', ctx);
   const [h7, h3, hn, bh] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -3), addDays(seoulToday, -1)), day(seoulToday, seoulToday),
@@ -128,7 +128,7 @@ try {
   const dow = new Date(seoulToday + 'T00:00:00Z').getUTCDay(), R = ctx.calc(sets, M(h7), M(h3), bh.events || [], seoulToday, dow);
   const pick = k => R.filter(x => x.act === k), nm = x => String(x.s.name).replace(/\s*\[→[^\]]+\]/g, '').trim(), pct = r => 'ROAS ' + Math.round(r * 100) + '%';
   const act = R.filter(x => ['off', 'half', 'up'].includes(x.act)), before = act.reduce((a, x) => a + x.from, 0), after = act.reduce((a, x) => a + x.to, 0);
-  out.budget_adjust = { off: pick('off').length, half: pick('half').length, up: pick('up').length, hold: pick('watch').length, cool: pick('cool').length, budget_before: before, budget_after: after,
+  out.budget_adjust = { off: pick('off').length, half: pick('half').length, half_prod_drop: R.filter(x => x.prodDrop).length, up: pick('up').length, hold: pick('watch').length, cool: pick('cool').length, budget_before: before, budget_after: after,
     top_off: pick('off').sort((a, b) => b.from - a.from).slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, 일예산 ${x.from})`), top_up: pick('up').slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, ${x.from}→${x.to})`) };
 } catch (e) { out.budget_adjust_error = String(e.message || e).slice(0, 200); }
 
