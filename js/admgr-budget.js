@@ -323,7 +323,14 @@ const admgrColsOk = c => c && Array.isArray(c.hidden) && Array.isArray(c.order);
 const admgrColsNorm = c => { const k = l => l !== '23:45 세팅'; return { hidden: [...new Set(c.hidden.map(admgrColNorm))].filter(k), order: [...new Set(c.order.map(admgrColNorm))].filter(k) }; };   // 23:45 세팅 열은 2026-10-29에 뺌
 function admgrColsDefKey() { return 'adc_admgr_colsdef'; }   // 내가 저장한 기본값 (이 브라우저)
 function admgrLsMove(from, to) { const v = lsGet(from, null); if (v != null) { lsSet(to, v); try { localStorage.removeItem(from); } catch { /* 무시 */ } } return v; }   // 옛 탭별 저장값(광고세트)을 공통 키로 한 번 옮김
-function admgrColsDef() { const d = lsGet(admgrColsDefKey(), null) ?? admgrLsMove('adc_admgr_colsdef_set', admgrColsDefKey()); return admgrColsNorm(admgrColsOk(d) ? d : ADMGR_COLS_DEFAULT); }
+function admgrColsDef() {
+  const d = lsGet(admgrColsDefKey(), null) ?? admgrLsMove('adc_admgr_colsdef_set', admgrColsDefKey()); if (!admgrColsOk(d)) return admgrColsNorm(ADMGR_COLS_DEFAULT);
+  const n = admgrColsNorm(d);
+  if (!lsGet('adc_admgr_colsdef1029', false)) {   // 직접 저장한 기본값에도 구매당 비용 숨김 한 번 (2026-10-29 — 저장 설정만 고쳐서 이쪽 사용자는 그대로 보였음)
+    lsSet('adc_admgr_colsdef1029', true); if (!n.hidden.includes('구매당 비용')) { n.hidden.push('구매당 비용'); lsSet(admgrColsDefKey(), n); }
+  }
+  return n;
+}
 function admgrColsCfg() {
   const c = lsGet(admgrColsKey(), null) ?? admgrLsMove('adc_admgr_cols_set', admgrColsKey());
   if (!admgrColsOk(c)) return admgrColsDef();
