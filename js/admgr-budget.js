@@ -264,7 +264,7 @@ function admgrBudgetPop(ev, id, level) {
       <span style="font-size:.8rem;font-weight:700;color:#1e1b4b;white-space:nowrap;">일일</span>
       <span style="flex:1;display:flex;align-items:center;border:1.5px solid #4f46e5;border-radius:8px;padding:0 10px;background:#fff;">
         <span style="color:#6b7280;font-size:.82rem;">₩</span>
-        <input id="bpop-amount" type="text" inputmode="numeric" autocomplete="off" value="${comma(Math.round(Number(draft || cur) || 0))}" oninput="admgrNumInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('${setting ? 'bpop-sched' : 'bpop-apply'}').click()}" style="flex:1;min-width:0;border:none;outline:none;padding:8px 6px;font-size:.88rem;font-weight:700;font-family:inherit;color:#1e1b4b;background:transparent;" />
+        <input id="bpop-amount" type="text" inputmode="numeric" autocomplete="off" value="${comma(Math.round(Number(draft || cur) || 0))}" oninput="admgrNumInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('bpop-apply').click()}" style="flex:1;min-width:0;border:none;outline:none;padding:8px 6px;font-size:.88rem;font-weight:700;font-family:inherit;color:#1e1b4b;background:transparent;" />
         <span style="color:#9ca3af;font-size:.72rem;">KRW</span>
       </span>
     </div>
