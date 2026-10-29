@@ -449,6 +449,15 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   const p7 = new Map(ps.map(x => [x.id, W(140000, 10, 6)]));   // 셋 다 7일 600% — 원래는 유지
   const p3 = new Map([['m1', { ...W(60000, 8, 3.5), name: ps[0].name }], ['m2', { ...W(20000, 4, 6), name: ps[1].name }], ['m3', { ...W(60000, 8, 3.5), name: ps[2].name }]]);   // 슬리즈 3일 합 412%·12건, 다른 상품 8건
   assert.equal(f(ps, p7, p3, [], '2026-10-28', 3).map(x => x.s.id + ':' + x.act + (x.prodDrop ? ':prod' : '')).join(), 'm1:half:prod,m2:watch,m3:watch');
+  // 10/30 상품 원복: 상품 규칙으로 절반 한 세트(dropLog)가 상품 3일 550%↑·10건↑로 살아나면 원래 예산으로 (아직 절반 상태일 때만)
+  const back3 = new Map([['m1', { ...W(60000, 8, 7), name: ps[0].name }], ['m2', { ...W(20000, 4, 6), name: ps[1].name }]]);   // 슬리즈 3일 합 675%·12건
+  const halfSet = [S('m1', 20000, { name: ps[0].name })], log = { m1: { from: 40000, to: 20000, day: '2026-10-26' } };
+  assert.equal(f(halfSet, p7, back3, [], '2026-10-28', 3, undefined, log).map(x => x.act + ':' + x.to).join(), 'back:40000');
+  assert.equal(f([S('m1', 40000, { name: ps[0].name })], p7, back3, [], '2026-10-28', 3, undefined, log)[0].act, 'watch');   // 이미 원래 예산이면 원복 아님
+  // 10/30 상품 증액: 상품 3일 900%↑·20건↑ → 유지 세트(자기 3일 550%↑·7일 구매 10↑)만 +20%, 금요일엔 없음
+  const hot3 = new Map([['m1', { ...W(60000, 12, 10), name: ps[0].name }], ['m2', { ...W(40000, 9, 9), name: ps[1].name }], ['m3', { ...W(60000, 8, 3.5), name: ps[2].name }]]);   // 슬리즈 3일 합 960%·21건
+  const hot = f(ps, p7, hot3, [], '2026-10-28', 3); assert.equal(hot.map(x => x.s.id + ':' + x.act + (x.prodUp ? ':prod:' + x.to : '')).join(), 'm1:up:prod:48000,m2:up:prod:48000,m3:watch');
+  assert.equal(f(ps, p7, hot3, [], '2026-10-30', 5).filter(x => x.prodUp).length, 0);
 });
 
 test('admgrFastOf·admgrFastRevertOf: 3일 ROAS 1000%↑ → 2배 후보 · 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기 (10/28 ROAS 기준)', () => {

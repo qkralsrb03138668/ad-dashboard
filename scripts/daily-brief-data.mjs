@@ -121,14 +121,15 @@ try {
   if (!/function admgrAdjCalc/.test(code) || !/const ADMGR_ROAS/.test(code) || !/const admgrProductOf/.test(code)) throw new Error('admgrAdjCalc·ADMGR_ROAS·admgrProductOf를 못 찾음');
   const ctx = { admgrShiftDay: addDays };
   vm.createContext(ctx); vm.runInContext(code + '\nthis.calc = admgrAdjCalc;', ctx);
-  const [h7, h3, hn, bh] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -3), addDays(seoulToday, -1)), day(seoulToday, seoulToday),
-    api('meta-ads', { action: 'budgethistory', start_date: addDays(seoulToday, -10), end_date: seoulToday })]);
+  const [h7, h3, hn, bh, dl] = await Promise.all([day(addDays(seoulToday, -7), addDays(seoulToday, -1)), day(addDays(seoulToday, -3), addDays(seoulToday, -1)), day(seoulToday, seoulToday),
+    api('meta-ads', { action: 'budgethistory', start_date: addDays(seoulToday, -10), end_date: seoulToday }), api('client-log', { action: 'state_get', key: 'prod_drop_log' }).catch(() => ({}))]);
+  const dropLog = Object.fromEntries(Object.entries(((dl || {}).data || {}).items || {}).filter(([, v]) => v.day >= addDays(seoulToday, -14)));
   const M = h => new Map(h.campaigns.flatMap(c => (c.adsets || []).map(s => [s.id, s])));
   const sets = hn.campaigns.flatMap(c => (c.adsets || []).map(s => ({ ...s, _cbo: c.budget > 0 || c.budget_life > 0 })));
-  const dow = new Date(seoulToday + 'T00:00:00Z').getUTCDay(), R = ctx.calc(sets, M(h7), M(h3), bh.events || [], seoulToday, dow);
+  const dow = new Date(seoulToday + 'T00:00:00Z').getUTCDay(), R = ctx.calc(sets, M(h7), M(h3), bh.events || [], seoulToday, dow, undefined, dropLog);
   const pick = k => R.filter(x => x.act === k), nm = x => String(x.s.name).replace(/\s*\[→[^\]]+\]/g, '').trim(), pct = r => 'ROAS ' + Math.round(r * 100) + '%';
-  const act = R.filter(x => ['off', 'half', 'up'].includes(x.act)), before = act.reduce((a, x) => a + x.from, 0), after = act.reduce((a, x) => a + x.to, 0);
-  out.budget_adjust = { off: pick('off').length, half: pick('half').length, half_prod_drop: R.filter(x => x.prodDrop).length, up: pick('up').length, hold: pick('watch').length, cool: pick('cool').length, budget_before: before, budget_after: after,
+  const act = R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)), before = act.reduce((a, x) => a + x.from, 0), after = act.reduce((a, x) => a + x.to, 0);
+  out.budget_adjust = { off: pick('off').length, half: pick('half').length, half_prod_drop: R.filter(x => x.prodDrop).length, back: pick('back').length, up: pick('up').length, up_prod: R.filter(x => x.prodUp).length, hold: pick('watch').length, cool: pick('cool').length, budget_before: before, budget_after: after,
     top_off: pick('off').sort((a, b) => b.from - a.from).slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, 일예산 ${x.from})`), top_up: pick('up').slice(0, 5).map(x => `${nm(x)} (7일 ${pct(x.r7)}, ${x.from}→${x.to})`) };
 } catch (e) { out.budget_adjust_error = String(e.message || e).slice(0, 200); }
 
