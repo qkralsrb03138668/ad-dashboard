@@ -490,12 +490,17 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
-test('admgrJudge (10/29 정리): ÷10은 구매 0·예상 마감 100%↑만, 구매 1~2건은 표시 없음, 3건↑ 증액 검토', () => {
+test('admgrJudge (10/29 정리): ÷10은 구매 0·예상 마감 100%↑만(최근 성적 좋으면 지켜보기), 구매 1~2건은 표시 없음, 3건↑ 증액 검토', () => {
   vm.runInContext(`admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {};
     admgr.preset = 'today'; admgr.data = { fetched_at: '2026-10-29T03:00:00Z', campaigns: [] }; admgr.budget = admgr.budget || {}; admgr.budget.byObj = new Map();`, ctx);   // 12:00 KST · 마진 28,000
   const j = (pur, spend) => g('admgrJudge')({ id: 'j' + pur + spend, name: '루즈핏 니트_R1_28_261001', purchases: pur, spend }).key;
   assert.equal([j(0, 14000), j(0, 7000), j(1, 14000), j(2, 30000), j(3, 5000)].join(), 'cut,,,,up');   // 14,000×24÷12÷28,000 = 100%
-  vm.runInContext("admgr.data = null; admgr.preset = 'today';", ctx);
+  // 최근 성적 좋은 세트(어제까지 7일 ROAS 550%↑ · 구매 5↑)는 오늘 0건이어도 지켜보기
+  vm.runInContext("admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'good', spend: 100000, purchases: 10, value: 700000 }, { id: 'weak', spend: 100000, purchases: 10, value: 400000 }] }] };", ctx);
+  const jj = id => g('admgrJudge')({ id, name: '루즈핏 니트_R1_28_261001', purchases: 0, spend: 14000 }).key;
+  assert.equal(jj('good') + ',' + jj('weak'), 'hold,cut');
+  assert.equal(g('admgrFastHold')({ purchases: 0, spend: 14000, name: '루즈핏 니트_R1' }) + ',' + g('admgrFastHold')({ purchases: 1, spend: 14000, name: '루즈핏 니트_R1' }), 'true,false');
+  vm.runInContext("admgr.data = null; admgr.preset = 'today'; admgrAlert.h7 = null;", ctx);
 });
 
 test('admgrRecommend: D+2부터, 우수 = 구매 3↑ & ROAS 550%↑, OFF = ROAS 450% 미만 · 구매 0은 3만↑ (10/28 ROAS 기준)', () => {
