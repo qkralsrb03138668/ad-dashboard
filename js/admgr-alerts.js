@@ -4,7 +4,7 @@
    검사는 admgrAlert.checks에 함수로 등록: (cfg) → [{ key, lvl:'red'|'yellow'|'blue', text(html), act?:{label, onclick} }]. '오늘 하루 숨기기'는 이 브라우저에만.
    (index.html에서 분리 로드 — 전역 함수·변수를 그대로 공유) */
 'use strict';
-const ADMGR_ALERT_DEF = { cap: 4500000, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 900, wkCutHour: 17, wkBackHour: 15 };   // 10/28 구매당 비용 → ROAS: 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~900%(유지 구간) 테스트 세트
+const ADMGR_ALERT_DEF = { cap: 4500000, fatigueRoas: 20, fatigueMinPur: 20, fatigueCooldown: 7, weekend: 1, weekendPct: 25, wkRoasLo: 550, wkRoasHi: 700, wkCutHour: 17, wkBackHour: 15 };   // 10/28 구매당 비용 → ROAS: 피로 = ROAS 20%↓ · 주말 모드 대상 = 7일 ROAS 550~700% 세트 예산 세트 (10/29 900→700)
 const admgrAlert = { cfg: null, ver: null, loading: false, checks: [] };
 function admgrAlertCfg() { return Object.assign({}, ADMGR_ALERT_DEF, admgrAlert.cfg || {}); }
 async function admgrAlertCfgEnsure() {
@@ -49,7 +49,7 @@ function admgrAlertCfgModal() {
   $('abm-title').textContent = '알림 기준'; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `${f('cap', '켜진 일예산 합계 상한 (0 = 경고 안 함)', '원', 10000)}${f('fatigueRoas', '소재 피로 — 전주 대비 ROAS 하락', '%', 5)}${f('fatigueMinPur', '피로 감지에 필요한 지난주 구매', '건')}${f('fatigueCooldown', '같은 상품 피로 재알림 간격', '일')}
     <div style="font-size:.74rem;font-weight:800;color:#6b7280;margin:10px 0 2px;">주말 모드 (금 ${c.wkCutHour}시 감액 → 일 ${c.wkBackHour}시 원복)</div>${f('weekend', '켬 1 / 끔 0', '')}${f('weekendPct', '금요일 감액 폭', '%', 5)}${f('wkCutHour', '금요일 감액 시각 (0~23)', '시')}${f('wkBackHour', '일요일 원복 시각 (0~23)', '시')}${f('wkRoasLo', '대상 구간 — 7일 ROAS 이상', '%', 50)}${f('wkRoasHi', '대상 구간 — 7일 ROAS 미만', '%', 50)}
-    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~900% · 금 17시 → 일 15시)</div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;line-height:1.6;">모든 계정에 같이 적용돼요 · 비우면 기본값(상한 450만 · 피로 ROAS 20%↓ · 20건 · 7일 · 주말 모드 켬 −25% ROAS 550~700% · 금 17시 → 일 15시)</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">취소</button><button class="btn-analyze" onclick="admgrAlertCfgSave()">저장</button></div>`;
   $('admgr-budget-modal').classList.add('show');
 }
@@ -391,20 +391,21 @@ async function admgrPlanApply() {
 }
 admgrAlert.checks.push(admgrCheckPlan);
 
-/* ── 주말 모드 (2026-10-26 사용자 요청): 금~일 매출이 약한 쇼핑몰 주기에 맞춰, 7일 ROAS가 유지 구간(550~900%)인 테스트 세트만 (10/28 구매당÷마진 35~50% → ROAS)
-   좋은 세트(900%↑)는 주말에도 좋아서 안 건드리고, 나쁜 세트(550% 미만)는 예산 조정 후보에서 이미 줄인다.
+/* ── 주말 모드 (2026-10-26 사용자 요청): 금~일 매출이 약한 쇼핑몰 주기에 맞춰, 7일 ROAS가 기준선 바로 위(550~700%)인 세트 예산 세트만 (10/28 구매당÷마진 35~50% → ROAS)
+   2026-10-29 대상 재조정(사용자 확정, .insight-tmp/wk-target.mjs 세트 5,233주): 금요일 기준 7일 550~700% 세트는 토요일 517%(기준선 아래), 700~900%는 652%·900%↑는 719%↑로
+   주말에도 기준선 위 → 700% 미만만. 표본 = 예산 조정 후보와 같음(7일 구매 5↑ 또는 지출 5만↑). 캠페인 이름 조건 없음(CBO만 제외). 나쁜 세트(550% 미만)는 예산 조정 후보에서 줄인다.
    2026-10-29 시각 변경(사용자 확정): 카페24 시간대별 71주 — 금 19시부터 주문율·광고 효율 하락, 일 16시 회복·17~23시 평일보다 좋음 → 금 17시 감액 · 일 15시 원복.
    금요일에 [예약 걸기] 한 번(PIN)으로 서버 시각 예약 두 개(mode=timed: 감액 at 금 17시 expect 지금 예산 / 원복 at 일 15시 expect 감액값)를 건다.
    meta-ads sync(5분 cron)가 반영, 그 사이 예산이 바뀐 세트는 건너뜀. 건 내용은 shared_state weekend_log {week, cut[], back_at} */
-function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, roas }] — 지금 켜져 있고 예산 있는 테스트 세트 중 7일 ROAS(%)가 [wkRoasLo, wkRoasHi)
+function admgrWeekendTargets(cfg) {   // [{ id, name, from, to, roas }] — 지금 켜져 있고 일예산 있는 세트(CBO 제외) 중 7일 ROAS(%)가 [wkRoasLo, wkRoasHi)
   const h = admgrAlert.h7; if (!h || !h.campaigns) return null;
   const s7 = new Map(h.campaigns.flatMap(c => (c.adsets || []).map(s => [s.id, s])));
   const out = [];
   for (const s of admgrRows().sets) {
-    if (s.status !== 'ACTIVE' || !(s.budget > 1000) || !/테스트/.test(s._campName || '')) continue;
+    if (s.status !== 'ACTIVE' || !(s.budget > 1000) || s._cbo) continue;
     if (((admgr.budget && admgr.budget.byObj && admgr.budget.byObj.get(s.id)) || []).some(e => e.new_value < e.old_value) || admgrDraft[s.id] || admgrSDraft[s.id]) continue;   // 오늘 이미 감액·임시 저장한 세트는 주말 감액에서 빼기 (예산 조정 후보와 겹쳐 두 번 깎이지 않게, 2026-10-28)
     const w = s7.get(s.id); if (!w || !(w.spend > 0)) continue;
-    if (!(admgrPJ(w) > 0)) continue;
+    if (!(admgrPJ(w) > 0) || !(admgrPJ(w) >= ADMGR_ADJ.minPur || w.spend >= ADMGR_ADJ.minSpend)) continue;   // 표본 부족 — 예산 조정 후보와 같은 기준
     const roas = admgrVJ(w) / w.spend * 100;
     if (roas >= cfg.wkRoasLo && roas < cfg.wkRoasHi) out.push({ id: s.id, name: s.name, from: s.budget, to: Math.max(1000, Math.round(s.budget * (1 - cfg.weekendPct / 100) / 1000) * 1000), roas: Math.round(roas) });
   }
@@ -435,7 +436,7 @@ function admgrCheckWeekend(cfg) {
   const L = A.wkLog, thisWeek = L && L.week === fri ? L : null, W = admgrWeekendTimes(fri, cfg), cutT = admgrKstMs(W.cut), backT = admgrKstMs(W.back);
   if (dow === 5 && !thisWeek) {   // 금요일: 아직 안 걸었으면 — 감액 시각이 지나서 걸면 5분 안에 반영
     const T = admgrWeekendTargets(cfg); if (!T) return [];
-    if (!T.length) return [{ key: 'wk-none:' + today, lvl: 'blue', text: `<b>주말 모드</b> 오늘은 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 테스트 세트가 없어 걸 게 없어요` }];
+    if (!T.length) return [{ key: 'wk-none:' + today, lvl: 'blue', text: `<b>주말 모드</b> 오늘은 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 세트가 없어 걸 게 없어요` }];
     return [{ key: 'wk-cut:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 세트 <b>${T.length}개</b>를 ${now < cutT ? `오늘 ${cfg.wkCutHour}시에` : '지금(5분 안)'} <b>−${cfg.weekendPct}%</b> → 일요일 ${cfg.wkBackHour}시 원복, 한 번에 예약 (일예산 ${admgrW(T.reduce((a, t) => a + t.from, 0))} → ${admgrW(T.reduce((a, t) => a + t.to, 0))})`, act: dnrbCan('budget') ? { label: '예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
   }
   if (!thisWeek || !thisWeek.cut || !thisWeek.cut.length || !thisWeek.back_at || !(dow === 5 || dow === 6 || dow === 0 || (dow === 1 && hm < 12 * 60))) return [];
