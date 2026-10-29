@@ -490,6 +490,14 @@ test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료�
   assert.ok(html.includes('src="https://x/y.jpg"') && html.includes('종료·OFF'));
 });
 
+test('admgrJudge (10/29 정리): ÷10은 구매 0·예상 마감 100%↑만, 구매 1~2건은 표시 없음, 3건↑ 증액 검토', () => {
+  vm.runInContext(`admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgr.margins = {};
+    admgr.preset = 'today'; admgr.data = { fetched_at: '2026-10-29T03:00:00Z', campaigns: [] }; admgr.budget = admgr.budget || {}; admgr.budget.byObj = new Map();`, ctx);   // 12:00 KST · 마진 28,000
+  const j = (pur, spend) => g('admgrJudge')({ id: 'j' + pur + spend, name: '루즈핏 니트_R1_28_261001', purchases: pur, spend }).key;
+  assert.equal([j(0, 14000), j(0, 7000), j(1, 14000), j(2, 30000), j(3, 5000)].join(), 'cut,,,,up');   // 14,000×24÷12÷28,000 = 100%
+  vm.runInContext("admgr.data = null; admgr.preset = 'today';", ctx);
+});
+
 test('admgrRecommend: D+2부터, 우수 = 구매 3↑ & ROAS 550%↑, OFF = ROAS 450% 미만 · 구매 0은 3만↑ (10/28 ROAS 기준)', () => {
   vm.runInContext("admgr.products = [{ name: '루즈핏 니트 (자체제작)', price: 50000, supply: 20000 }]; admgrPI = null; admgrTJudge = { ...ADMGR_TJUDGE_DEFAULT };", ctx);
   const ad = (m) => ({ id: 'x', adset_id: 'sx', adset_name: m.set || '루즈핏 니트_R1_28_260901_test', name: 'ad', reg_date: m.reg || '2026-01-01', st: 'eval', meta: m.meta || {}, spend: m.sp ?? 50000, purchases: m.pur, value: m.val ?? m.pur * 50000 });
