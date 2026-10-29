@@ -63,24 +63,8 @@ async function admgrAlertCfgSave() {
   } catch (e) { toast('저장 실패: ' + e.message); }
 }
 
-/* 검사 ③ CBO 독식은 2026-10-28 사용자 요청으로 뺌 (CBO 승격 없이 ABO로만 운영) */
-/* ── 23:45 관련 알림을 팝업 대신 여기로 (사용자 요청: 알림은 한 곳에) — 원복 승인 상태 · 예약 건수 · 반영 결과 */
-function admgrCheck2345(cfg) {
-  const w = admgr.write, out = []; if (!w || !w.st) return out;
-  const k = admgrKst(new Date().toISOString()), hm = k ? k.getUTCHours() * 60 + k.getUTCMinutes() : 0;
-  const npend = w.pendingByObj ? w.pendingByObj.size : 0;
-  if (w.resetRow) out.push({ key: 'reset:' + todayStr(0), lvl: 'blue', text: `오늘 23:45 원복 승인됨 <small>${esc(w.resetRow.object_name || '')}</small>${npend ? ` · 예약 ${npend}건` : ''}`, act: npend ? { label: '예약 목록', onclick: 'admgrMidList()' } : null });
-  else if (hm >= 15 * 60 && hm < 23 * 60 + 45 && dnrbCan('budget')) out.push({ key: 'noreset:' + todayStr(0), lvl: 'yellow', text: `오늘 23:45 원복 승인이 아직 없어요${npend ? ` · 예약 ${npend}건은 그대로 실행` : ''}`, act: { label: '승인하기', onclick: 'admgrMidMenu(event)' } });
-  else if (npend) out.push({ key: 'pend:' + todayStr(0), lvl: 'blue', text: `23:45 예약 ${npend}건`, act: { label: '예약 목록', onclick: 'admgrMidList()' } });
-  const d = w.lastPending, rows = d && d.lastrun || [];
-  if (rows.length) {
-    const key = d.run_day || String(rows[0].applied_at || '').slice(0, 10);
-    const ok = rows.filter(r => r.status === 'applied').length, fail = rows.length - ok;
-    if (rows.some(r => r.mode === 'reset_approve' || r.mode === 'midnight')) out.push({ key: 'run:' + key, lvl: fail ? 'yellow' : 'blue', text: `23:45 반영 결과 (${key.slice(5).replace('-', '/')}) — 완료 ${ok}${fail ? ` · <b>실패 ${fail}</b>` : ''}`, act: { label: '자세히', onclick: `admgrRunNotify(admgr.write.lastPending, true)` } });
-  }
-  return out;
-}
-admgrAlert.checks.push(admgrCheck2345);
+/* 검사 ③ CBO 독식은 2026-10-28 사용자 요청으로 뺌 (CBO 승격 없이 ABO로만 운영)
+   2026-10-29 정리(사용자 승인): 23:45 원복 승인·반영 결과 알림, 작년 이맘때 베스트(→ 베스트 탭 아래에만), 예산 조정 플랜(→ 예산 조정 후보로 대체)을 알림판에서 뺌 */
 
 /* ── 검사 ⑦ 승격 후보 (2026-10-23): 테스트 캠페인(이름에 '테스트') 안 켜진 세트의 **최근 7일 Meta 성과**로 — 월요일 브리핑(daily-brief-data.mjs promotion)과 같은 기준.
    종합 CBO 후보 = 7일 구매 30↑ · ROAS 5↑ · 아직 [→CBO] 표시 없음 · 그 상품의 상품 CBO가 켜져 있지 않음
@@ -297,12 +281,6 @@ async function admgrSeasonEnsure() {
   A.sLoading = false;
 }
 function admgrSeasonCands() { const A = admgrAlert; if (!A.season) { if (admgr.data && !admgr.demo) setTimeout(() => admgrSeasonEnsure(), 0); return null; } return admgrSeasonCalc(A.season, admgrRows().sets, todayStr(0)); }
-function admgrCheckSeason() {
-  const L = admgrSeasonCands(); if (!L || !L.length) return [];
-  const r = admgrSeasonRange(todayStr(0)), fresh = L.filter(x => !x.now).length;
-  return [{ key: 'season:' + todayStr(0), lvl: 'blue', text: `<b>작년 이맘때 베스트</b> ${L.length}개 <small>작년 ${r.since.slice(5)}~${r.until.slice(5)} 구매순${fresh ? ` · 아직 안 켠 상품 ${fresh}개` : ' · 전부 끌올됨'}</small>`, act: { label: '보기', onclick: 'admgrSeasonModal()' } }];
-}
-admgrAlert.checks.push(admgrCheckSeason);
 function admgrSeasonCopy(n) { navigator.clipboard.writeText(n).then(() => toast('세트명을 복사했어요 — Meta 광고관리자 검색창에 붙여넣어 찾은 뒤 복사하세요'), () => toast('복사 실패 — 이름을 직접 선택해 복사하세요')); }
 function admgrSeasonModal() {
   const L = admgrSeasonCands() || [], r = admgrSeasonRange(todayStr(0));
@@ -360,36 +338,6 @@ function admgrReqListModal() {
   $('admgr-budget-modal').classList.add('show');
 }
 
-/* ── 예산 조정 플랜 (2026-10-25): Claude가 계산해 shared_state 'budget_plan'에 저장한 세트별 변경(from→to)을 임시 저장으로 한 번에 넣는다 → 사용자가 확인 후 [게시].
-   지금 예산이 플랜의 from과 다른 세트(그 사이 바뀜)는 건너뛰고 알려준다. 적용하면 applied_at을 기록해 다른 사람 화면에서도 사라진다 */
-async function admgrPlanEnsure() {
-  const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.planLoading || (A.plan !== undefined && Date.now() - (A.planAt || 0) < 5 * 60000)) return;
-  A.planLoading = true;
-  try { const r = await sbCall('client-log', { action: 'state_get', key: 'budget_plan' }); A.plan = (r && r.data) || null; A.planVer = (r && r.ver) || null; A.planAt = Date.now(); renderAdmgr(true); } catch (e) { A.plan = A.plan || null; A.planAt = Date.now(); }
-  A.planLoading = false;
-}
-function admgrCheckPlan() {
-  const A = admgrAlert; if (A.plan === undefined) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPlanEnsure(), 0); return []; }
-  const P = A.plan; if (!P || P.applied_at || !Array.isArray(P.items)) return [];
-  const ch = P.items.filter(i => i.to !== i.from), up = ch.filter(i => i.to > i.from).length;
-  if (!ch.length || !dnrbCan('budget')) return [];
-  return [{ key: 'plan:' + String(P.at).slice(0, 10), lvl: 'blue', text: `<b>예산 조정 플랜</b> ${ch.length}건 (증액 ${up} · 감액 ${ch.length - up}) <small>${esc(P.title || '')} · ${fmtMD(String(P.at).slice(0, 10))} 계산</small>`, act: { label: '임시 저장에 넣기', onclick: 'admgrPlanApply()' } }];
-}
-async function admgrPlanApply() {
-  const A = admgrAlert, P = A.plan; if (!P) return;
-  const sets = new Map(admgrRows().sets.map(s => [s.id, s]));
-  let n = 0; const skipped = [], gone = [];
-  for (const it of P.items) { if (it.to === it.from) continue; const s = sets.get(it.id); if (!s) { gone.push(it.name); continue; } if (s.budget !== it.from) { skipped.push(`${admgrBase(it.name)} (지금 ${comma(s.budget)} ≠ 플랜 기준 ${comma(it.from)})`); continue; } admgrDraft[it.id] = it.to; n++; }
-  lsSet('adc_admgr_draft', admgrDraft);
-  try { const r = await sbCall('client-log', { action: 'state_set' }, { key: 'budget_plan', base: A.planVer, data: { ...P, applied_at: new Date().toISOString(), applied_by: typeof ADMGR_USER !== 'undefined' ? ADMGR_USER : '' } }); if (!r.conflict) { A.plan = { ...P, applied_at: new Date().toISOString() }; A.planVer = r.ver; } } catch (e) { /* 표시만 — 임시 저장은 이미 들어감 */ }
-  $('abm-title').textContent = '예산 조정 플랜 → 임시 저장'; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.82rem;color:#374151;line-height:1.7;">세트 <b style="color:#15803d;">${n}</b>개의 변경을 임시 저장에 넣었어요. 표에서 금액을 확인·수정한 뒤 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
-    ${skipped.length ? `<div style="margin-top:8px;color:#b45309;"><b>건너뜀 ${skipped.length}개</b> — 플랜 계산 뒤 예산이 바뀐 세트 (직접 정하세요)<div style="font-size:.74rem;color:#6b7280;">${skipped.map(esc).join('<br/>')}</div></div>` : ''}
-    ${gone.length ? `<div style="margin-top:8px;color:#9ca3af;font-size:.74rem;">화면 데이터에 없는 세트 ${gone.length}개 — 새로고침 뒤 다시 시도</div>` : ''}</div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn-analyze" onclick="closeModal('admgr-budget-modal');admgrSetView('set');renderAdmgr()">세트 표에서 확인</button></div>`;
-  $('admgr-budget-modal').classList.add('show'); renderAdmgr(true);
-}
-admgrAlert.checks.push(admgrCheckPlan);
 
 /* ── 주말 모드 (2026-10-26 사용자 요청): 금~일 매출이 약한 쇼핑몰 주기에 맞춰, 7일 ROAS가 기준선 바로 위(550~700%)인 세트 예산 세트만 (10/28 구매당÷마진 35~50% → ROAS)
    2026-10-29 대상 재조정(사용자 확정, .insight-tmp/wk-target.mjs 세트 5,233주): 금요일 기준 7일 550~700% 세트는 토요일 517%(기준선 아래), 700~900%는 652%·900%↑는 719%↑로

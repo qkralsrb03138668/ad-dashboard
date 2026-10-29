@@ -22,8 +22,8 @@ const admgr = {
   /* '최근 변경' 열 — Meta 활동 로그의 오늘 예산 변경 이벤트 (byObj = Map(캠페인·세트 id → 이벤트[] 최신순)), seven = 최근 7일(모달) */
   budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
   chgFilter: 'all',          // 오늘 예산 변경 필터: all / changed / up / down
-  /* 예산 쓰기(4단계): st = meta-budget status 응답, pin = 인증된 PIN(메모리만 — 저장 금지), pendingByObj = Map(대상 id → 자정 예약 행), midMode = idle/setting/done */
-  write: { st: null, pin: pinGet(), pendingByObj: null, midMode: 'idle' },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
+  /* 예산 쓰기(4단계): st = meta-budget status 응답, pin = 인증된 PIN(메모리만 — 저장 금지), pendingByObj = Map(대상 id → 옛 23:45 예약 행), timedByObj = 시각 예약 */
+  write: { st: null, pin: pinGet(), pendingByObj: null },   // pin: 잠그기 전까지 유지 (2026-09-04 사용자 요청 — 이 브라우저에만 저장, 서버는 매 요청 검증)
   /* 오늘의 판정(광고세트 탭, 오늘 칩): round r1(11시경)/r2(14시경) 수동 전환, judgeFilter = all/cut/warn/up/manual/reup,
      margins = 세트별 마진 수동 입력(id → 원), products = 카페24 상품(판매가·공급가) 캐시 */
   selAds: new Set(),
@@ -413,17 +413,13 @@ function renderAdmgr(keepScroll) {
   }
   const canWrite = !own && !admgr.demo && !!w.st && dnrbCan('budget');
   const nd = canWrite ? admgrDraftTargets().length : 0;
-  const npend = w.pendingByObj ? w.pendingByObj.size : 0;
   /* 폰 전용 상태를 body 클래스로 — .mnav는 #sec-admgr 밖이라 CSS로 여기서만 훅을 걸 수 있다 (2026-09-18) */
   document.body.classList.toggle('admgr-selecting', admgr.mSelect && admgrMobile());
   document.body.classList.toggle('admgr-pending', admgrMobile() && !admgr.mSelect && nd > 0);
-  const midState = w.midMode === 'setting' ? `<span class="ag-tag amber">세팅중${npend ? ' · ' + npend : ''}</span>`
-    : w.resetRow ? '<span class="ag-tag green">원복 승인됨</span>' : (npend ? `<span class="ag-tag">예약 ${npend}</span>` : '');
   const toolbar = `<div class="ag-bar">
       <b class="ag-mtitle">${admgr.solo === 'test' ? '테스트 소재' : admgr.solo === 'best' ? '베스트소재' : '광고관리자'}</b>
       ${status}
       <span style="flex:1;"></span>
-      ${canWrite ? `<button class="btn-ghost ag-btn ag-hide-m" onclick="admgrMidMenu(event)" title="23:45 세팅 — 반영 세팅 시작/완료 · 원복 승인 · 예약 목록"><i class="fa-regular fa-clock"></i> 23:45 세팅${midState}</button>` : ''}
       ${nd ? `<button class="btn-analyze ag-btn ag-btn-publish" style="background:#0a7c3f;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산·켜기/끄기를 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 게시 ${nd}</button>` : ''}
       ${cfg && !admgr.demo ? `<button class="btn-analyze ag-btn" onclick="admgrRefresh()" ${busy ? 'disabled' : ''} title="${own ? '서버에서 다시 불러오기' : 'Meta에서 다시 불러오기'}"><i class="fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i><span class="ag-hide-m"> ${busy ? '불러오는 중' : '새로고침'}</span></button>` : ''}
       ${!cfg || admgr.demo ? `<button class="btn-sample ag-btn" onclick="admgrDemo()"><i class="fa-solid fa-wand-magic-sparkles"></i> 데모 데이터로 보기</button>` : ''}
@@ -512,13 +508,12 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const roleRow = `<div class="filter-tabs ag-role" style="margin-bottom:10px;"><span class="ag-lbl">역할</span>${ROLES.map(([k, l]) => { const L = vis.filter(r => admgrRolePass(r, k)); return `<button class="filter-tab ${roleCur === k ? 'active' : ''}" onclick="admgrRoleSet('${k}')" title="${k === 'test' ? '테스트 캠페인 안 _test 세트' : k === 'ops' ? (isCamp ? '캠페인 예산이 없는 캠페인' : '테스트 캠페인 안 test 없는 세트') : k === 'cbo' ? '캠페인 예산이 있는 캠페인 (리타겟팅 포함)' : '모든 역할'} · 예산 = 켜진 세트·CBO 일예산 합, 지출 = 선택한 기간에 쓴 금액">${l} <small class="ag-muted">${L.length} · ${roleSum(L)}</small></button>`; }).join('')}</div>`;
   if (admgr.role !== 'all') vis = vis.filter(r => admgrRolePass(r, admgr.role));
 
-  /* '최근 변경' 열(오늘·캠페인/세트 탭) · '자정세팅' 열 · '판정' 열 표시 여부 (원본 규칙) */
+  /* '최근 변경' 열(오늘·캠페인/세트 탭) · '판정' 열 표시 여부 (원본 규칙) — '23:45 세팅' 열은 2026-10-29에 뺌 */
   const bb = admgr.budget;
   const showChg = admgrJudgeView() && (isCamp || isSet) && !admgr.demo;
-  const showMid = !!(admgr.write.st && admgr.write.st.allowed) && isSet && !admgr.demo && dnrbCan('budget');   // '자정세팅' 열 — 광고세트 탭만 (캠페인 예산은 수동 — 2026-09-04 사용자 지정)
   const showJudge = isSet && admgrJudgeView() && !admgr.demo;   // '판정' 열 — 광고세트 탭 + 오늘
   /* 오늘 할 일 줄 (2026-10-26 사용자 승인: 역할·오늘 예산·판정 세 줄 → 역할 + 할 일 두 줄). 역할마다 칩이 다르다.
-     운영: 마감 100%↑·구매 0 / 곧 도달 1~2 / 증액 검토 3+ / 감액 후 반등 / 오늘 예산 바뀜 · 테스트: 승격 후보 / 마감 100%↑·구매 0 · CBO: 광고 탭으로 넘겨 지출 0 · 전체·캠페인 탭: 오늘 예산 바뀜
+     운영: 마감 100%↑·구매 0 / 증액 검토 3+ / 빠른 증액 / 오늘 예산 바뀜 (곧 도달·감액 후 반등은 2026-10-29에 뺌 — 하루 숫자로 깎지 않음) · 테스트: 승격 후보 / 마감 100%↑·구매 0 · CBO: 광고 탭으로 넘겨 지출 0 · 전체·캠페인 탭: 오늘 예산 바뀜
      없앤 칩: 운영중(=역할 운영) · 테스트중(=역할 테스트) · 감액 ÷10 구매 0(옛 기준 — 마감 100%↑로 대체) · 마감 50%↑(예상 마감 열의 노랑으로) · 오늘 예산 줄 4개와 미변경(→ 오늘 예산 바뀜 하나) · CBO 독식 칩·광고 지출 % (10/28) */
   const changedOf = r => !!bb.byObj && (bb.byObj.get(r.id) || []).length > 0;
   const todo = [];   // [key, label, predicate, onclick(선택)]
@@ -536,13 +531,12 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       const zero = cboAds.filter(x => !(x.spend > 0)).length;   // 독식(광고 하나 60%↑) 칩은 2026-10-28 사용자 요청으로 뺌
       todo.push(['zero', `지출 0 광고 ${zero} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('zero')"]);
     } else {
-      todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['warn', '<span class="ag-dot amber"></span>곧 도달 <small class="ag-muted">구매 1~2</small>', jk('warn')], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
+      todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
       admgrFastEnsure();
       if (admgr.fast.days) {
         todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑(3만↓ 4건↑) · ROAS 1000%↑</small>', r => !!admgrFastOf(r)]);
         if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>빠른 증액 되돌리기 <small class="ag-muted">이틀 ROAS 550%↓</small>', r => !!admgrFastRevertOf(r)]);
       }
-      if (vis.some(jk('rebound'))) todo.push(['rebound', '<span class="ag-dot blue"></span>감액 후 반등 <small class="ag-muted">구매 2+ · ROAS 550%+</small>', jk('rebound')]);
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
   }
@@ -600,7 +594,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     table = '';   // 폰은 카드만 보인다(CSS로 표 숨김) — 보이지 않는 표까지 만들어 파싱하던 것 (2026-10-26 점검). 창 크기 바뀌면 resize가 다시 그린다
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
-      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 구매(클릭 후 7일) 기준 — 0건(지출 있음)=감액 ÷10 · 1~2건=곧 도달 · 3건+=증액 검토. 아래 줄의 마진·지출%는 참고">판정</th>' + admgrTh('proj', '예상 마감', '', '지금 속도면 마감 때 마진의 몇 % — 오늘 지출 × 24 ÷ 지난 시간 ÷ 마진(판매가 − 공급가×1.1) · 구매 0인 세트만 · 100%↑ 빨강 = ÷10 후보, 50%↑ 노랑 = 지켜보기') : ''}${showMid ? '<th class="l m-hide" title="시작 = 오늘 하루 시작 예산(00:10 기록). 23:45 원복 승인 시 이 값으로 되돌아가요. 아래 칸은 23:45에 따로 걸 금액(선택) — 예약한 세트는 원복 대신 그 금액으로">23:45 세팅</th>' : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
+      <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${showJudge ? '<th class="l" title="오늘 숫자로는 깎지 않아요(2026-10-29) — 구매 0인데 예상 마감 100%↑ = ÷10 · 오늘 구매 3건+ = 증액 검토. 줄이는 건 알림판의 예산 조정 후보(7일 ROAS). 아래 줄의 마진·지출%는 참고">판정</th>' + admgrTh('proj', '예상 마감', '', '지금 속도면 마감 때 마진의 몇 % — 오늘 지출 × 24 ÷ 지난 시간 ÷ 마진(판매가 − 공급가×1.1) · 구매 0인 세트만 · 100%↑ 빨강 = ÷10 후보, 50%↑ 노랑 = 지켜보기') : ''}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
         ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(클릭7일)')}${admgrTh('roas1', 'ROAS(클릭7일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
         <tr class="ag-row ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'sel' : ''}" onclick="admgrRowClick(event,'${isCamp ? 'camp' : 'set'}','${r.id}')" title="행을 클릭하면 선택/해제">
@@ -612,7 +606,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
               onclick="admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'} →</button>
             <div class="ag-sub">${admgrStBadge(r.status)}${!isCamp && r._campName ? ` · ${esc(r._campName)}` : ''}</div></td>
           ${showJudge ? `<td class="l">${admgrJudgeCell(r)}</td><td>${admgrProjCell(r)}</td>` : ''}
-          ${showMid ? `<td class="l m-hide">${admgrMidCell(r, isCamp ? 'campaign' : 'adset')}</td>` : ''}
           <td class="m-hide">${admgrBudgetCell(r, isCamp ? 'campaign' : 'adset')}</td>
           ${showChg ? `<td class="l m-hide">${admgrChgCell(r)}</td>` : ''}
           <td>${admgrMoney(r.spend)}</td>
@@ -625,7 +618,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${cpcTd(r)}</td>
           <td class="xp">${chev}</td>
         </tr>${detail(r)}`).join('')}</tbody>
-      ${totalRow(3 + (showJudge ? 2 : 0), `${showMid ? '<td class="m-hide">—</td>' : ''}<td class="m-hide">—</td>${showChg ? '<td class="m-hide">—</td>' : ''}`)}
+      ${totalRow(3 + (showJudge ? 2 : 0), `<td class="m-hide">—</td>${showChg ? '<td class="m-hide">—</td>' : ''}`)}
     </table></div>`;
   } else {
     table = `<div class="table-wrap"><table>
@@ -661,7 +654,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     const kind = isCamp ? 'camp' : isSet ? 'set' : 'ad';
     const canBudget = !!(admgr.write.st && admgr.write.st.allowed) && !admgr.demo && dnrbCan('budget');
     /* 폰 카드 2단계 (2026-09-18): 1줄 상품명+토글 / 2줄 세트명 뒷부분·캠페인 표시 / 3줄 판정+지출·구매·ROAS / 4줄 예산+÷10·수정·펼치기. 나머지는 펼치기 안 */
-    const JB = { cut: ['red', '감액 ÷10'], warn: ['amber', '곧 도달'], up: ['green', '증액 검토'], done: ['gray', '오늘 감액됨'], rebound: ['blue', '감액 후 반등'], testing: ['gray', '테스트중'] };
+    const JB = { cut: ['red', '감액 ÷10'], up: ['green', '증액 검토'], done: ['gray', '오늘 감액됨'], testing: ['gray', '테스트중'] };
     cards = `<div class="mcards ${admgr.mSelect ? 'msel' : ''}">${vis.map(r => {
       const base = admgrBase(r.name);
       const prod = isCamp ? base : admgrProductOf({ adset_name: base });
@@ -684,7 +677,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         ${showChg ? `<div class="row"><span>최근 변경</span><span>${admgrChgCell(r)}</span></div>` : ''}
         ${parent ? `<div class="row"><span>${isSet ? '캠페인' : '광고세트'}</span><span class="mc-par">${esc(admgrBase(parent))}</span></div>` : ''}
         ${pend ? `<div class="row"><span>23:45 예약</span><span style="color:#b45309;font-weight:700;">₩${comma(pend.new_budget)}</span></div>` : ''}
-        ${showMid ? `<div class="mc-mid"><div class="mc-midt">23:45 세팅</div>${admgrMidCell(r, level)}</div>` : ''}
         <div class="mc-links">
           ${admgr.view !== 'ad' ? `<button onclick="event.stopPropagation();admgrDrill('${isCamp ? 'camp' : 'set'}','${r.id}')">${isCamp ? '세트 보기' : '광고 보기'}<i class="fa-solid fa-chevron-right"></i></button>` : ''}
           <button onclick="event.stopPropagation();admgrSelectEnter('${kind}','${r.id}')">선택 모드<i class="fa-regular fa-square-check"></i></button>
@@ -714,7 +706,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       ${isCamp && nc ? `<button onclick="admgrSetView('set')">선택한 캠페인의 세트 보기 →</button>` : ''}
       ${isSet && ns ? `<button onclick="admgrSetView('ad')">선택한 세트의 광고 보기 →</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo && admgrRows().sets.some(r => admgr.selSets.has(r.id) && admgrIsTest(r)) ? `<button onclick="admgrTestEndModal()" title="체크한 테스트중 세트의 이름 맨 뒤 _test를 세트·광고에서 지워 Meta에 저장 — 그다음부터 일반 판정에 들어가요"><i class="fa-solid fa-flag-checkered"></i> 테스트 종료</button>` : ''}
-      ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo && admgr.write.daystart && admgr.write.daystart.size ? `<button onclick="admgrRestoreSel()" title="체크한 세트를 오늘 시작 예산(00:10 기록)으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-rotate-left"></i> 시작 예산 복구</button>` : ''}
       ${isSet && ns && admgr.write.st && dnrbCan('budget') && !admgr.demo ? `<button class="cut" onclick="admgrCutSel()" title="체크한 광고세트 일예산 ÷10을 임시 저장 — 상단 \'게시\'를 눌러야 Meta에 반영돼요"><i class="fa-solid fa-arrow-down"></i> ÷10 임시 저장</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrMakerAssign(event)" title="대시보드 밖에서 올려 기록이 없는 세트에 만든 사람을 붙여요 — 화면에는 표시되지 않고 '만든 사람 ▾'로 거를 때만 쓰여요"><i class="fa-solid fa-user-pen"></i> 만든 사람 지정</button>` : ''}
       ${isSet && ns && cfg && !admgr.demo ? `<button onclick="admgrBestAdd()" title="체크한 광고세트의 소재를 베스트소재에 담기"><i class="fa-solid fa-star"></i> 베스트 담기</button>` : ''}
@@ -1302,7 +1293,6 @@ function admgrSelPanelHtml() {
   if (admgr.view === 'camp') items.push(['fa-layer-group', '세트 보기', "admgrSetView('set')"]);
   if (admgr.view === 'set') {
     items.push(['fa-arrow-down', '÷10 임시 저장', 'admgrCutSel()']);
-    if (w.daystart && w.daystart.size) items.push(['fa-rotate-left', '시작 예산 복구', 'admgrRestoreSel()']);
     if ([...admgr.selSets].some(id => { const r = R.sets.find(x => x.id === id); return r && admgrIsTest(r); })) items.push(['fa-flag-checkered', '테스트 종료', 'admgrTestEndModal()']);
     items.push(['fa-ellipsis', '더보기', 'admgrSelMoreMenu(event)']);
   }
@@ -1319,7 +1309,7 @@ function admgrFNoticeHtml(name, n) {
 
 /* ═══ 오늘의 판정 (2026-09-05 사용자 운영 규칙) ═══
    마진 = 판매가 − 공급가×1.1 (카페24 상품, 세트명에 상품명이 들어간 것으로 매칭 — 가장 긴 이름 우선) · 세트별 수동 입력이 있으면 그것 우선
-   구매 0 & 지출 ≥ 마진 → 감액 ÷10 / 구매 0 & 지출 ≥ 마진×0.8 → 곧 도달 / 구매 ≥ 3 → 증액 검토(수동) / 오늘 ↓ 이력 → 오늘 감액됨
+   2026-10-29: 구매 0 & 예상 마감 100%↑ → 감액 ÷10 / 구매 ≥ 3 → 증액 검토(수동) / 오늘 ↓ 이력 → 오늘 감액됨 (곧 도달·감액 후 반등 뺌)
    (1차/2차 구분·수동 조정·재증액 검토는 2026-09-07 사용자 요청으로 제거) */
 /* 이름 비교 키: 한글·영문·숫자만 남긴다 (공백·_·/ 무시 — "덴버 라운드/브이넥" ↔ "덴버 라운드_브이넥") */
 /* ⚠ normalize('NFC') 필수 — 맥에서 파일명으로 만든 세트명은 한글이 자모 분리형(NFD)이라 그대로 비교하면 [가-힣]에 안 걸려 매칭 0 (2026-09-07 실사례: '안스 후드 집업 … 다나스토리') */
@@ -1380,27 +1370,20 @@ function admgrCutDisp() {   // 표시된 세트(예상 마감 칩) 중 오늘 �
   const cutToday = r => ((admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || []).some(e => e.new_value < e.old_value);
   admgrCutDraft(admgrRows().sets.filter(r => ids.has(r.id) && admgrPJ(r) === 0 && r.spend > 0 && !cutToday(r)), '표시된 세트');   // 구매 0 · 지출 있음 · 오늘 안 깎음 (테스트 세트 포함)
 }   // 세트명에 test — 테스트중이라 감액·증액 판정에서 뺀다 (2026-09-17 사용자 요청)
-function admgrJudge(r) {   // 2026-09-15 사용자 규칙: 구매 수로만 판정 (마진·지출%는 참고 표시). 지출 0원인 세트는 감액 후보에서 제외
+function admgrJudge(r) {   // 2026-09-15 구매 수 판정 → 2026-10-29 정리(사용자 승인): 하루 숫자로 깎지 않는다 — ÷10은 구매 0 · 예상 마감 100%↑(마감 100%↑ 칩과 같은 기준)만
   const { m, src } = admgrMarginOf(r);
   if (admgrIsTest(r)) return { key: 'testing', m, src, ratio: m > 0 ? (r.spend || 0) / m : null };
-  const spend = r.spend || 0, pur = admgrPJ(r);   // 판정 창(ADMGR_ROAS.attr) 구매 — 10/25~27은 클릭 7일, 10/28부터 2주 기본값 시험
-  const ratio = m > 0 ? spend / m : null;
-  const evs = (admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || [];
-  const cutToday = evs.some(e => e.new_value < e.old_value);
-  const roas = spend > 0 ? admgrVJ(r) / spend : 0;
-  if (cutToday && pur >= 2 && roas >= ADMGR_ROAS.keep)  return { key: 'rebound', m, src, ratio, roas };   // 감액 후 성과가 붙은 세트 — 되돌릴지 검토 (2026-09-16 사용자 규칙: 구매 2건 이상 + ROAS 500%↑ → 10/28 550%↑)
-  if (pur >= 3)                  return { key: 'up',   m, src, ratio };   // 구매 3건 이상 → 증액 검토
-  if (pur >= 1)                  return { key: 'warn', m, src, ratio };   // 구매 1~2건 → 곧 도달
-  if (cutToday)                  return { key: 'done', m, src, ratio };   // 구매 0이지만 오늘 이미 감액한 세트 — 두 번 깎지 않게
-  if (spend > 0)                 return { key: 'cut',  m, src, ratio };   // 구매 0 + 지출 있음 → 감액 ÷10
-  return { key: '', m, src, ratio };                                       // 아직 지출 0원 → 판정 보류
+  const spend = r.spend || 0, pur = admgrPJ(r), ratio = m > 0 ? spend / m : null;   // 판정 창(ADMGR_ROAS.attr) 구매
+  const cutToday = ((admgr.budget.byObj && admgr.budget.byObj.get(r.id)) || []).some(e => e.new_value < e.old_value);
+  if (pur >= 3) return { key: 'up', m, src, ratio };   // 오늘 구매 3건↑ → 증액 검토 (당일 증액 분석: 구매 보고 올린 돈 ROAS 500%대)
+  if (pur > 0) return { key: '', m, src, ratio };
+  if (cutToday) return { key: 'done', m, src, ratio };   // 오늘 이미 감액 — 두 번 깎지 않게
+  return { key: (admgrProj(r) || 0) >= 100 ? 'cut' : '', m, src, ratio };
 }
 const ADMGR_JUDGE = {
   cut:      { cls: 'badge-red',    t: '🔴 감액 ÷10' },
-  warn:     { cls: 'badge-yellow', t: '🟡 곧 도달' },
   up:       { cls: 'badge-green',  t: '🟢 증액 검토' },
   done:     { cls: 'badge-gray',   t: '✓ 오늘 감액됨' },
-  rebound:  { cls: 'badge-blue',   t: '↗ 감액 후 반등' },
   testing:  { cls: 'badge-gray',   t: '⚗ 테스트중' },
 };
 function admgrJudgeCell(r) {
@@ -1510,26 +1493,6 @@ function admgrCutDraft(rows, label) {
 function admgrCut10(id) {   // 판정 셀의 ÷10 (행 하나)
   const r = admgrRows().sets.find(x => x.id === id); if (!r) return;
   admgrCutDraft([r], '이 세트');
-}
-function admgrCutAll() {   // 판정 '감액' 후보 전체
-  admgrCutDraft(admgrRows().sets.filter(r => admgrJudge(r).key === 'cut'), '감액 후보');
-}
-function admgrRestoreSel() {   // 체크한 세트를 오늘 시작 예산(00:10 기록)으로 되돌리기 → 임시 저장 (2026-09-16 사용자 요청)
-  const ds = admgr.write.daystart;
-  if (!ds || !ds.size) { toast('오늘 시작 예산 기록이 아직 없어요 (00:10에 저장돼요)'); return; }
-  const sel = admgrRows().sets.filter(r => admgr.selSets.has(r.id));
-  let n = 0, same = 0, none = 0;
-  for (const r of sel) {
-    const st = Math.round(ds.get(r.id) ?? 0);
-    if (!(st >= 1000)) { none++; continue; }
-    if (st === Math.round(r.budget)) { same++; continue; }
-    admgrDraft[r.id] = st; n++;
-  }
-  if (!n) { toast(same ? `이미 시작 예산 그대로예요 (${same}개)` : `되돌릴 시작 예산 기록이 없어요 (${none}개)`); return; }
-  lsSet('adc_admgr_draft', admgrDraft);
-  admgr.selSets.clear(); admgr.mSelect = false;   // 폰 선택모드였다면 동작 완료로 나감 (B)
-  toast(`${n}개를 시작 예산으로 임시 저장${same ? ` · 동일 ${same}개` : ''}${none ? ` · 기록 없음 ${none}개` : ''} — 상단 '게시'로 반영`);
-  renderAdmgr(true);
 }
 function admgrCutSel() {   // 체크한 광고세트
   if (admgrCutDraft(admgrRows().sets.filter(r => admgr.selSets.has(r.id)), '선택한 세트')) { admgr.selSets.clear(); admgr.mSelect = false; renderAdmgr(true); }
