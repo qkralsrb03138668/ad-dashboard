@@ -1487,7 +1487,7 @@ function admgrFastModal() {
     : k === 'clash' ? `<b style="color:#b45309;">그대로</b><div style="font-size:.64rem;color:#9ca3af;">7일 ${P(x.a.r7)}<br>예산 조정 ${x.a.act === 'off' ? 'OFF' : '절반'} 후보</div>` : `<b style="color:#b45309;white-space:nowrap;">되돌리기 → ${man(x.to)}</b>`;
   const row = (x, k) => { const r = x.r, pend = admgrDraft[r.id] != null;
     return `<tr${pend ? ' style="opacity:.55;"' : ''}><td><input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${(k === 'up' || k === 'back') && !pend ? 'checked' : ''} ${k === 'hold' ? 'disabled' : ''} /></td>
-      <td class="name-cell" style="text-align:left;">${esc(admgrBase(r.name))}${pend ? '<div style="font-size:.64rem;color:#9ca3af;">이미 임시 저장됨</div>' : ''}</td>
+      <td class="name-cell" style="text-align:left;white-space:normal;min-width:220px;">${esc(admgrBase(r.name))}${pend ? '<div style="font-size:.64rem;color:#9ca3af;">이미 임시 저장됨</div>' : ''}</td>
       <td style="white-space:nowrap;">${man(r.budget)}</td>
       <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b>` : `<b>${P(x.f.roas)}</b><div style="font-size:.64rem;color:#9ca3af;">${x.f.p}건 · ${man(x.f.sp)}</div>`}</td>
       <td style="white-space:nowrap;">${today(r)}</td><td style="min-width:92px;">${res(x, k)}</td></tr>`; };
@@ -1495,10 +1495,11 @@ function admgrFastModal() {
   const n = L.up.length + L.hold.length + L.clash.length + L.back.length;
   $('abm-title').textContent = `빠른 증액 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">일예산 5만 이하 · 어제까지 3일 구매 6건↑(일예산 3만 미만은 4건↑) · ROAS 1000%↑ → 요일 상관없이 2배. 오늘 구매 0이고 예상 마감 100%↑면 내일 아침 다시 봐요. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영.</div>
-    ${n ? `<div class="table-wrap" style="max-height:52vh;overflow:auto;"><table style="font-size:.74rem;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 3일</th><th>오늘</th><th>결과</th></tr></thead>
+    ${n ? `<div class="table-wrap" style="max-height:62vh;overflow:auto;"><table style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 3일</th><th>오늘</th><th>결과</th></tr></thead>
       <tbody>${sec('up', '2배 후보', '#15803d')}${sec('hold', '내일 다시', '#6b7280', '오늘 아직 구매 0')}${sec('clash', '겹침 — 그대로', '#b45309', '3일은 좋지만 7일은 예산 조정 후보')}${sec('back', '되돌리기', '#b45309', '2배 올린 뒤 이틀 ROAS 550% 미만')}</tbody></table></div>`
       : '<div class="empty-state" style="padding:20px;"><p>오늘은 빠른 증액 후보가 없어요.</p></div>'}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${n && admgr.write.st && dnrbCan('budget') ? '<button class="btn-analyze" onclick="admgrFastApply()">체크한 것 임시 저장에 넣기</button>' : ''}</div>`;
+  admgrAbmWide();
   $('admgr-budget-modal').classList.add('show');
 }
 function admgrFastApply() {

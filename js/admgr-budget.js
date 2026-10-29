@@ -82,6 +82,11 @@ function admgrPopAt(ev, html, w) {
   const h = pop.offsetHeight, below = r0.bottom + 6;
   pop.style.top = (below + h <= window.innerHeight - 8 ? below : Math.max(8, Math.min(r0.top - 6 - h, window.innerHeight - h - 8))) + 'px';
 }
+/* 표 창(예산 조정 후보·빠른 증액)만 넓게 — 닫히면 원래 폭(560px)으로 (2026-10-29 사용자: 결과 칸이 잘려 보기 불편) */
+function admgrAbmWide() {
+  const m = $('admgr-budget-modal'), b = m.querySelector('.modal-box'); b.style.maxWidth = 'min(980px, calc(100vw - 32px))';
+  new MutationObserver((_, o) => { if (!m.classList.contains('show')) { b.style.maxWidth = '560px'; o.disconnect(); } }).observe(m, { attributes: true, attributeFilter: ['class'] });
+}
 const agItem = (icon, label, onclick, sub) => `<button class="ag-item" onclick="document.getElementById('admgr-bpop').style.display='none';${onclick}"><i class="fa-solid ${icon}"></i><span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
 function admgrMoreMenu(ev) {
   const w = admgr.write, nd = admgrDraftTargets().length, npend = (w.pendingByObj ? w.pendingByObj.size : 0) + (w.timedByObj ? w.timedByObj.size : 0);

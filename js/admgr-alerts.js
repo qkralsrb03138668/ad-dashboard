@@ -504,7 +504,7 @@ function admgrAdjModal() {
   const res = x => x.act === 'off' ? '<b style="color:#b91c1c;">OFF</b>' : x.act === 'half' ? `<b style="color:#b45309;">절반 → ${man(x.to)}</b>` : `<b style="color:#15803d;">+${Math.round((x.to / x.from - 1) * 100)}% → ${man(x.to)}</b>`;
   const row = x => { const pend = admgrDraft[x.s.id] || admgrSDraft[x.s.id];
     return `<tr${pend ? ' style="opacity:.55;"' : ''}><td><input type="checkbox" class="adj-ck" data-id="${esc(x.s.id)}" data-act="${x.act}" data-to="${x.to}" ${pend ? '' : 'checked'} /></td>
-      <td class="name-cell" style="text-align:left;">${role(x)} ${esc(admgrBase(x.s.name))}<div style="color:#6b7280;font-size:.66rem;white-space:normal;">${esc(x.why)}${pend ? ' · 이미 임시 저장됨' : ''}</div></td>
+      <td class="name-cell" style="text-align:left;white-space:normal;min-width:240px;">${role(x)} ${esc(admgrBase(x.s.name))}<div style="color:#6b7280;font-size:.66rem;white-space:normal;">${esc(x.why)}${pend ? ' · 이미 임시 저장됨' : ''}</div></td>
       <td style="white-space:nowrap;"><b>${P(x.r7)}</b><div style="font-size:.64rem;color:#9ca3af;">${x.p7 || 0}건 · ${man(x.sp7)}</div></td>
       <td style="white-space:nowrap;">${P(x.r3)}<div style="font-size:.64rem;color:#9ca3af;">${x.p3 || 0}건 · ${man(x.sp3)}</div></td>
       <td style="white-space:nowrap;">${man(x.from)}</td><td style="white-space:nowrap;">${res(x)}</td></tr>`; };
@@ -515,9 +515,10 @@ function admgrAdjModal() {
   $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
   $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일 <b>ROAS</b>로 골랐어요 (${admgrAttrTxt()}). 450% 미만 OFF · 450~550% 절반(3일 뒤에도 550% 미만이면 OFF) · 550~900% 유지 · 900%↑ 증액(1100%↑ +30%). 7일 구매 5건 또는 지출 5만원부터 판단 · 7일 450% 미만이어도 3일 550%↑·3건↑면 OFF 대신 절반(감액 이력 없을 때). 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
       <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
-    <div class="table-wrap" style="max-height:50vh;overflow:auto;"><table style="font-size:.74rem;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>7일</th><th>3일</th><th>일예산</th><th>결과</th></tr></thead>
+    <div class="table-wrap" style="max-height:62vh;overflow:auto;"><table style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>7일</th><th>3일</th><th>일예산</th><th>결과</th></tr></thead>
       <tbody>${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('up', '증액', '#15803d')}</tbody></table>${info('watch', '유지 (7일 ROAS 550~900%)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrAdjApply()">체크한 것 임시 저장에 넣기</button></div>`;
+  admgrAbmWide();
   $('admgr-budget-modal').classList.add('show');
 }
 function admgrAdjApply() {
