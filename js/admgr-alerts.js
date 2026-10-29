@@ -434,7 +434,8 @@ async function admgrWeekendRestore() {
 
 /* ═══ 예산 조정 후보 (2026-10-28 사용자 요청: "말 안 했으면 언제 하려고 했냐" — 매일 자동으로, 놓치는 세트 없게) ═══
    대상: CBO가 아닌 켜진 세트(운영·테스트 모두) · 일예산 1,000원 초과 · 만든 지 3일↑. 상품 마진은 안 씀(같이 산 상품까지 든 전환값으로 보려고).
-   기준 = 어제까지 7일 ROAS (ADMGR_ROAS — 2026-10-28 사용자 확정: 구매당 비용÷마진 대신 ROAS, 최소 550%, 2주는 메타 기본값 창). 3일은 참고로만 보여 줌.
+   기준 = 어제까지 7일 ROAS (ADMGR_ROAS — 2026-10-28 사용자 확정: 구매당 비용÷마진 대신 ROAS, 최소 550%, 2주는 메타 기본값 창). 3일은 참고 — 단 2026-10-29부터 7일 450% 미만이어도 3일 ROAS 550%↑·3일 구매 3↑(감액 이력 없음)이면 OFF 대신 절반
+   (.insight-tmp/r7r3.mjs: 그런 세트 다음 7일 495~516% = 절반 구간 세트(507~534%)와 비슷, 한 번 감액한 뒤 회복은 482%라 그대로 OFF)
    근거: 9/8~10/26 세트 27,051건 — 줄일 세트 고르기는 구매당 비용·ROAS가 같고, 키울 세트 고르기는 ROAS가 훨씬 나음(다음 주 광고비 1원당 이익 2.32 vs 2.81).
    백테스트(.insight-tmp/sim-cbo.mjs L550): 최근 6개월 기본값 550% 기준이면 광고비 7.13억 → 3.43억 (클릭 7일 550%는 2.19억).
    판단 : 7일 구매 5건↑ 또는 7일 지출 5만원↑일 때만 (표본 부족이면 건너뜀)
@@ -443,7 +444,7 @@ async function admgrWeekendRestore() {
    유지 : 7일 550~900% — 손대지 않음 (표시만)
    증액 : 7일 900%↑ & 7일 구매 10↑ & 3일 안 증액 없음 — 금·토 제외 (1100%↑ +30%, 900%↑ +20%)
    대기 : 최근 3일 안에 감액한 세트 — OFF 조건만 빼고 3일은 다시 건드리지 않음 */
-const ADMGR_ADJ = { minPur: 5, minSpend: 50000, upMinPur: 10, cool: 3, back: 10, minAge: 3 };   // ROAS 선은 ADMGR_ROAS (js/admgr.js)
+const ADMGR_ADJ = { minPur: 5, minSpend: 50000, upMinPur: 10, cool: 3, back: 10, minAge: 3, rescuePur: 3 };   // ROAS 선은 ADMGR_ROAS (js/admgr.js)
 async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액 날짜 → 대기·재확인)
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.adjLoading || (A.adjHist && Date.now() - A.adjHistAt < 30 * 60000) || Date.now() - (A.adjFailAt || 0) < 5 * 60000) return;
   A.adjLoading = true;
@@ -470,9 +471,10 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow) {   // 순수 계산 — �
     const t = s3.get(s.id), sp3 = t ? t.spend || 0 : 0, p3 = t ? admgrPJ(t) : 0, r3 = sp3 > 0 ? admgrVJ(t) / sp3 : null;
     const L = last.get(s.id) || {}, cool = !!(L.cut && L.cut >= coolFrom), prevCut = !!(L.cut && !cool && L.cut >= backFrom);
     const base = { s, r7, r3, p7, p3, sp7: w.spend, sp3, from: s.budget, lastCut: L.cut || null };
-    if (r7 < R.off || (prevCut && r7 < R.keep)) { out.push({ ...base, act: 'off', to: 0, why: r7 < R.off ? `7일 ROAS ${pc(R.off)} 미만 — 회복 가능성 낮음` : `${L.cut.slice(5)} 감액 뒤에도 7일 ROAS ${pc(R.keep)} 미만` }); continue; }
+    const rescue = !prevCut && r7 < R.off && r3 != null && r3 >= R.keep && p3 >= C.rescuePur;   // 3일 회복 → OFF 대신 절반 (위 설명)
+    if (!rescue && (r7 < R.off || (prevCut && r7 < R.keep))) { out.push({ ...base, act: 'off', to: 0, why: prevCut ? `${L.cut.slice(5)} 감액 뒤에도 7일 ROAS ${pc(r7)}(${pc(R.keep)} 미만)${r3 != null && r3 >= R.keep ? ` — 3일 ${pc(r3)} 회복은 감액 뒤라 OFF 유지` : ''}` : `7일 ROAS ${pc(R.off)} 미만 — 회복 가능성 낮음` }); continue; }
     if (cool) { out.push({ ...base, act: 'cool', to: s.budget, why: `${L.cut.slice(5)}에 감액 — 3일 뒤 다시 확인` }); continue; }
-    if (r7 < R.keep) { out.push({ ...base, act: 'half', to: r1k(s.budget / 2), why: `7일 ROAS ${pc(R.off)}~${pc(R.keep)} — 3일 뒤에도 ${pc(R.keep)} 미만이면 OFF` }); continue; }
+    if (r7 < R.keep) { out.push({ ...base, act: 'half', rescue, to: r1k(s.budget / 2), why: rescue ? `7일 ROAS ${pc(r7)}지만 3일 ${pc(r3)}(${p3}건)로 회복 — OFF 대신 절반, 다음에도 7일 ${pc(R.keep)} 미만이면 OFF` : `7일 ROAS ${pc(R.off)}~${pc(R.keep)} — 3일 뒤에도 ${pc(R.keep)} 미만이면 OFF` }); continue; }
     if (r7 < R.up) { out.push({ ...base, act: 'watch', to: s.budget, why: `7일 ROAS ${pc(R.keep)}~${pc(R.up)} — 유지` }); continue; }
     const upOk = dow !== 5 && dow !== 6 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom);
     if (upOk) out.push({ ...base, act: 'up', to: r1k(s.budget * (r7 >= R.upBig ? 1.3 : 1.2)), why: r7 >= R.upBig ? `7일 ROAS ${pc(R.upBig)}↑ → +30%` : `7일 ROAS ${pc(R.up)}~${pc(R.upBig)} → +20%` });

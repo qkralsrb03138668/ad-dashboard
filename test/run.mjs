@@ -441,6 +441,9 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   assert.equal(R1([ev('2026-10-24T14:45:00Z', 40000, 30000), ev('2026-10-26T14:45:00Z', 30000, 40000)]), 'half');   // 주말 −25% 뒤 원복 → 감액 이력 아님 → 절반
   assert.equal(R1([ev('2026-10-23T03:00:00Z', 40000, 4000), ev('2026-10-23T14:45:00Z', 4000, 40000)]), 'half');     // 낮 ÷10 뒤 23:45 원복 → 절반
   assert.equal(R1([ev('2026-10-23T03:00:00Z', 80000, 40000)]), 'off');                                                // 진짜 절반 감액 뒤에도 550% 미만 → OFF
+  // 10/29: 7일 450% 미만이어도 3일 550%↑·3건↑(감액 이력 없음)이면 OFF 대신 절반, 3일 2건이거나 감액 뒤면 그대로 OFF
+  const R3 = (p3, h) => { const x = f([S('q', 40000)], new Map([['q', W(170000, 10, 3.5)]]), new Map([['q', W(50000, p3, 6)]]), h || [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : ''); };
+  assert.equal([R3(3), R3(2), R3(5, [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }])].join(), 'half:rescue,off,off');
 });
 
 test('admgrFastOf·admgrFastRevertOf: 3일 ROAS 1000%↑ → 2배 후보 · 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기 (10/28 ROAS 기준)', () => {
