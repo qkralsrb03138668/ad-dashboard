@@ -414,12 +414,13 @@ function renderBydate() {
   const dow = d => '일월화수목금토'[new Date(d + 'T00:00:00').getDay()];
   const tr = r => { const st = BD_ST[r.st], src = bydate.thumbs[r.id];
     return `<tr><td style="text-align:left;"><div class="bd-ad"><span class="tt-th" onclick="showMetaPreview('${r.id}')" title="미리보기">${src ? `<img src="${esc(src)}" loading="lazy" alt="">` : ''}</span>
-        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[byProd ? fmtMD(r.reg_date) + ' 업로드' : '', r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.active ? '켜짐' : '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
+        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[key !== 'upload' ? fmtMD(r.reg_date) + ' 업로드' : '', r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.active ? '켜짐' : '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
       <td class="ctr">${st[1] ? `<span class="status-badge ${st[0]}">${st[1]}</span>` : ''}</td>
       <td class="num ${key === 'spend' ? 'bd-on' : ''}">${won(r.spend || 0)}</td><td class="num ${key === 'purchases' ? 'bd-on' : ''}">${comma(r.purchases || 0)}</td>
       <td class="num">${per(r.spend || 0, r.purchases)}</td><td class="num">${per(r.spend || 0, r.clicks)}</td>
       <td class="num ${key === 'roas' ? 'bd-on' : ''}"><b style="color:${myRoasColor(r.roas)};">${r.roas == null ? '—' : r.roas.toFixed(2)}</b></td></tr>`; };
-  const body = (byProd ? [...days.keys()].sort((x, y) => x.localeCompare(y, 'ko')) : [...days.keys()].sort().reverse()).map(d => `<tr class="bd-day"><td colspan="7"><b>${byProd ? esc(d) : `${fmtMD(d)} (${dow(d)}) 업로드`}</b> <span>${days.get(d).length}개 · ${sum(days.get(d))}</span></td></tr>${days.get(d).map(tr).join('')}`).join('');
+  const flat = !byProd && key !== 'upload';   // 구매·ROAS·지출 순 = 날짜로 안 묶고 그 값 순서 그대로 (2026-10-29 사용자)
+  const body = flat ? rows.map(tr).join('') : (byProd ? [...days.keys()].sort((x, y) => x.localeCompare(y, 'ko')) : [...days.keys()].sort().reverse()).map(d => `<tr class="bd-day"><td colspan="7"><b>${byProd ? esc(d) : `${fmtMD(d)} (${dow(d)}) 업로드`}</b> <span>${days.get(d).length}개 · ${sum(days.get(d))}</span></td></tr>${days.get(d).map(tr).join('')}`).join('');
   setTimeout(() => bydateThumbs(rows), 0);
   box.innerHTML = head + stBar + `<div class="my-h"><b>${fmtMD(from)}${from !== to ? ' ~ ' + fmtMD(to) : ''} 업로드 ${rows.length}개${bydate.stf ? ` · ${BD_ST[bydate.stf][1]}` : ''}</b><span>${rows.length ? sum(rows) : ''}${bydate.loading ? ' · <i class="fa-solid fa-spinner fa-spin"></i> 새로 받는 중…' : ''}</span></div>
     ${rows.length ? `<div class="table-wrap"><table class="my-table"><thead><tr><th style="text-align:left;">소재</th><th>상태</th><th class="num">지출</th><th class="num">구매</th><th class="num">구매당비용</th><th class="num" title="링크 클릭 1회에 든 비용">CPC</th><th class="num">ROAS</th></tr></thead><tbody>${body}</tbody></table></div>`
