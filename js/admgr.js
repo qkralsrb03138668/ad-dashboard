@@ -534,8 +534,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
       admgrFastEnsure();
       if (admgr.fast.days) {
-        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑(3만↓ 4건↑) · ROAS 1000%↑</small>', r => !!admgrFastOf(r) && !admgrFastHold(r)]);
-        if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>빠른 증액 되돌리기 <small class="ag-muted">이틀 ROAS 550%↓</small>', r => !!admgrFastRevertOf(r)]);
+        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑(3만↓ 4건↑) · ROAS 1000%↑</small>', r => !!admgrFastOf(r) && !admgrFastHold(r), 'admgrFastModal()']);
+        if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>빠른 증액 되돌리기 <small class="ag-muted">이틀 ROAS 550%↓</small>', r => !!admgrFastRevertOf(r), 'admgrFastModal()']);
       }
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
@@ -550,8 +550,6 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       <span class="ag-lbl">오늘 할 일</span>
       ${chip('all', '전체', vis.length)}${todo.map(([k, l, p, fn]) => chip(k, l, p ? vis.filter(p).length : null, fn)).join('')}
       <span style="flex:1;"></span>
-      ${admgr.judgeFilter === 'fast' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#16a34a;border-color:transparent;" onclick="admgrFastBoostDisp()" title="표시된 빠른 증액 후보의 일예산을 2배로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요">표시된 세트 2배 임시 저장</button>` : ''}
-      ${admgr.judgeFilter === 'fastback' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#d97706;border-color:transparent;" onclick="admgrFastRevertDisp()" title="2배로 올리기 전 예산으로 임시 저장 — 상단 '게시'로 반영">올리기 전 예산으로 임시 저장</button>` : ''}
       ${admgr.judgeFilter === 'over' && admgr.write.st && dnrbCan('budget') ? `<button class="filter-tab" style="color:#fff;background:#dc2626;border-color:transparent;" onclick="admgrCutDisp()" title="지금 표시된 세트 중 오늘 아직 안 깎은 것(구매 0 · 예산 있음)을 ÷10으로 임시 저장 — 상단 '게시'를 눌러야 Meta에 반영돼요">표시된 세트 ÷10 임시 저장</button>` : ''}
       ${showJudge && admgr.productsLoading ? '<span style="font-size:.72rem;color:#9ca3af;">카페24 상품 가격 불러오는 중…</span>' : ''}
     </div>`;
@@ -1471,26 +1469,50 @@ async function admgrFastSave(edit) {   // fast_boost 기록 — 충돌이면 최
     F.boost = r.data || { items: {} }; F.ver = r.ver;
   }
 }
-function admgrFastBoostDisp() {
-  const ids = new Set(admgr._dispIds || []);
-  const rows = admgrRows().sets.filter(r => ids.has(r.id) && admgrFastOf(r) && !admgrFastHold(r));
-  if (!rows.length) { toast('빠른 증액할 세트가 없어요'); return; }
-  const max = (admgr.write.st && admgr.write.st.max_budget) || 300000, day = todayStr(0);
-  for (const r of rows) admgrDraft[r.id] = Math.min(max, Math.round(r.budget * ADMGR_FAST.mul / 1000) * 1000);
-  lsSet('adc_admgr_draft', admgrDraft);
-  admgrFastSave(d => { for (const k of Object.keys(d.items)) if (d.items[k].day < todayStr(-10)) delete d.items[k];
-    for (const r of rows) d.items[r.id] = { from: r.budget, to: admgrDraft[r.id], day, name: admgrBase(r.name).slice(0, 60) }; }).catch(() => toast('빠른 증액 기록 저장 실패 — 되돌리기 알림이 안 뜰 수 있어요'));
-  toast(`빠른 증액 ${rows.length}개 2배 임시 저장 — 상단 '게시'로 반영. 이틀 뒤 ROAS가 550% 미만이면 '되돌리기'에 올라와요`);
-  renderAdmgr(true);
+/* 빠른 증액 창 (2026-10-29 사용자 요청: 예산 조정 후보처럼 표로) — 2배 후보 · 내일 다시(오늘 구매 0·예상 마감 100%↑) · 겹침(예산 조정 후보 OFF·절반과 겹침 → 그대로,
+   과거 겹친 세트 다음 7일 540%) · 되돌리기(2배 뒤 이틀 ROAS 550% 미만). 체크한 것만 임시 저장 → [게시] */
+function admgrFastModal() {
+  admgrFastEnsure();
+  if (!admgr.fast.days) { toast('3일 성적을 불러오는 중이에요 — 잠시 뒤 다시 눌러 주세요'); return; }
+  const max = (admgr.write.st && admgr.write.st.max_budget) || 300000, man = v => admgrW(Math.round(v || 0)), P = r => Math.round(r * 100).toLocaleString() + '%';
+  const adj = new Map(((typeof admgrAdjRows === 'function' && admgrAdjRows()) || []).filter(x => x.act === 'off' || x.act === 'half').map(x => [x.s.id, x]));
+  const L = { up: [], hold: [], clash: [], back: [] };
+  for (const r of admgrRows().sets) {
+    const f = admgrFastOf(r);
+    if (f) { const a = adj.get(r.id); (admgrFastHold(r) ? L.hold : a ? L.clash : L.up).push({ r, f, a, to: Math.min(max, Math.round(r.budget * ADMGR_FAST.mul / 1000) * 1000) }); continue; }
+    const b = admgrFastRevertOf(r); if (b) L.back.push({ r, b, to: b.from });
+  }
+  const today = r => { const p = admgrPJ(r), pj = p === 0 ? admgrProj(r) : null; return `${p}건${pj != null ? `<div style="font-size:.64rem;color:${pj >= 100 ? '#b91c1c' : '#9ca3af'};">마감 ${pj}%</div>` : ''}`; };
+  const res = (x, k) => k === 'up' ? `<b style="color:#15803d;">2배 → ${man(x.to)}</b>` : k === 'hold' ? '<span style="color:#6b7280;">내일 다시</span>'
+    : k === 'clash' ? `<b style="color:#b45309;">그대로</b><div style="font-size:.64rem;color:#9ca3af;">7일 ${P(x.a.r7)} · 예산 조정 ${x.a.act === 'off' ? 'OFF' : '절반'} 후보</div>` : `<b style="color:#b45309;">되돌리기 → ${man(x.to)}</b>`;
+  const row = (x, k) => { const r = x.r, pend = admgrDraft[r.id] != null;
+    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td><input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${(k === 'up' || k === 'back') && !pend ? 'checked' : ''} ${k === 'hold' ? 'disabled' : ''} /></td>
+      <td class="name-cell" style="text-align:left;">${esc(admgrBase(r.name))}${pend ? '<div style="font-size:.64rem;color:#9ca3af;">이미 임시 저장됨</div>' : ''}</td>
+      <td style="white-space:nowrap;">${man(r.budget)}</td>
+      <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b>` : `<b>${P(x.f.roas)}</b><div style="font-size:.64rem;color:#9ca3af;">${x.f.p}건 · ${man(x.f.sp)}</div>`}</td>
+      <td style="white-space:nowrap;">${today(r)}</td><td style="white-space:nowrap;">${res(x, k)}</td></tr>`; };
+  const sec = (k, t, c, note) => L[k].length ? `<tr><td colspan="6" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L[k].length}${note ? ` <small style="font-weight:600;color:#9ca3af;">${note}</small>` : ''}</td></tr>${L[k].sort((a, b) => (b.f ? b.f.roas : 0) - (a.f ? a.f.roas : 0)).map(x => row(x, k)).join('')}` : '';
+  const n = L.up.length + L.hold.length + L.clash.length + L.back.length;
+  $('abm-title').textContent = `빠른 증액 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">일예산 5만 이하 · 어제까지 3일 구매 6건↑(일예산 3만 미만은 4건↑) · ROAS 1000%↑ → 요일 상관없이 2배. 오늘 구매 0이고 예상 마감 100%↑면 내일 아침 다시 봐요. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영.</div>
+    ${n ? `<div class="table-wrap" style="max-height:52vh;overflow:auto;"><table style="font-size:.74rem;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 3일</th><th>오늘</th><th>결과</th></tr></thead>
+      <tbody>${sec('up', '2배 후보', '#15803d')}${sec('hold', '내일 다시', '#6b7280', '오늘 아직 구매 0')}${sec('clash', '겹침 — 그대로', '#b45309', '3일은 좋지만 7일은 예산 조정 후보')}${sec('back', '되돌리기', '#b45309', '2배 올린 뒤 이틀 ROAS 550% 미만')}</tbody></table></div>`
+      : '<div class="empty-state" style="padding:20px;"><p>오늘은 빠른 증액 후보가 없어요.</p></div>'}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${n && admgr.write.st && dnrbCan('budget') ? '<button class="btn-analyze" onclick="admgrFastApply()">체크한 것 임시 저장에 넣기</button>' : ''}</div>`;
+  $('admgr-budget-modal').classList.add('show');
 }
-function admgrFastRevertDisp() {
-  const ids = new Set(admgr._dispIds || []);
-  const rows = admgrRows().sets.filter(r => ids.has(r.id)).map(r => [r, admgrFastRevertOf(r)]).filter(x => x[1]);
-  if (!rows.length) { toast('되돌릴 세트가 없어요'); return; }
-  for (const [r, v] of rows) admgrDraft[r.id] = v.from;
+function admgrFastApply() {
+  const byId = new Map(admgrRows().sets.map(r => [r.id, r])), up = [], back = [];
+  document.querySelectorAll('.fast-ck:checked').forEach(el => { const r = byId.get(el.dataset.id); if (r) (el.dataset.k === 'back' ? back : up).push([r, Number(el.dataset.to)]); });
+  if (!up.length && !back.length) { toast('체크한 세트가 없어요'); return; }
+  for (const [r, to] of [...up, ...back]) admgrDraft[r.id] = to;
   lsSet('adc_admgr_draft', admgrDraft);
-  admgrFastSave(d => { for (const [r] of rows) delete d.items[r.id]; }).catch(() => {});
-  toast(`${rows.length}개를 올리기 전 예산으로 임시 저장 — 상단 '게시'로 반영`);
+  const day = todayStr(0);
+  admgrFastSave(d => { for (const k of Object.keys(d.items)) if (d.items[k].day < todayStr(-10)) delete d.items[k];
+    for (const [r, to] of up) d.items[r.id] = { from: r.budget, to, day, name: admgrBase(r.name).slice(0, 60) };
+    for (const [r] of back) delete d.items[r.id]; }).catch(() => toast('빠른 증액 기록 저장 실패 — 되돌리기 알림이 안 뜰 수 있어요'));
+  closeModal('admgr-budget-modal');
+  toast(`${[up.length ? `2배 ${up.length}개` : '', back.length ? `되돌리기 ${back.length}개` : ''].filter(Boolean).join(' · ')} 임시 저장 — 상단 '게시'로 반영${up.length ? ". 이틀 뒤 ROAS가 550% 미만이면 '되돌리기'에 올라와요" : ''}`);
   renderAdmgr(true);
 }
 function admgrCutDraft(rows, label) {
