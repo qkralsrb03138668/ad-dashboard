@@ -157,4 +157,30 @@ for (let i = 0; i < 3 && !out.cafe24; i++) {
 }
 if (out.cafe24) delete out.cafe24_error;
 
+// 상품 보드 판정 변화 (2026-10-30) — 대시보드 광고관리자 '상품 보드' 탭과 같은 함수(js/admgr-board.js admgrBoardCalc)로
+//   카페24가 열린 마지막 날 D 기준 판정 vs D−1 기준 판정을 비교해, 할 일이 있는 판정(증액 후보·소재 피로·노출 부족·식는 중)으로 바뀐 상품을 광고 지출순 3개.
+//   재고는 지금 값만 있어 양쪽 다 빼고 비교한다(품절 판정 없음 — 품절은 알림판이 따로 잡는다)
+if (out.cafe24) try {
+  const vm = await import('node:vm'), rd = f => fs.readFileSync(path.join(root, f), 'utf8'), base = rd('js/admgr.js'), tabs = rd('js/admgr-tabs.js'), board = rd('js/admgr-board.js');
+  const grab = (re, t) => (t.match(re) || [])[0] || '';
+  const code = [...['admgrP7', 'admgrV7', 'ADMGR_ROAS', 'admgrPJ', 'admgrVJ', 'admgrNorm', 'admgrProdKey'].map(k => grab(new RegExp(`const ${k} = [^\\n]+`), base)),
+    grab(/const admgrProductOf = [^\n]+/, tabs), grab(/const BOARD_V = \{[\s\S]*?\n\};/, board), grab(/function admgrBoardCalc[\s\S]*?\n}\n/, board)].join('\n');
+  if (!/function admgrBoardCalc/.test(code) || !/const admgrProdKey/.test(code)) throw new Error('admgrBoardCalc·admgrProdKey를 못 찾음');
+  const ctx = {}; vm.createContext(ctx);
+  vm.runInContext(code + '\nthis.calc = admgrBoardCalc; this.V = BOARD_V; this.d = { prodOf: admgrProductOf, norm: admgrNorm, PJ: admgrPJ, VJ: admgrVJ, keep: ADMGR_ROAS.keep }; this.key = admgrProdKey;', ctx);
+  const D = out.cafe24.date, perf = (s, e) => api('cafe24-perf', { action: 'performance', start_date: s, end_date: e }).then(p => p.rows || []);
+  const pr = (await api('cafe24-perf', { action: 'products' })).rows || [];
+  const idx = pr.filter(p => p.name && p.price > 0).map(p => ({ no: p.product_no, name: p.name, n: ctx.key(p.name) })).filter(p => p.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
+  const at = async E => { const [cur, prev, h7, h3] = await Promise.all([perf(addDays(E, -6), E), perf(addDays(E, -13), addDays(E, -7)), day(addDays(E, -6), E), day(addDays(E, -2), E)]);
+    return ctx.calc(cur, prev, h7, h3, idx, null, ctx.d).rows; };
+  const now = await at(D), before = new Map((await at(addDays(D, -1))).map(r => [r.no, r.v]));
+  const name = n => String(n).replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim(), pc = v => v == null ? null : Math.round(v * 100);
+  const changed = now.filter(r => ['up', 'fatigue', 'reach', 'cool'].includes(r.v) && before.has(r.no) && before.get(r.no) !== r.v).sort((a, b) => b.sp7 - a.sp7);
+  out.product_board = { date: D, range_now: [addDays(D, -6), D], range_prev: [addDays(D, -13), addDays(D, -7)], changed_count: changed.length,
+    counts: Object.fromEntries(['up', 'fatigue', 'reach', 'cool'].map(k => [ctx.V[k][0], now.filter(r => r.v === k).length])),
+    changes: changed.slice(0, 3).map(r => ({ product: name(r.name), from: ctx.V[before.get(r.no)][0], to: ctx.V[r.v][0], meaning: ctx.V[r.v][3],
+      rank: r.rank, prev_rank: r.prevRank, qty: r.qty, prev_qty: r.prevQty, qty_pct: r.prevQty ? Math.round((r.qty / r.prevQty - 1) * 100) : null,
+      roas_7d: pc(r.r7), roas_3d: pc(r.r3), spend_7d: Math.round(r.sp7) })) };
+} catch (e) { out.product_board_error = String(e.message || e).slice(0, 200); }
+
 console.log(JSON.stringify(out));
