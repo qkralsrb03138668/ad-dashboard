@@ -31,7 +31,7 @@ const admgr = {
   judgeFilter: 'all', role: 'ops', margins: lsGet('adc_admgr_margin', {}), products: lsGet('adc_admgr_products2', null), productsLoading: false,   // products2: product_no 포함 (2026-09-12 순이익 등급용)
 };
 const ADMGR_PRESETS = { today:'오늘', yesterday:'어제', last_7d:'최근 7일', last_30d:'최근 30일' };
-const ADMGR_OWN = ['test', 'offad', 'best'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
+const ADMGR_OWN = ['test', 'offad', 'best', 'board'];   // 자체 컨트롤을 쓰는 탭 (기간 칩·'활성만' 숨김)
 const ADMGR_USER = '대시보드';                  // 판정·담기 기록자 이름 (원본은 로그인 이름 — 이 대시보드는 로그인 없음)
 
 /* 판정 칩·오늘 예산 칩·최근 변경 열을 보여주는 기간 — 오늘 + 직접 지정 (2026-09-17 사용자 요청: 날짜를 직접 골라도 같은 화면). 판정은 그 기간의 지출·구매로, 예산 변경 칩은 오늘 이력 */
@@ -181,6 +181,7 @@ function admgrSetView(v) {
     const c = lsGet('adc_admgr_best', null);
     if (c && c.rows) { b.rows = c.rows; b.ads = c.ads || []; b.loaded = true; }
   }
+  if (v === 'board' && !admgr.board.loaded) admgrBoardLoadCache();
   renderAdmgr();
 }
 function admgrRefresh() {
@@ -188,11 +189,12 @@ function admgrRefresh() {
   if (admgr.view === 'test') admgrTestFetch();
   else if (admgr.view === 'offad') admgrOffFetch();
   else if (admgr.view === 'best') admgrBestFetch();
+  else if (admgr.view === 'board') admgrBoardFetch();
   else admgrFetch();
 }
 function admgrBusy() {
   return admgr.view === 'test' ? admgr.test.loading : admgr.view === 'offad' ? admgr.offad.loading
-    : admgr.view === 'best' ? admgr.best.loading : admgr.loading;
+    : admgr.view === 'best' ? admgr.best.loading : admgr.view === 'board' ? admgr.board.loading : admgr.loading;
 }
 function admgrToggleActive() { admgr.activeOnly = !admgr.activeOnly; renderAdmgr(); }
 let admgrQTimer = null;
@@ -451,6 +453,7 @@ function renderAdmgr(keepScroll) {
     ['test', '테스트 소재', testCount],
     ['offad', 'OFF 광고', admgr.offad.loaded ? admgr.offad.data.count : null],
     ['best', '베스트', admgr.best.loaded ? (admgr.best.rows || []).length : null],
+    ['board', '상품 보드', null],
   ];
   /* 밑줄형 탭 스트립 (캠페인 / 광고세트 / 광고 | 테스트 소재 / OFF / 베스트) — 선택 표시줄은 하단 동작 바로 이동 (2026-09-14) */
   const perLabel = admgr.preset === 'custom' && admgr.customRange ? `${admgr.customRange.since.slice(5)}~${admgr.customRange.until.slice(5)}` : (ADMGR_PRESETS[admgr.preset] || '오늘');
@@ -462,6 +465,7 @@ function renderAdmgr(keepScroll) {
   if (admgr.view === 'test') main = renderAdmgrTest();
   else if (admgr.view === 'offad') main = renderAdmgrOff();
   else if (admgr.view === 'best') main = renderAdmgrBest();
+  else if (admgr.view === 'board') main = renderAdmgrBoard();
   else main = renderAdmgrHier(R, setsInSel, adsInSel, cfg);
 
   /* 검색창에 커서가 있을 때(타이핑 중)는 컨트롤 바를 그대로 두고 그 아래만 다시 그린다 — 입력칸까지 새로 만들면 폰에서 키보드가

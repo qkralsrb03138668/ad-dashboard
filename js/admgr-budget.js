@@ -96,7 +96,7 @@ function admgrMoreMenu(ev) {
     ${admgrMobile() ? '' : agItem('fa-table-columns', '열 표시·순서', `admgrColsAnchor={left:${Math.round(rect.left)},bottom:${Math.round(rect.bottom)}};admgrColsMenuRender()`)}
     ${admgrMobile() && !ADMGR_OWN.includes(admgr.view) ? `${agItem(admgr.activeOnly ? 'fa-square-check' : 'fa-square', '활성만 보기', 'admgrToggleActive()', admgr.activeOnly ? '켜져 있거나 오늘 지출이 있는 것만' : '꺼진 것도 전부 보기')}` : ''}
     ${admgrMobile() && admgr.view === 'set' && admgrCfg() && !admgr.demo ? `<div class="ag-menu-sep">만든 사람</div>${admgrMakerMenuItems()}` : ''}
-    ${admgrMobile() ? `<div class="ag-menu-sep">다른 탭</div>${agItem('fa-flask', '테스트 소재', "admgrSetView('test')")}${agItem('fa-power-off', 'OFF 광고', "admgrSetView('offad')")}${agItem('fa-star', '베스트', "admgrSetView('best')")}` : ''}
+    ${admgrMobile() ? `<div class="ag-menu-sep">다른 탭</div>${agItem('fa-flask', '테스트 소재', "admgrSetView('test')")}${agItem('fa-power-off', 'OFF 광고', "admgrSetView('offad')")}${agItem('fa-star', '베스트', "admgrSetView('best')")}${agItem('fa-ranking-star', '상품 보드', "admgrSetView('board')")}` : ''}
     ${npend ? agItem('fa-list', `예약 목록 (${npend})`, 'admgrMidList()', '주말 모드 감액·원복 등 걸어 둔 예약') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') && admgrCopySets().length ? agItem('fa-arrow-up-from-bracket', `끌올 사본 정리 (${admgrCopySets().length})`, 'admgrRepostModal()', '" - 사본" 붙은 세트·광고 이름을 소재 업로드 규칙으로') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') ? agItem('fa-clock-rotate-left', '지난 소재 찾기', 'admgrPastModal()', '상품명으로 작년부터 돈 소재 중 효율 좋은 것 → 새 세트로 켜서 다시 테스트 (PIN)') : ''}
