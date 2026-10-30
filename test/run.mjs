@@ -852,6 +852,40 @@ test('admgrBoardCalc: 매칭·순위·판정 4칸·유지선·표본·연결 안
   const noC = calc(null, null, h7, h3, idx, d).rows;
   assert.ok(noC.every(r => r.v === 'few' && r.mer == null && r.rank == null), '카페24 실패 → 광고 칸만');
 });
+test('admgrBoardCalc: 세트 목록(켜짐·예산·3일)·켜진 세트 수·광고 안 하는 판매 상위·광고 있을 수도', () => {
+  const calc = g('admgrBoardCalc'), d = { prodOf: g('admgrProductOf'), norm: g('admgrNorm'), PJ: r => r.purchases || 0, VJ: r => r.value || 0, keep: 5.5 };
+  const idx = [{ no: 1, name: '슬리즈 셔츠 원피스' }, { no: 2, name: '울케이프 구스다운 패딩' }, { no: 3, name: '텀블 워밍 밴딩 팬츠' }].map(p => ({ ...p, n: g('admgrProdKey')(p.name) }));
+  const S = (id, name, status, budget, spend, purchases, roas) => ({ id, name, status, budget, spend, purchases, value: spend * roas });
+  const h7 = { campaigns: [{ status: 'ACTIVE', budget: 0, adsets: [S('a1', '슬리즈 셔츠_R1', 'ACTIVE', 50000, 3e5, 10, 6), S('a2', '슬리즈 셔츠_P1', 'PAUSED', 30000, 1e5, 2, 3)] },
+    { status: 'PAUSED', budget: 0, adsets: [S('a3', '슬리즈 셔츠_R2', 'ACTIVE', 20000, 5e4, 1, 4)] },
+    { status: 'ACTIVE', budget: 200000, adsets: [S('c1', '상품CBO_슬리즈 셔츠 R3', 'ACTIVE', 0, 2e5, 8, 7), S('u1', '울케이프 구스 패딩 블랙_R1', 'ACTIVE', 0, 8e4, 3, 5)] }] };
+  const h3 = { campaigns: [{ status: 'ACTIVE', adsets: [S('a1', '슬리즈 셔츠_R1', 'ACTIVE', 50000, 1e5, 3, 5)] }] };
+  const cur = [{ product_no: 2, product_name: '(신상) 울케이프 구스다운 패딩', paid_qty: 90, order_amount: 9e6 }, { product_no: 1, paid_qty: 80 }, { product_no: 3, product_name: '텀블 워밍 밴딩 팬츠', paid_qty: 70, order_amount: 2e6 }];
+  const { rows, noAd, unmatched } = calc(cur, [{ product_no: 3, paid_qty: 35 }], h7, h3, idx, d);
+  const r = rows[0];
+  assert.equal(rows.length, 1); assert.equal(r.setList.length, 4); assert.equal(r.liveSets, 2, '세트 켜짐 + 캠페인 켜짐만 (꺼진 캠페인 안 켜진 세트는 꺼짐)');
+  assert.equal(r.setList.reduce((a, x) => a + x.sp, 0), r.sp7, '펼친 세트 지출 합 = 상품 줄 지출');
+  assert.equal(r.setList[0].on, true, '켜진 세트 먼저');
+  const a1 = r.setList.find(x => x.id === 'a1'), c1 = r.setList.find(x => x.id === 'c1');
+  assert.equal(a1.budget, 50000); assert.equal(Math.round(a1.r3 * 100), 500); assert.equal(c1.cboBudget, 200000, 'CBO 세트는 캠페인 예산');
+  assert.equal(r.setList.find(x => x.id === 'a2').r3, null, '3일 지출 없으면 3일 ROAS 없음');
+  assert.equal(unmatched.map(x => x.name).join(), '울케이프 구스 패딩 블랙');
+  assert.equal(noAd.map(x => x.no).join(), '2,3', '판매 상위 중 연결된 광고 없는 상품');
+  assert.equal(noAd[0].maybe.join(), '울케이프 구스 패딩 블랙', '연결 안 됨 이름 앞 4글자 겹침 → 광고 있을 수도');
+  assert.equal(noAd[1].maybe.length, 0); assert.equal(noAd[1].rank, 3); assert.equal(noAd[1].prevRank, 1);
+  assert.equal(calc(null, null, h7, h3, idx, d).noAd.length, 0, '카페24 없으면 빈 목록');
+});
+test('admgrBoardCalc: 핵심명 같은 상품 — 세트명 ver 단어로 고르고, 없으면 ver 없는 기본 상품', () => {
+  const calc = g('admgrBoardCalc'), d = { prodOf: g('admgrProductOf'), norm: g('admgrNorm'), PJ: r => r.purchases || 0, VJ: r => r.value || 0, keep: 5.5 };
+  const idx = [{ no: 1668, name: '(기모ver.) 클레르 블라우스 (2 colors, 빅사이즈 옵션)' }, { no: 1383, name: '[Best] (2사이즈) 클레르 블라우스 (5 colors)' }].map(p => ({ ...p, n: g('admgrProdKey')(p.name) }));
+  const S = (id, name) => ({ id, name, status: 'ACTIVE', spend: 1e5, purchases: 5, value: 5e5 });
+  const h7 = { campaigns: [{ status: 'ACTIVE', adsets: [S('k1', '기모ver 클레르 블라우스_P1_끌올_26_261027'), S('k2', '클레르 블라우스 25000_260819 릴스2')] }] };
+  const cur = [{ product_no: 1668, paid_qty: 65 }, { product_no: 1383, paid_qty: 60 }];
+  const { rows, noAd } = calc(cur, cur, h7, h7, idx, d), by = no => rows.find(r => r.no === no);
+  assert.equal(by(1668).setList.map(x => x.id).join(), 'k1', '기모ver 세트 → 기모 상품');
+  assert.equal(by(1383).setList.map(x => x.id).join(), 'k2', '일반 세트 → ver 없는 기본 상품');
+  assert.equal(noAd.length, 0);
+});
 
 console.log(`\n모두 통과 (${n}개)`);
 
