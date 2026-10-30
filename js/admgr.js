@@ -1482,14 +1482,15 @@ function admgrFastModal() {
     if (f) { const a = adj.get(r.id); (admgrFastHold(r) ? L.hold : a ? L.clash : L.up).push({ r, f, a, to: Math.min(max, Math.round(r.budget * ADMGR_FAST.mul / 1000) * 1000) }); continue; }
     const b = admgrFastRevertOf(r); if (b) L.back.push({ r, b, to: b.from });
   }
-  const today = r => { const p = admgrPJ(r), pj = p === 0 ? admgrProj(r) : null; return `${p}건${pj != null ? `<div style="font-size:.64rem;color:${pj >= 100 ? '#b91c1c' : '#9ca3af'};">마감 ${pj}%</div>` : ''}`; };
+  const cpa = (sp, p) => p ? `<br>구매당 ${comma(sp / p)}` : '';   // 구매당 비용 — 예산 조정 후보 표와 같은 줄 구성
+  const today = r => { const p = admgrPJ(r), pj = p === 0 ? admgrProj(r) : null; return `${p}건${pj != null ? `<div style="font-size:.64rem;color:${pj >= 100 ? '#b91c1c' : '#9ca3af'};">마감 ${pj}%</div>` : `<div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(r.spend)}${cpa(r.spend || 0, p)}</div>`}`; };
   const res = (x, k) => k === 'up' ? `<b style="color:#15803d;white-space:nowrap;">2배 → ${man(x.to)}</b>` : k === 'hold' ? '<span style="color:#6b7280;">내일 다시</span>'
     : k === 'clash' ? `<b style="color:#b45309;">그대로</b><div style="font-size:.64rem;color:#9ca3af;">7일 ${P(x.a.r7)}<br>예산 조정 ${x.a.act === 'off' ? 'OFF' : '절반'} 후보</div>` : `<b style="color:#b45309;white-space:nowrap;">되돌리기 → ${man(x.to)}</b>`;
   const row = (x, k) => { const r = x.r, pend = admgrDraft[r.id] != null;
     return `<tr${pend ? ' style="opacity:.55;"' : ''}><td><input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${(k === 'up' || k === 'back') && !pend ? 'checked' : ''} ${k === 'hold' ? 'disabled' : ''} /></td>
       <td class="name-cell" style="text-align:left;white-space:normal;min-width:220px;">${esc(admgrBase(r.name))}${pend ? '<div style="font-size:.64rem;color:#9ca3af;">이미 임시 저장됨</div>' : ''}</td>
       <td style="white-space:nowrap;">${man(r.budget)}</td>
-      <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b>` : `<b>${P(x.f.roas)}</b><div style="font-size:.64rem;color:#9ca3af;">${x.f.p}건 · ${man(x.f.sp)}</div>`}</td>
+      <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.b.sp)} · ${x.b.p}건${cpa(x.b.sp, x.b.p)}</div>` : `<b>${P(x.f.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.f.sp)} · ${x.f.p}건${cpa(x.f.sp, x.f.p)}</div>`}</td>
       <td style="white-space:nowrap;">${today(r)}</td><td style="min-width:92px;">${res(x, k)}</td></tr>`; };
   const sec = (k, t, c, note) => L[k].length ? `<tr><td colspan="6" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L[k].length}${note ? ` <small style="font-weight:600;color:#9ca3af;">${note}</small>` : ''}</td></tr>${L[k].sort((a, b) => (b.f ? b.f.roas : 0) - (a.f ? a.f.roas : 0)).map(x => row(x, k)).join('')}` : '';
   const n = L.up.length + L.hold.length + L.clash.length + L.back.length;
