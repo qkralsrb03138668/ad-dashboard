@@ -367,9 +367,10 @@ Deno.serve(async (req) => {
       const byNo = new Map(prods.map((p) => [Number(p.product_no), p]));
       const rows = nos.map((no) => {
         const p = byNo.get(no);
-        return { product_no: no, name: String(p?.product_name ?? ""), state: !p ? "gone" : p.display !== "T" || p.selling !== "T" ? "off" : p.sold_out === "T" ? "all" : "ok", sold: [] as string[] };
+        return { product_no: no, name: String(p?.product_name ?? ""), state: !p ? "gone" : p.display !== "T" || p.selling !== "T" ? "off" : "ok", sold: [] as string[], flag: p?.sold_out === "T" };
       });
-      const queue = rows.filter((r) => r.state === "ok");   // 판매 중인 상품만 옵션까지 본다 — 상품당 1회 호출이라 4개씩 동시에
+      // 판매 중인 상품은 전부 옵션으로 판정 (상품 sold_out 표시는 옵션이 없을 때만 씀) — 상품 페이지 '[품절]'과 같은 기준. 상품당 1회 호출이라 4개씩 동시에
+      const queue = rows.filter((r) => r.state === "ok");
       await Promise.all(Array.from({ length: 4 }, async () => {
         for (let r = queue.shift(); r; r = queue.shift()) {
           const vkey = `stockv:${r.product_no}`;   // 상품별 10분 기억 — 카페24는 초당 2회 정도라 200개면 100초 걸림, 겹치는 조회는 바로
@@ -381,10 +382,11 @@ Deno.serve(async (req) => {
             await cacheSet(vkey, v);
           }
           r.sold = v.sold;
-          if (r.sold.length) r.state = r.sold.length >= v.n ? "all" : "part";
+          if (!v.n) { if (r.flag) r.state = "all"; }
+          else if (r.sold.length) r.state = r.sold.length >= v.n ? "all" : "part";
         }
       }));
-      return respond({ rows });
+      return respond({ rows: rows.map(({ flag: _f, ...r }) => r) });
     }
 
     // ── 상품별 광고 문구: 저장본 조회 / AI 생성·고정 / 직접 기입 고정 ──
