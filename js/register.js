@@ -192,8 +192,8 @@ async function regPresetInit() {
   try { await regLoadRefs(); } catch (e) { toast('상품 목록 불러오기 실패: ' + e.message); return; }
   regRecentRender(); regPresetFilter();
 }
-/* 검색 → 썸네일 목록 (최대 8개). 결과가 하나면 입력 중 자동 선택 */
-function regPresetFilter(auto) {
+/* 검색 → 썸네일 목록 (최대 8개). 고르는 건 사용자가 직접 (입력 중 자동 선택은 2026-10-30 요청으로 뺌) */
+function regPresetFilter() {
   const q = ($('reg-preset-q').value || '').trim().toLowerCase(), box = $('reg-preset-results');
   if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
   const rows = (reg.products || []).filter(p => p.name.toLowerCase().includes(q) || String(p.product_no).includes(q)).slice(0, 8);
@@ -202,7 +202,6 @@ function regPresetFilter(auto) {
       ${mediaThumbHtml(p.image, 'image', 40)}<div style="flex:1;min-width:0;"><div style="font-size:.84rem;color:#1e1b4b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.name)}</div>
       <div style="font-size:.7rem;color:#9ca3af;">${regVerTag(p.name) ? esc(regVerTag(p.name)) + ' · ' : ''}${esc(p.core)} · 등록 ${p.created ? p.created.slice(2).replace(/-/g, '.') : '-'} · 마진 ${Math.floor(Math.max(0, p.price - p.supply_price) / 1000)}</div></div></div>`).join('')
     || '<div style="padding:12px;font-size:.8rem;color:#9ca3af;">검색 결과 없음 — 진열·판매 중 상품과 최근 60일 등록 상품만 나와요</div>';
-  if (auto && rows.length === 1 && !reg.preset) regPresetPick(String(rows[0].product_no));
 }
 function regPresetPick(no) {
   reg.preset = (reg.products || []).find(p => String(p.product_no) === String(no)) || null;
