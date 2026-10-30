@@ -444,6 +444,9 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   // 10/29: 7일 450% 미만이어도 3일 550%↑·3건↑(감액 이력 없음)이면 OFF 대신 절반, 3일 2건이거나 감액 뒤면 그대로 OFF
   const R3 = (p3, h) => { const x = f([S('q', 40000)], new Map([['q', W(170000, 10, 3.5)]]), new Map([['q', W(50000, p3, 6)]]), h || [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : ''); };
   assert.equal([R3(3), R3(2), R3(5, [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }])].join(), 'half:rescue,off,off');
+  // 10/30 하루 지출 5만↑(7일 35만): 450~550%도 바로 OFF · 3일 회복 예외도 없음 / 5만 미만(7일 34만)은 지금처럼 절반·회복
+  const RB = (sp7, roas, p3) => { const x = f([S('v', 60000)], new Map([['v', W(sp7, 20, roas)]]), new Map([['v', W(60000, p3, 6)]]), [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : '') + (x.big ? ':big' : ''); };
+  assert.equal([RB(350000, 5, 1), RB(350000, 3.5, 5), RB(340000, 5, 1), RB(340000, 3.5, 5), RB(350000, 6, 1)].join(), 'off:big,off:big,half,half:rescue,watch');
   // 10/29 상품이 식는 중: 상품 전체 3일 450% 미만·10건↑ → 그 상품 유지 구간 세트 중 자기 3일도 550% 미만이면 절반 (다른 상품·3일 좋은 세트는 그대로)
   const N = (id, name) => S(id, 40000, { name }), ps = [N('m1', '슬리즈 원피스_R1_44_261020'), N('m2', '슬리즈 원피스_P4_44_261020'), N('m3', '다른 상품_R1_30_261001')];
   const p7 = new Map(ps.map(x => [x.id, W(140000, 10, 6)]));   // 셋 다 7일 600% — 원래는 유지
@@ -821,6 +824,34 @@ console.log('⑥ 로컬 Claude 실행기 (문구생성·주간 해석)');
     assert.equal(C.claudeModel(), 'Opus 5 · 중간');   // 리포트용 목록 위치는 그대로
   });
 }
+
+console.log('상품 보드 (판매 순위 × 광고 효율)');
+test('admgrBoardCalc: 매칭·순위·판정 4칸·유지선·품절·표본·연결 안 됨', () => {
+  const calc = g('admgrBoardCalc'), d = { prodOf: g('admgrProductOf'), norm: g('admgrNorm'), PJ: r => r.purchases || 0, VJ: r => r.value || 0, keep: 5.5 };
+  const idx = [{ no: 1, name: '슬리즈 셔츠 원피스' }, { no: 2, name: '로렌 루즈핏 니트' }, { no: 3, name: '스완 플리츠 스커트' }, { no: 4, name: '헤이 나그랑' }, { no: 5, name: '품절 가디건' }]
+    .map(p => ({ ...p, n: g('admgrProdKey')(p.name) })).sort((a, b) => b.n.length - a.n.length);
+  const S = (name, spend, purchases, roas) => ({ name, spend, purchases, value: spend * roas });
+  const H = (...sets) => ({ campaigns: [{ adsets: sets }] });
+  const cur = [{ product_no: 1, paid_qty: 120, order_amount: 6e6 }, { product_no: 3, paid_qty: 50 }, { product_no: 2, paid_qty: 40 }, { product_no: 4, paid_qty: 30 }, { product_no: 5, paid_qty: 20 }];
+  const prev = [{ product_no: 2, paid_qty: 80 }, { product_no: 1, paid_qty: 100 }, { product_no: 3, paid_qty: 60 }, { product_no: 4, paid_qty: 2 }, { product_no: 5, paid_qty: 20 }];
+  const h7 = H(S('슬리즈 셔츠_R1_x', 1e6, 50, 7), S('상품CBO_슬리즈 셔츠 R2_y', 1e6, 50, 7), S('로렌 루즈핏 니트_P1', 1e6, 30, 6), S('스완 플리츠_R1', 1e6, 30, 6), S('헤이 나그랑_R1', 1e6, 30, 6), S('품절 가디건_R1', 1e6, 30, 6), S('리타겟팅 전체', 5e5, 10, 4));
+  const h3 = H(S('슬리즈 셔츠_R1_x', 3e5, 20, 5), S('상품CBO_슬리즈 셔츠 R2_y', 3e5, 20, 5), S('로렌 루즈핏 니트_P1', 3e5, 20, 8), S('스완 플리츠_R1', 3e5, 10, 4), S('헤이 나그랑_R1', 3e5, 10, 9), S('품절 가디건_R1', 3e5, 10, 9));
+  const { rows, unmatched } = calc(cur, prev, h7, h3, idx, new Map([[5, { state: 'all', sold: [] }]]), d);
+  const R = no => rows.find(r => r.no === no);
+  assert.equal(R(1).metaNames.length, 1, '짧은 이름·상품CBO 접두 → 같은 상품 하나로');
+  assert.equal(R(1).sp7, 2e6); assert.equal(R(1).rank, 1); assert.equal(R(1).prevRank, 2);
+  assert.equal(R(1).v, 'fatigue', '판매 +20% · ROAS 700→500');
+  assert.equal(Math.round(R(1).mer * 100), 300, '매출 600만 ÷ 광고비 200만');
+  assert.equal(R(2).v, 'reach', '판매 −50% · ROAS 600→800 (3일 550%↑)');
+  assert.equal(R(3).v, 'cool', '판매 −17% · ROAS 600→400');
+  assert.equal(R(4).v, 'few', '직전 7일 판매 2개 → 표본 적음');
+  assert.equal(R(5).v, 'soldout', '품절이 먼저');
+  assert.equal(unmatched.map(x => x.name).join(), '리타겟팅 전체');
+  const up = calc([{ product_no: 1, paid_qty: 150 }], [{ product_no: 1, paid_qty: 100 }], H(S('슬리즈 셔츠', 1e6, 50, 5)), H(S('슬리즈 셔츠', 3e5, 10, 5.4)), idx, null, d).rows[0];
+  assert.equal(up.v, 'flat', '판매↑ 효율↑여도 3일 ROAS 540% < 550%면 보합');
+  const noC = calc(null, null, h7, h3, idx, null, d).rows;
+  assert.ok(noC.every(r => r.v === 'few' && r.mer == null && r.rank == null), '카페24 실패 → 광고 칸만');
+});
 
 console.log(`\n모두 통과 (${n}개)`);
 
