@@ -442,11 +442,11 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   assert.equal(R1([ev('2026-10-23T03:00:00Z', 40000, 4000), ev('2026-10-23T14:45:00Z', 4000, 40000)]), 'half');     // 낮 ÷10 뒤 23:45 원복 → 절반
   assert.equal(R1([ev('2026-10-23T03:00:00Z', 80000, 40000)]), 'off');                                                // 진짜 절반 감액 뒤에도 550% 미만 → OFF
   // 10/29: 7일 450% 미만이어도 3일 550%↑·3건↑(감액 이력 없음)이면 OFF 대신 절반, 3일 2건이거나 감액 뒤면 그대로 OFF
-  const R3 = (p3, h) => { const x = f([S('q', 40000)], new Map([['q', W(170000, 10, 3.5)]]), new Map([['q', W(50000, p3, 6)]]), h || [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : ''); };
-  assert.equal([R3(3), R3(2), R3(5, [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }])].join(), 'half:rescue,off,off');
+  const R3 = (p3, h, sp7 = 130000) => { const x = f([S('q', 40000)], new Map([['q', W(sp7, 10, 3.5)]]), new Map([['q', W(50000, p3, 6)]]), h || [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : ''); };
+  assert.equal([R3(3), R3(2), R3(5, [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }]), R3(3, [], 140000)].join(), 'half:rescue,off,off,off');   // 10/30: 하루 2만↑(7일 14만)이면 회복 예외 없음
   // 10/30 하루 지출 5만↑(7일 35만): 450~550%도 바로 OFF · 3일 회복 예외도 없음 / 5만 미만(7일 34만)은 지금처럼 절반·회복
   const RB = (sp7, roas, p3) => { const x = f([S('v', 60000)], new Map([['v', W(sp7, 20, roas)]]), new Map([['v', W(60000, p3, 6)]]), [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : '') + (x.big ? ':big' : ''); };
-  assert.equal([RB(350000, 5, 1), RB(350000, 3.5, 5), RB(340000, 5, 1), RB(340000, 3.5, 5), RB(350000, 6, 1)].join(), 'off:big,off:big,half,half:rescue,watch');
+  assert.equal([RB(350000, 5, 1), RB(350000, 3.5, 5), RB(340000, 5, 1), RB(340000, 3.5, 5), RB(350000, 6, 1)].join(), 'off:big,off:big,half,off,watch');   // 7일 34만(하루 4.9만)·450% 미만·3일 회복 → 2만↑라 회복 예외 없이 OFF
   // 10/29 상품이 식는 중: 상품 전체 3일 450% 미만·10건↑ → 그 상품 유지 구간 세트 중 자기 3일도 550% 미만이면 절반 (다른 상품·3일 좋은 세트는 그대로)
   const N = (id, name) => S(id, 40000, { name }), ps = [N('m1', '슬리즈 원피스_R1_44_261020'), N('m2', '슬리즈 원피스_P4_44_261020'), N('m3', '다른 상품_R1_30_261001')];
   const p7 = new Map(ps.map(x => [x.id, W(140000, 10, 6)]));   // 셋 다 7일 600% — 원래는 유지
