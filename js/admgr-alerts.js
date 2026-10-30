@@ -322,6 +322,39 @@ function admgrCheckHygiene() {
 }
 admgrAlert.checks.push(admgrCheckHygiene);
 
+/* ── 검사 ⑪ 품절 상품 광고 (2026-10-30 사용자 요청 "품절 상품이 돌아가면 돈 낭비"): 켜진 캠페인의 켜진 세트 → 이름으로 카페24 상품 → 재고(cafe24-perf stock, 30분마다).
+   전체 품절·판매 안 함·카페24에 없음 = 빨강 + [세트 끄기 임시 저장] / 일부 옵션 품절 = 노랑(안내만) */
+async function admgrStockEnsure(nos) {
+  const A = admgrAlert, key = nos.join(',');
+  if (A.stLoading || (A.stKey === key && Date.now() - A.stAt < 30 * 60000) || Date.now() - (A.stFailAt || 0) < 5 * 60000) return;
+  A.stLoading = true;
+  try { A.stock = await stockGet(nos); A.stKey = key; A.stAt = Date.now(); A.stFailAt = 0; renderAdmgr(true); } catch (e) { A.stFailAt = Date.now(); }
+  A.stLoading = false;
+}
+function admgrCheckStock() {
+  const A = admgrAlert, R = admgrRows(), on = new Set(R.camps.filter(c => c.status === 'ACTIVE').map(c => c.id)), idx = admgrProdIdx();
+  if (!idx.length) return [];
+  const live = R.sets.filter(s => s.status === 'ACTIVE' && on.has(s._campId) && !(admgrSDraft[s.id] && admgrSDraft[s.id].status === 'PAUSED'))
+    .map(s => { const n = admgrNorm(s.name), p = idx.find(x => n.includes(x.n)); return p ? { s, p } : null; }).filter(Boolean);
+  const nos = [...new Set(live.map(x => x.p.no))].sort((a, b) => a - b);
+  if (nos.length) setTimeout(() => admgrStockEnsure(nos), 0);
+  if (!A.stock) return [];
+  const by = lvl => { const g = new Map(); for (const x of live) { const r = A.stock.get(Number(x.p.no)); if (!r || (lvl === 'red' ? !['all', 'off', 'gone'].includes(r.state) : r.state !== 'part')) continue; if (!g.has(x.p.no)) g.set(x.p.no, { p: x.p, r, sets: [] }); g.get(x.p.no).sets.push(x.s); } return [...g.values()]; };
+  const out = [], red = by('red'), part = by('part'), names = L => L.slice(0, 3).map(g => `${esc(coreName(g.p.name))} <small>(${esc(stockLine(g.r))} · 세트 ${g.sets.length})</small>`).join(' · ') + (L.length > 3 ? ' …' : '');
+  if (red.length) { const ids = red.flatMap(g => g.sets.map(s => s.id));
+    out.push({ key: 'stock-red:' + todayStr(0) + ':' + ids.join(','), lvl: 'red', text: `<b>품절 상품 광고가 켜져 있어요</b> 상품 ${red.length}개 · 세트 ${ids.length}개 — ${names(red)}`,
+      act: dnrbCan('toggle') ? { label: `세트 ${ids.length}개 끄기 임시 저장`, onclick: `admgrStockOff('${ids.join(',')}')` } : null }); }
+  if (part.length) out.push({ key: 'stock-part:' + todayStr(0) + ':' + part.map(g => g.p.no).join(','), lvl: 'yellow', text: `<b>일부 옵션 품절</b> 상품 ${part.length}개 광고 중 — ${names(part)}` });
+  return out;
+}
+function admgrStockOff(csv) {
+  const ids = String(csv).split(',').filter(x => /^\d{5,25}$/.test(x)); if (!ids.length) return;
+  for (const id of ids) admgrSDraft[id] = { level: 'adset', status: 'PAUSED' };
+  lsSet('adc_admgr_sdraft', admgrSDraft);
+  toast(`품절 상품 세트 ${ids.length}개 끄기를 임시 저장했어요 — 상단 [게시]를 눌러야 Meta에 반영돼요`); renderAdmgr(true);
+}
+admgrAlert.checks.push(admgrCheckStock);
+
 /* ── 추가소재 요청 목록 (2026-10-23): 요청됐고 아직 제작완료 전인 소재 — 피로 자동 등록분·수동 요청 모두. 컨텐츠팀 화면(내 소재 성과 '만들어 달라는 요청')과 같은 데이터 */
 function admgrReqListModal() {
   const t = admgr.test; if (!t.loaded) { toast('테스트 소재를 불러오는 중이에요 — 잠시 뒤 다시'); if (!t.loading && typeof admgrTestFetch === 'function') admgrTestFetch().then(() => admgrReqListModal()); return; }

@@ -66,6 +66,33 @@ async function mediaPreview(key) {
   } catch (err) { box.innerHTML = `<div style="padding:24px;color:#dc2626;font-size:.8rem;text-align:center;">불러오기 실패: ${esc(err.message)}</div>`; }
 }
 
+/* ── 카페24 품절 확인 (2026-10-30 사용자 요청 "품절 상품에 광고비 낭비 안 되게") — 소재 업로드·광고 업로드·광고관리자 알림판 공용.
+   서버 cafe24-perf stock: state = off(진열·판매 안 함) · all(전체 품절) · part(일부 옵션 품절, sold) · ok · gone(카페24에 없음). 이 화면에서 5분 기억 */
+const stockMemo = new Map();   // product_no → { at, row }
+async function stockGet(nos) {
+  nos = [...new Set(nos.map(Number).filter(n => n > 0))].sort((a, b) => a - b);
+  const need = nos.filter(n => !(stockMemo.has(n) && Date.now() - stockMemo.get(n).at < 5 * 60000));
+  if (need.length) { const { rows } = await perfApi({ action: 'stock', product_nos: need.join(',') }); for (const r of rows || []) stockMemo.set(r.product_no, { at: Date.now(), row: r }); }
+  return new Map(nos.filter(n => stockMemo.has(n)).map(n => [n, stockMemo.get(n).row]));
+}
+const STOCK_TXT = { all: '전체 품절', off: '진열·판매 안 함', gone: '카페24에 없는 상품' };
+function stockLine(r) { return !r ? '' : r.state === 'part' ? `일부 품절: ${r.sold.slice(0, 6).join(', ')}${r.sold.length > 6 ? ` 외 ${r.sold.length - 6}개` : ''}` : STOCK_TXT[r.state] || ''; }
+function stockBadge(no, pre) {   // 상품 칸 아래 한 줄 — 빨강(전체 품절·없음) / 노랑(일부 품절, pre=true면 판매 전도 노랑)
+  const r = (stockMemo.get(Number(no)) || {}).row; if (!r || r.state === 'ok') return '';
+  const red = r.state === 'all' || r.state === 'gone' || (r.state === 'off' && !pre);
+  return `<div style="font-size:.7rem;margin-top:3px;color:${red ? '#dc2626' : '#b45309'};font-weight:${red ? 800 : 600};"><i class="fa-solid fa-${red ? 'ban' : 'triangle-exclamation'}"></i> ${esc(r.state === 'off' && pre ? '아직 진열·판매 전 상품' : stockLine(r))}</div>`;
+}
+/* bad 상태가 섞였으면 알림창으로 묻는다. 조회 실패는 막지 않음 (알림만). true = 진행 */
+async function stockConfirm(items, ask, bad) {   // items: [{ no, label }]
+  let m; try { m = await stockGet(items.map(i => i.no)); } catch (e) { toast('재고 확인 못 함 — 그대로 진행해요 (' + e.message + ')'); return true; }
+  const hit = [...new Map(items.filter(i => bad.includes((m.get(Number(i.no)) || {}).state)).map(i => [Number(i.no), i])).values()];
+  if (!hit.length) return true;
+  return confirm(`⚠ 품절 상품이 있어요 — 광고비가 낭비될 수 있어요\n\n${hit.map(i => `· ${i.label}\n   ${stockLine(m.get(Number(i.no)))}`).join('\n')}\n\n${ask}`);
+}
+async function regStockLoad() {   // 등록 전 목록의 상품 재고 → 행에 배지
+  const nos = reg.rows.filter(r => !r.done && r.product).map(r => r.product.product_no); if (!nos.length) return;
+  try { await stockGet(nos); regRender(); } catch (e) { /* 조회 실패는 배지만 안 나옴 */ }
+}
 async function regLoadRefs(force) {
   if (force || !reg.products) reg.products = (await perfApi({ action: 'products' })).rows.map(r => ({ ...r, core: coreName(r.name), key: normKey(r.name) }));
   if (force || !reg.aliases) reg.aliases = (await uplCall({ action: 'aliases' })).rows;
@@ -110,7 +137,7 @@ async function regAddFiles(list) {
   regRender();
   const ask = reg.rows.filter(r => !r.done && (r.multi || !r.product)).length;
   if (ask) toast(`상품을 골라야 하는 파일 ${ask}개 — 노란 행을 확인하세요`);
-  regLoadCopies();
+  regLoadCopies(); regStockLoad();
 }
 /* ── 상품별 고정 문구 (product_copy) ── */
 const regCopies = new Map();   // product_no → { text, source, updated_at }
@@ -209,17 +236,27 @@ function regPresetPick(no) {
   if (reg.preset) {
     const p = reg.preset;
     card.style.display = 'flex'; picker.style.display = 'none';
-    card.innerHTML = `${mediaThumbHtml(p.image, 'image', 56)}<div style="flex:1;min-width:0;">
+    card.innerHTML = `${mediaThumbHtml(p.image, 'image', 56)}<div id="reg-preset-info" style="flex:1;min-width:0;">
       <div style="font-size:.72rem;color:#6b7280;">① 이 상품으로 등록돼요 — 파일명은 안 봐요</div>
       <div style="font-size:.9rem;font-weight:800;color:#1e1b4b;">${esc(p.name)}</div>
       <div style="font-size:.72rem;color:#6b7280;">파일명: <b>${esc((regVerTag(p.name) ? regVerTag(p.name) + ' ' : '') + p.core)}</b>_R1·P1_소구점_<b>${Math.floor(Math.max(0, p.price - p.supply_price) / 1000)}</b>_오늘_test</div></div>
       <button class="btn-ghost" style="padding:6px 12px;" onclick="regPresetPick('')"><i class="fa-solid fa-xmark"></i> 다른 상품</button>`;
     $('reg-preset-q').value = ''; $('reg-preset-results').style.display = 'none';
+    regPresetStock(p);
   } else {
     card.style.display = 'none'; picker.style.display = 'block'; card.innerHTML = '';
     setTimeout(() => $('reg-preset-q').focus(), 0);
   }
   regStepsRender();
+}
+/* 상품을 고르면 바로 재고 확인 — 전체 품절이면 알림창(그래도 올릴지 선택), 일부 품절·판매 전이면 카드에 노란 안내 */
+async function regPresetStock(p) {
+  let m; try { m = await stockGet([p.product_no]); } catch (e) { toast('재고 확인 못 함: ' + e.message); return; }
+  if (reg.preset !== p) return;   // 그 사이 다른 상품으로 바꿈
+  const b = stockBadge(p.product_no, true);
+  if (b) $('reg-preset-info').insertAdjacentHTML('beforeend', b);
+  const r = m.get(Number(p.product_no));
+  if (r && (r.state === 'all' || r.state === 'gone') && !confirm(`⚠ '${p.name}'\n${stockLine(r)}이에요 — 광고를 올리면 광고비가 낭비될 수 있어요.\n\n그래도 이 상품으로 올릴까요?\n(취소 = 다른 상품 고르기)`)) regPresetPick('');
 }
 /* 최근 등록 상품 (브라우저 기억, 5개) */
 function regRecentRender() {
@@ -276,7 +313,7 @@ function regPick(i, no) {
   const r = reg.rows[i], p = reg.products.find(p => String(p.product_no) === String(no));
   r.product = p || null; r.url = p ? productUrl(p.product_no) : ''; r.why = p ? 'manual' : 'none';
   if (p && r.textFrom === 'saved') { r.text = null; r.textFrom = null; }   // 다른 상품으로 바꾸면 이전 상품 저장본은 뺀다
-  regRender(); if (p) regLoadCopies();
+  regRender(); if (p) { regLoadCopies(); regStockLoad(); }
 }
 function regSearch(i, name) { const p = reg.products.find(p => p.name === name); if (p) { if (!reg.rows[i].cands.find(c => c.product_no === p.product_no)) reg.rows[i].cands.unshift(p); regPick(i, p.product_no); } }
 function regSelBtn() { const n = reg.rows.filter(r => r.sel && !r.done).length, b = $('reg-text-sel'); if (!b) return; b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 문구 기입${n ? ` (${n})` : ''}`; }
@@ -299,7 +336,7 @@ function regRender() {
             <option value="">— 상품 선택 —</option>${opts}</select>
           ${r.multi ? `<div style="font-size:.7rem;color:#b45309;margin-top:3px;"><i class="fa-solid fa-triangle-exclamation"></i> 같은 이름 상품 ${r.cands.length}개 (버전 다름) — 어느 상품인지 골라주세요${r.why === 'alias' ? ' · 지난번 선택을 기본으로 넣었어요' : ''}</div>`
             : !r.product ? `<div style="font-size:.7rem;color:#b45309;margin-top:3px;"><i class="fa-solid fa-triangle-exclamation"></i> 자동 매칭 실패 — ${r.cands.length ? '비슷한 상품을 골라주세요' : '아래에서 검색하세요'}</div>` : ''}
-          <input class="inp" list="reg-dl" placeholder="🔍 상품명 검색" style="width:100%;font-size:.74rem;background:#fff;padding:4px 8px;margin-top:4px;" onchange="regSearch(${i}, this.value)" />`}</td>
+          <input class="inp" list="reg-dl" placeholder="🔍 상품명 검색" style="width:100%;font-size:.74rem;background:#fff;padding:4px 8px;margin-top:4px;" onchange="regSearch(${i}, this.value)" />${r.product ? stockBadge(r.product.product_no, true) : ''}`}</td>
         <td><input class="inp" value="${esc(r.url)}" style="min-width:220px;font-size:.74rem;background:#fff;padding:5px 8px;" oninput="reg.rows[${i}].url=this.value" ${r.done ? 'disabled' : ''} /></td>
         <td style="text-align:center;white-space:nowrap;"><button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="regTextOpen(${i})" ${r.done ? 'disabled' : ''} title="${r.textFrom === 'saved' ? '이 상품에 저장된 문구' : r.textFrom === 'ai' ? 'AI가 방금 생성한 문구' : ''}">${r.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${r.textFrom === 'saved' ? '저장 문구' : r.textFrom === 'ai' ? 'AI 문구' : '기입됨'}` : '<i class="fa-solid fa-pen"></i> 기입'}</button>${!r.done && r.product && !r.text ? `<button class="btn-ghost" style="padding:3px 8px;font-size:.72rem;margin-left:4px;" onclick="regGen(${i})" title="이 상품 문구를 AI로 생성해 상품에 고정"><i class="fa-solid fa-wand-magic-sparkles" style="color:#7c3aed;"></i> AI</button>` : ''}</td>
         <td style="font-size:.78rem;${/실패/.test(r.status) ? 'color:#dc2626;' : r.done ? 'color:#15803d;font-weight:700;' : ''}">${esc(r.status)}</td>
@@ -354,6 +391,8 @@ async function regRun() {
   if (noProd.length && !confirm(`상품이 안 정해진 파일 ${noProd.length}개가 있어요. 상품 없이(URL만) 등록할까요?\n취소하면 돌아가서 고를 수 있어요.`)) return;
   const ask = todo.filter(r => r.multi && r.why !== 'manual' && r.why !== 'alias');
   if (ask.length && !confirm(`같은 이름 상품이 여러 개인데 아직 고르지 않은 파일 ${ask.length}개가 있어요. 첫 번째 후보로 등록할까요?`)) return;
+  const withProd = todo.map(r => r.product || (r.multi ? r.cands[0] : null)).filter(Boolean);
+  if (!await stockConfirm(withProd.map(p => ({ no: p.product_no, label: p.name })), '그래도 등록할까요?', ['all', 'gone'])) return;   // 판매 전(off)은 신상품 선등록이라 안 막음
   reg.running = true; regRender();
   regLog(`등록 시작 — ${todo.length}개, ${UPL_PARALLEL}개씩 동시 전송`);
   const t0 = Date.now(); let ok = 0, pinFail = false;

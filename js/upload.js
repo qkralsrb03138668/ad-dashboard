@@ -367,6 +367,9 @@ async function uplRun() {
   const dup = target.filter(f => !f.name.trim()); if (dup.length) { toast('이름이 빈 파일이 있어요'); return; }
   const noLink = target.filter(f => !f.result && f.media && f.media.type === 'ig_post' && !/^https?:\/\//.test(((f.text || {}).link) || ''));
   if (noLink.length) { toast(`인스타 게시물 ${noLink.length}개에 랜딩 링크가 없어요 — 문구 칸에 https://로 시작하는 주소를 넣어 주세요`); return; }
+  /* 품절 확인 (2026-10-30 사용자 요청) — 전체 품절·판매 안 함 상품이면 알림창. 상품 번호가 없는 파일은 이름으로 상품 목록에서 찾음 */
+  const prodOf = f => f.product_no ? { no: f.product_no, label: f.product_name || f.name } : (() => { const n = admgrNorm(f.name), p = (typeof admgrProdIdx === 'function' ? admgrProdIdx() : []).find(x => n.includes(x.n)); return p ? { no: p.no, label: p.name } : null; })();
+  if (!await stockConfirm(target.filter(f => !f.result).map(prodOf).filter(Boolean), '그래도 광고를 만들까요?', ['all', 'off', 'gone'])) return;
   /* AI 안내문이 섞인 문구(2026-09-30 사고): 앞 문단이면 지우고 진행, 본문 중간에 남아 있으면 멈추고 알림 */
   const noted = target.filter(f => !f.result && copyHasNote(effText(f)));
   if (noted.length) {

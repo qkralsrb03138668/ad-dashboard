@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
     // ── 인증: meta-ads와 동일한 DASH_KEY(x-dash-key) — 이식 패키지의 x-api-key 어댑터를 이걸로 교체 ──
     // 상품 목록은 마케터도(소재 등록 매칭용), 매출 데이터는 관리자만
     const me = await getAuth(req); if (!me) return json({ error: "로그인이 필요합니다" }, 401);
-    if (!["products", "copy_get", "copy_generate", "copy_save", "copy_facts"].includes(action) && me.role !== "admin" && !canMenu(me, "perf")) return json({ error: "권한이 없습니다 (판매 성과 메뉴 허용 필요)" }, 403);
+    if (!["products", "stock", "copy_get", "copy_generate", "copy_save", "copy_facts"].includes(action) && me.role !== "admin" && !canMenu(me, "perf")) return json({ error: "권한이 없습니다 (판매 성과 메뉴 허용 필요)" }, 403);
 
     // ── 저장 기록(perf_archive) CRUD — 카페24 토큰이 없어도 되므로 토큰 확보보다 먼저 처리 ──
     if (action === "archive_list") {
@@ -352,6 +352,39 @@ Deno.serve(async (req) => {
         price: Number(pr.price ?? 0) || 0, supply_price: Number(pr.supply_price ?? 0) || 0, created: String(pr.created_date ?? "").slice(0, 10),
       });
       return respond({ product_count: rows.length, rows });
+    }
+
+    // ── 품절 확인 (2026-10-30): 소재 업로드·광고 업로드·광고관리자 알림판 ──
+    //   옵션 품절 = 판매 안 함 또는 (품절 표시 켬 & 재고 ≤ 0). 이 몰은 품절 표시를 끈 옵션은 재고가 음수여도 계속 팔아서 수량만으론 판단 못 함.
+    //   state: off(진열·판매 안 함) · all(전체 품절) · part(일부 옵션 품절, sold=옵션명) · ok · gone(카페24에 없음)
+    if (action === "stock") {
+      const nos = [...new Set((url.searchParams.get("product_nos") ?? "").split(",").map(Number).filter((n) => n > 0))].slice(0, 200);
+      if (!nos.length) return json({ rows: [] });
+      const cached = await fromCache(); if (cached) return json(cached);
+      const prods: Record<string, unknown>[] = [];
+      for (let i = 0; i < nos.length; i += 100) prods.push(...((await apiGet(
+        `${API_BASE}/admin/products?product_no=${nos.slice(i, i + 100).join(",")}&fields=product_no,product_name,display,selling,sold_out&limit=100`, token)).products ?? []) as Record<string, unknown>[]);
+      const byNo = new Map(prods.map((p) => [Number(p.product_no), p]));
+      const rows = nos.map((no) => {
+        const p = byNo.get(no);
+        return { product_no: no, name: String(p?.product_name ?? ""), state: !p ? "gone" : p.display !== "T" || p.selling !== "T" ? "off" : p.sold_out === "T" ? "all" : "ok", sold: [] as string[] };
+      });
+      const queue = rows.filter((r) => r.state === "ok");   // 판매 중인 상품만 옵션까지 본다 — 상품당 1회 호출이라 4개씩 동시에
+      await Promise.all(Array.from({ length: 4 }, async () => {
+        for (let r = queue.shift(); r; r = queue.shift()) {
+          const vkey = `stockv:${r.product_no}`;   // 상품별 10분 기억 — 카페24는 초당 2회 정도라 200개면 100초 걸림, 겹치는 조회는 바로
+          let v = await cacheGet(vkey, 10 * 60 * 1000) as { sold: string[]; n: number } | null;
+          if (!v) {
+            const vs = ((await apiGet(`${API_BASE}/admin/products/${r.product_no}/variants`, token)).variants ?? []) as Record<string, unknown>[];
+            v = { n: vs.length, sold: vs.filter((x) => x.selling !== "T" || (x.use_inventory === "T" && x.display_soldout === "T" && Number(x.quantity ?? 0) <= 0))
+              .map((x) => ((x.options ?? []) as Record<string, unknown>[]).map((o) => o.value).join("/") || "기본") };
+            await cacheSet(vkey, v);
+          }
+          r.sold = v.sold;
+          if (r.sold.length) r.state = r.sold.length >= v.n ? "all" : "part";
+        }
+      }));
+      return respond({ rows });
     }
 
     // ── 상품별 광고 문구: 저장본 조회 / AI 생성·고정 / 직접 기입 고정 ──
