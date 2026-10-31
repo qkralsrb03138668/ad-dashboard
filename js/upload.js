@@ -190,14 +190,14 @@ async function uplIgProdsReload(i, q) {   // 카페24에서 상품 목록을 다
   const inp = document.querySelector('#upl-files tbody tr:nth-child(' + (i + 1) + ') input[placeholder^="상품 검색"]');
   if (inp) { inp.value = q; inp.focus(); uplIgSearch(i, q, inp); }
 }
-function uplIgPick(i, no) {   // 게시물 행에 상품 지정 → 이름은 소재 업로드 규칙(상품명_인스타게시물_마진_YYMMDD_test), 링크 비어 있으면 상품 URL
+function uplIgPick(i, no) {   // 게시물 행에 상품 지정 → 이름은 소재 업로드 규칙(상품명_인스타게시물_마진_YYMMDD_test), 링크는 그 상품 URL
   const f = upl.files[i], p = (admgr.products || []).find(x => String(x.no) === String(no));
   if (!p) return;
   const ver = typeof regVerTag === 'function' ? regVerTag(p.name) : '', core = (ver ? ver + ' ' : '') + coreName(p.name);
   const margin = Math.floor(Math.max(0, (p.price || 0) - (p.supply || 0)) / 1000), ymd = todayStr(0).replace(/-/g, '').slice(2);
   f.product = p; f.product_no = p.no; f.product_name = p.name; f.url = productUrl(p.no);
   f.name = `${core}_인스타게시물_${margin}_${ymd}_test`;
-  if (!f.text.link) f.text.link = f.url;
+  f.text.link = f.url;   // 고른 상품 링크로 항상 덮어씀 — 비어 있을 때만 넣었더니 미리 채워진 모델 광고 링크(런던 코트)가 남았다 (2026-11-01)
   uplRenderFiles();
 }
 function uplSelAll(on) { for (const f of upl.files) f.sel = on; uplRenderFiles(); }
