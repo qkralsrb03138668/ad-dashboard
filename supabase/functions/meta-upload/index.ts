@@ -399,9 +399,9 @@ Deno.serve(async (req) => {
        swap:true 항목 = 그 광고 자신의 소재를 새로 만들어 같은 광고에 갈아 끼움 (2026-10-28: 링크 제목에 '카페24'가 박힌 광고 — 제목은 빈칸 유지).
        만들기 전에 Meta가 링크 페이지를 다시 읽게 해서(scrape) 막힘 화면 제목('카페24'·'429')이면 만들지 않는다 */
     if (action === "ad_recreate") {
-      const items = (body.items ?? []) as { src_ad_id?: unknown; adset_id?: unknown; swap?: unknown }[];
+      const items = (body.items ?? []) as { src_ad_id?: unknown; adset_id?: unknown; swap?: unknown; link?: unknown }[];
       if (!Array.isArray(items) || !items.length || items.length > 5) return json({ error: "1~5개씩 보내세요" }, 400);
-      const CRE_FIELDS = "id,title,name,object_story_spec,asset_feed_spec,degrees_of_freedom_spec,url_tags,contextual_multi_ads,product_set_id,object_type";
+      const CRE_FIELDS = "id,title,call_to_action,source_instagram_media_id,name,object_story_spec,asset_feed_spec,degrees_of_freedom_spec,url_tags,contextual_multi_ads,product_set_id,object_type";
       const created: Rec[] = [], failed: Rec[] = [];
       for (const it of items) {
         const srcId = String(it.src_ad_id ?? ""), adsetId = String(it.adset_id ?? "");
@@ -416,6 +416,17 @@ Deno.serve(async (req) => {
             if (body.validate !== true && ((set.ads as Rec)?.data as Rec[] ?? []).length) { failed.push({ src_ad_id: srcId, name, error: "이미 광고가 있는 세트 — 건너뜀" }); continue; }
           }
           const cre = (src.creative ?? {}) as Rec;
+          /* 인스타 게시물 광고의 버튼 링크 바꾸기 (2026-11-01: 모델 광고 링크가 그대로 들어가 모카 브이 니트 광고가 런던 코트로 랜딩) — 같은 게시물·새 링크로 소재를 만들어 갈아 끼움 */
+          if (swap && cre.source_instagram_media_id) {
+            const link = String((it as Rec).link ?? "");
+            if (!/^https:\/\/(www\.)?danarobe\.com\//.test(link)) { failed.push({ src_ad_id: srcId, name, error: "인스타 게시물 광고는 새 링크(https://danarobe.com/…)가 필요해요" }); continue; }
+            const cta = String(((cre.call_to_action as Rec)?.type) ?? "LEARN_MORE");
+            if (body.validate === true) { created.push({ src_ad_id: srcId, name, validated: true, old_link: ((cre.call_to_action as Rec)?.value as Rec)?.link ?? null, link }); continue; }
+            const model = await readModel(srcId);
+            const nid = await createCreative(model, `${name} #${Date.now().toString(36)}`, { type: "ig_post", media_id: String(cre.source_instagram_media_id) }, { link, cta });
+            await graph(srcId, { method: "POST", params: { creative: JSON.stringify({ creative_id: nid }) } });
+            created.push({ src_ad_id: srcId, name, link, new_creative_id: nid }); continue;
+          }
           const oss = JSON.parse(JSON.stringify(cre.object_story_spec ?? {})) as Rec;
           const removed: string[] = [];
           for (const k of ["link_data", "video_data"]) {   // 상품 세트를 가리키는 키만 뺀다
@@ -447,8 +458,8 @@ Deno.serve(async (req) => {
           p.contextual_multi_ads = JSON.stringify(cre.contextual_multi_ads ?? { enroll_status: "OPT_OUT" });
           if (body.validate === true) {
             try { await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: { ...p, ...VALIDATE } }); }   // 소재만 검사 — 광고에 소재를 바로 넣어 검사하면 Meta가 엉뚱한 WhatsApp 오류를 냄(실측)
-            catch (e) { failed.push({ src_ad_id: srcId, name, error: String((e as Error).message).slice(0, 300), removed, spec: p, set }); continue; }   // 검사 때는 무엇을 보냈는지 같이
-            created.push({ src_ad_id: srcId, name, og, cur: { creative_id: cre.id, title: cre.title, headline: ((cre.object_story_spec as Rec)?.link_data as Rec)?.name ?? ((cre.object_story_spec as Rec)?.video_data as Rec)?.title ?? null, ad_created: src.created_time, ad_updated: src.updated_time }, removed, validated: true, dof: Object.keys(((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) });
+            catch (e) { failed.push({ src_ad_id: srcId, name, error: String((e as Error).message).slice(0, 300), removed, spec: p, set, cta: cre.call_to_action ?? null, ig_media: cre.source_instagram_media_id ?? null }); continue; }   // 검사 때는 무엇을 보냈는지 같이
+            created.push({ src_ad_id: srcId, name, og, cur: { creative_id: cre.id, title: cre.title, headline: ((cre.object_story_spec as Rec)?.link_data as Rec)?.name ?? ((cre.object_story_spec as Rec)?.video_data as Rec)?.title ?? null, ad_created: src.created_time, ad_updated: src.updated_time }, removed, validated: true, dof: Object.entries((((cre.degrees_of_freedom_spec ?? {}) as Rec).creative_features_spec ?? {}) as Record<string, Rec>).filter(([, v]) => v?.enroll_status === "OPT_IN").map(([k]) => k), link: (oss.link_data as Rec)?.link ?? ((cre.call_to_action as Rec)?.value as Rec)?.link ?? null });   // 켜진 자동 기능만
             continue;
           }
           const cr = await graph(`${ACCOUNT}/adcreatives`, { method: "POST", params: p });

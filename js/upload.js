@@ -140,7 +140,7 @@ function uplIgRender() {
       <button class="btn-analyze" onclick="uplIgAdd()" ${uplIg.sel.size ? '' : 'disabled'}>선택한 ${uplIg.sel.size}개 추가</button></div></div>`;
 }
 function uplIgAdd() {
-  const link = (upl.model && upl.model.text && upl.model.text.link) || '';   // 모델 광고의 링크를 기본으로
+  const link = '';   // 빈칸으로 — 모델 광고 링크를 미리 채웠더니 바꾸는 걸 놓쳐 다른 상품(런던 코트)으로 랜딩된 광고 2개 (2026-11-01). 빈칸이면 생성 전에 막힌다
   let n = 0;
   for (const p of uplIg.rows) {
     if (!uplIg.sel.has(p.id)) continue;
