@@ -351,6 +351,9 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr td.name-cell { padding-left: 8px; }
 #sec-admgr td.l > div, #sec-admgr td.l > span { text-align: left; }
 #sec-admgr td.name-cell b { color: #1877f2; font-weight: 600; }
+#sec-admgr .ag-hist { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.35; white-space: nowrap; }   /* 7일·3일 칸: 구매 → 구매당 → 지출 → ROAS 네 줄 (2026-11-01) */
+#sec-admgr .ag-hist b { font-size: .86rem; }
+#sec-admgr .ag-hist small { font-size: .66rem; color: #6b7280; }
 #sec-admgr tfoot td { background: #f5f6f7; color: #1c1e21; border-top: 2px solid #dadde1; text-align: right; }
 #sec-admgr tfoot td:first-child { text-align: left; }
 #sec-admgr .status-badge { border-radius: 4px; padding: 2px 7px; font-size: 11px; }
