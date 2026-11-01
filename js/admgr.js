@@ -538,7 +538,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       todo.push(['over', '<span class="ag-dot red"></span>마감 100%↑ <small class="ag-muted">구매 0</small>', overOf], ['up', '<span class="ag-dot green"></span>증액 검토 <small class="ag-muted">구매 3+</small>', jk('up')]);
       admgrFastEnsure();
       if (admgr.fast.days) {
-        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑(3만↓ 4건↑) · ROAS 1000%↑</small>', r => !!admgrFastOf(r) && !admgrFastHold(r), 'admgrFastModal()']);
+        todo.push(['fast', '<span class="ag-dot green"></span>빠른 증액 <small class="ag-muted">5만↓ · 3일 6건↑(3만↓ 4건↑) · ROAS 1000%↑</small>', r => !!admgrFastOf(r) && !admgrFastHold(r) && !admgrFastRecent(r), 'admgrFastModal()']);
         if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>빠른 증액 되돌리기 <small class="ag-muted">이틀 ROAS 550%↓</small>', r => !!admgrFastRevertOf(r), 'admgrFastModal()']);
       }
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
@@ -1442,6 +1442,7 @@ function admgrFastOf(r) {   // 빠른 증액 후보면 {sp, p, v, roas} — 3일
   const s = admgrFastSum(r.id, [0, 1, 2]); if (s.p < (r.budget < ADMGR_FAST.smallBudget ? ADMGR_FAST.smallMinPur : ADMGR_FAST.minPur)) return null;
   return s.roas >= ADMGR_FAST.roas ? s : null;
 }
+const admgrFastRecent = r => { const b = admgr.fast.boost && admgr.fast.boost.items && admgr.fast.boost.items[r.id]; return !!(b && b.day >= todayStr(-2)); };   // 최근 3일 안에 2배 올린 세트 — 다음 날 또 2배(이틀에 4배)는 백테스트에 없던 길, 3일 뒤 되돌리기 판정까지 쉰다 (2026-11-01)
 const admgrFastHold = r => admgrPJ(r) === 0 && (admgrProj(r) || 0) >= 100;   // 오늘 구매 0 · 예상 마감 100%↑ — 빠른 증액은 오늘 말고 내일 아침 다시 (2026-10-29)
 function admgrGoodHist(r) {   // 최근 성적 좋음 = 빠른 증액 조건(어제까지 3일) 또는 어제까지 7일 ROAS 550%↑(표본 = 예산 조정 후보와 같음) — 오늘 0건만으로 ÷10 하지 않는다 (2026-10-29)
   if (admgrFastOf(r)) return true;
@@ -1458,7 +1459,7 @@ function admgrFastRevertOf(r) {   // 2배 올린 뒤 이틀이 지났고 그 이
 }
 function admgrFastBadge(r) {
   if (admgr.view !== 'set' || !admgrJudgeView()) return '';
-  const f = admgrFastOf(r);
+  const f = admgrFastRecent(r) ? null : admgrFastOf(r);   // 최근 3일 안에 올린 세트는 후보 배지 없음 (되돌리기 배지는 그대로)
   if (f && admgrFastHold(r)) return ` <span class="status-badge badge-gray" style="font-size:.62rem;white-space:nowrap;" title="어제까지 3일 ${f.p}건 · ROAS ${Math.round(f.roas * 100)}%로 좋지만 오늘 아직 구매 0 — 오늘은 올리지 말고 내일 아침 다시 판정">⏸ 빠른 증액 내일</span>`;
   if (f) return ` <span class="status-badge badge-green" style="font-size:.62rem;white-space:nowrap;" title="빠른 증액 후보 — 최근 3일(어제까지) ${f.p}건 · ROAS ${Math.round(f.roas * 100)}%">⚡ 빠른 증액</span>`;
   const b = admgrFastRevertOf(r);
@@ -1482,7 +1483,7 @@ function admgrFastModal() {
   const adj = new Map(((typeof admgrAdjRows === 'function' && admgrAdjRows()) || []).filter(x => x.act === 'off' || x.act === 'half').map(x => [x.s.id, x]));
   const L = { up: [], hold: [], clash: [], back: [] };
   for (const r of admgrRows().sets) {
-    const f = admgrFastOf(r);
+    const f = admgrFastRecent(r) ? null : admgrFastOf(r);
     if (f) { const a = adj.get(r.id); (admgrFastHold(r) ? L.hold : a ? L.clash : L.up).push({ r, f, a, to: Math.min(max, Math.round(r.budget * ADMGR_FAST.mul / 1000) * 1000) }); continue; }
     const b = admgrFastRevertOf(r); if (b) L.back.push({ r, b, to: b.from });
   }

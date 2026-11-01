@@ -474,6 +474,8 @@ test('admgrFastOf·admgrFastRevertOf: 3일 ROAS 1000%↑ → 2배 후보 · 올�
   setDays(D(10000, 1, 90000), D(10000, 2, 90000), D(10000, 1, 90000));      // 900% → 아님
   assert.equal(g('admgrFastOf')(r), null);
   assert.equal(g('admgrFastOf')({ ...r, budget: 40000 }), null);              // 3만↑은 6건부터
+  vm.runInContext(`admgr.fast.boost = { items: { r: { from: 10000, to: 20000, day: todayStr(-1) } } };`, ctx);   // 11/1: 최근 3일 안에 올린 세트 → 후보 아님(어제·그제·3일 전까지), 4일 전이면 다시 후보
+  assert.equal(g('admgrFastRecent')(r), true); vm.runInContext(`admgr.fast.boost.items.r.day = todayStr(-2);`, ctx); assert.equal(g('admgrFastRecent')(r), true); vm.runInContext(`admgr.fast.boost.items.r.day = todayStr(-3);`, ctx); assert.equal(g('admgrFastRecent')(r), false);
   vm.runInContext(`admgr.fast.boost = { items: { r: { from: 10000, to: 20000, day: todayStr(-4) } } };`, ctx);
   setDays(D(0, 0, 0), D(20000, 2, 100000), D(20000, 1, 100000));            // 이틀 ROAS 500% → 되돌리기
   assert.equal(g('admgrFastRevertOf')(r).from, 10000);
