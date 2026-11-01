@@ -412,7 +412,8 @@ test('주말 모드 시각 (10/29): 금 17시 감액 · 일 15시 원복, 결과
       { mode: 'midnight', status: 'pending', object_id: 's1', apply_at: null } ],
     timed: [
       { status: 'applied', object_id: 's1', apply_at: '2026-10-30T08:00:00+00:00' },
-      { status: 'canceled', object_id: 's2', apply_at: '2026-10-30T08:03:00+00:00' },
+      { status: 'canceled', object_id: 's2', apply_at: '2026-10-30T08:03:00+00:00', error: '그 사이 예산이 바뀌어 건너뜀' },
+      { status: 'canceled', object_id: 's2', apply_at: '2026-10-30T08:00:00+00:00' },   // 다시 예약해서 대체된 행(사유 없음) — 안 센다 (11/1)
       { status: 'applied', object_id: 'zz', apply_at: '2026-10-30T08:00:00+00:00' } ] };`, ctx);   // zz = 주말 모드 세트 아님
   const L = { cut: [{ id: 's1' }, { id: 's2' }] }, ms = g('admgrKstMs'), run = g('admgrWeekendRun');
   const c = run(L, ms(W.cut), ms(W.back)), b = run(L, ms(W.back), ms(W.back) + 2 * 86400e3);

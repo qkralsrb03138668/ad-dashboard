@@ -14,14 +14,16 @@ async function admgrWriteInit() {
   } catch { /* 쓰기 기능 없이 표시 (조회 실패는 치명적이지 않음) */ }
 }
 async function admgrWritePending() {
+  if (admgr.write.pendingLoading) return; admgr.write.pendingLoading = true;
   try {
     const d = await metaBudgetCall({ action: 'pending' });
     const pend = d.pending || [];
     admgr.write.pendingByObj = new Map(pend.filter(p => p.mode === 'midnight').map(p => [p.object_id, p]));   // 옛 23:45 예약(남은 것) — 예산 배지·예약 목록
     admgr.write.timedByObj = new Map(pend.filter(p => p.mode === 'timed').sort((a, b) => String(b.apply_at).localeCompare(String(a.apply_at))).map(p => [p.object_id, p]));   // 시각 예약(주말 모드) — 대상별 가장 이른 것
-    admgr.write.lastPending = d;   // 주말 모드 알림(admgrWeekendRun)이 시각 예약 결과를 본다
+    admgr.write.lastPending = d; admgr.write.lastPendingAt = Date.now();   // 주말 모드 알림(admgrWeekendRun)이 시각 예약 결과를 본다 — 오래됐으면 admgrCheckWeekend가 다시 받는다
     renderAdmgr(true);
   } catch { /* 무시 */ }
+  admgr.write.pendingLoading = false;
 }
 /* 예산 셀 — 일예산 있는 행은 클릭 편집(연필), 자정 예약이 있으면 배지 */
 function admgrBudgetCell(r, level) {

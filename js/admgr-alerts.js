@@ -405,6 +405,7 @@ function admgrWeekendRun(L, fromT, toT) {   // 그 주 세트들의 시각 예�
   const ids = new Set(L.cut.map(t => String(t.id))), P = admgr.write.lastPending || {}, o = { ok: 0, skip: 0, fail: 0, wait: 0 };
   for (const r of [...(P.pending || []).filter(r => r.mode === 'timed'), ...(P.timed || [])]) {
     const t = Date.parse(r.apply_at); if (!ids.has(String(r.object_id)) || !(t >= fromT - 60e3 && t < toT)) continue;
+    if (r.status === 'canceled' && !r.error) continue;   // 다시 예약해서 대체된 행(사유 없음) — 건너뜀이 아니다 (11/1: 금요일 두 번 건 43행이 '건너뜀 44'로 보임)
     o[r.status === 'applied' ? 'ok' : r.status === 'canceled' ? 'skip' : r.status === 'failed' ? 'fail' : 'wait']++;
   }
   return o;
@@ -421,13 +422,16 @@ function admgrCheckWeekend(cfg) {
     return [{ key: 'wk-cut:' + today, lvl: 'yellow', text: `<b>주말 모드</b> 7일 ROAS ${cfg.wkRoasLo}~${cfg.wkRoasHi}% 세트 <b>${T.length}개</b>를 ${now < cutT ? `오늘 ${cfg.wkCutHour}시에` : '지금(5분 안)'} <b>−${cfg.weekendPct}%</b> → 일요일 ${cfg.wkBackHour}시 원복, 한 번에 예약 (일예산 ${admgrW(T.reduce((a, t) => a + t.from, 0))} → ${admgrW(T.reduce((a, t) => a + t.to, 0))})`, act: dnrbCan('budget') ? { label: '예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
   }
   if (!thisWeek || !thisWeek.cut || !thisWeek.cut.length || !thisWeek.back_at || !(dow === 5 || dow === 6 || dow === 0 || (dow === 1 && hm < 12 * 60))) return [];
+  // 예약 결과(lastPending)는 쓰기 때만 새로 받는다 — 15시 전에 연 탭은 원복 행이 계속 '대기'라 15:15 뒤 '원복 확인 필요'가 잘못 떴다(11/1 사고: 사용자가 '지금 원복'을 눌러 21건 재예약, expect 덕에 전부 건너뜀). 5분 넘었으면 다시 받고 그동안은 빨강 안 띄움
+  const stale = Date.now() - (admgr.write.lastPendingAt || 0) > 5 * 60e3;
+  if (stale && admgrCfg() && !admgr.demo) setTimeout(() => admgrWritePending(), 0);
   const n = thisWeek.cut.length, c = admgrWeekendRun(thisWeek, cutT, backT), b = admgrWeekendRun(thisWeek, backT, backT + 2 * 86400e3);
   const tail = o => `${o.skip ? ` · 예산이 바뀌어 건너뜀 ${o.skip}` : ''}${o.fail ? ` · <b>실패 ${o.fail}</b>` : ''}`;
   const lost = now >= cutT && !c.ok && !c.wait && (c.skip || c.fail);   // 감액 시각이 지났는데 반영된 게 하나도 없음 — 예약이 통째로 취소·실패 (2026-10-30 16:14 42건 일괄 취소 사고) → 다시 걸 수 있게
   if (lost) return [{ key: 'wk-lost:' + today, lvl: 'red', text: `<b>주말 모드 감액이 안 됐어요</b> ${cfg.wkCutHour}시 예약 ${n}개가 반영 0개${tail(c)} — 지금 다시 걸면 5분 안에 −${cfg.weekendPct}% · 일요일 ${cfg.wkBackHour}시 원복도 같이 걸려요`, act: dnrbCan('budget') ? { label: '다시 예약 걸기', onclick: 'admgrWeekendCut()' } : null }];
   if (now < backT) return [{ key: 'wk-on:' + today, lvl: c.fail ? 'yellow' : 'blue', text: now < cutT ? `<b>주말 모드 예약됨</b> ${n}개 세트 오늘 ${cfg.wkCutHour}시 −${cfg.weekendPct}% → 일요일 ${cfg.wkBackHour}시 자동 원복`
     : `<b>주말 모드 적용 중</b> ${cfg.wkCutHour}시 감액 반영 ${c.ok}개${tail(c)}${c.wait ? ` · 대기 ${c.wait}` : ''} → 일요일 ${cfg.wkBackHour}시 자동 원복` }];
-  const late = now > backT + 15 * 60e3, bad = b.fail || (late && b.wait) || (late && b.ok + b.skip + b.fail + b.wait < c.ok);
+  const late = now > backT + 15 * 60e3 && !stale, bad = b.fail || (late && b.wait) || (late && b.ok + b.skip + b.fail + b.wait < c.ok);
   if (bad) return [{ key: 'wk-miss:' + today, lvl: 'red', text: `<b>주말 모드 원복 확인 필요</b> 원복 ${b.ok}개${tail(b)}${b.wait ? ` · 아직 대기 ${b.wait}` : ''} — 감액된 ${c.ok}개 중 원래 예산으로 안 돌아간 세트가 있어요`, act: dnrbCan('budget') ? { label: '지금 원복', onclick: 'admgrWeekendRestore()' } : null }];
   return dow === 0 ? [{ key: 'wk-done:' + today, lvl: 'blue', text: `<b>주말 모드 끝</b> ${cfg.wkBackHour}시 원복 ${b.ok}개${tail(b)}${b.wait ? ` · 대기 ${b.wait}` : ''}` }] : [];
 }
