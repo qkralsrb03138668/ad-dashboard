@@ -20,7 +20,7 @@ async function admgrWritePending() {
     const pend = d.pending || [];
     admgr.write.pendingByObj = new Map(pend.filter(p => p.mode === 'midnight').map(p => [p.object_id, p]));   // 옛 23:45 예약(남은 것) — 예산 배지·예약 목록
     admgr.write.timedByObj = new Map(pend.filter(p => p.mode === 'timed').sort((a, b) => String(b.apply_at).localeCompare(String(a.apply_at))).map(p => [p.object_id, p]));   // 시각 예약(주말 모드) — 대상별 가장 이른 것
-    admgr.write.lastPending = d; admgr.write.lastPendingAt = Date.now();   // 주말 모드 알림(admgrWeekendRun)이 시각 예약 결과를 본다 — 오래됐으면 admgrCheckWeekend가 다시 받는다
+    admgr.write.lastPending = d; admgr.write.lastPendingAt = Date.now();   // 시각 예약 결과 표시용 (예약 목록 · 예산 배지)
     renderAdmgr(true);
   } catch { /* 무시 */ }
   admgr.write.pendingLoading = false;
@@ -99,10 +99,10 @@ function admgrMoreMenu(ev) {
     ${admgrMobile() && !ADMGR_OWN.includes(admgr.view) ? `${agItem(admgr.activeOnly ? 'fa-square-check' : 'fa-square', '활성만 보기', 'admgrToggleActive()', admgr.activeOnly ? '켜져 있거나 오늘 지출이 있는 것만' : '꺼진 것도 전부 보기')}` : ''}
     ${admgrMobile() && admgr.view === 'set' && admgrCfg() && !admgr.demo ? `<div class="ag-menu-sep">만든 사람</div>${admgrMakerMenuItems()}` : ''}
     ${admgrMobile() ? `<div class="ag-menu-sep">다른 탭</div>${agItem('fa-flask', '테스트 소재', "admgrSetView('test')")}${agItem('fa-power-off', 'OFF 광고', "admgrSetView('offad')")}${agItem('fa-star', '베스트', "admgrSetView('best')")}${agItem('fa-ranking-star', '상품 보드', "admgrSetView('board')")}` : ''}
-    ${npend ? agItem('fa-list', `예약 목록 (${npend})`, 'admgrMidList()', '주말 모드 감액·원복 등 걸어 둔 예약') : ''}
+    ${npend ? agItem('fa-list', `예약 목록 (${npend})`, 'admgrMidList()', '걸어 둔 시각 예약') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') && admgrCopySets().length ? agItem('fa-arrow-up-from-bracket', `끌올 사본 정리 (${admgrCopySets().length})`, 'admgrRepostModal()', '" - 사본" 붙은 세트·광고 이름을 소재 업로드 규칙으로') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') ? agItem('fa-clock-rotate-left', '지난 소재 찾기', 'admgrPastModal()', '상품명으로 작년부터 돈 소재 중 효율 좋은 것 → 새 세트로 켜서 다시 테스트 (PIN)') : ''}
-    ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-sliders', '알림 기준', 'admgrAlertCfgModal()', '일예산 상한 · 소재 피로 · 주말 모드 기준 (모든 계정 공유)') : ''}
+    ${admgrCfg() && !admgr.demo && dnrbCan('budget') ? agItem('fa-sliders', '알림 기준', 'admgrAlertCfgModal()', '일예산 상한 · 소재 피로 기준 (모든 계정 공유)') : ''}
     ${nd ? agItem('fa-eraser', `임시 저장 전체 취소 (${nd})`, 'admgrClearDrafts()', 'Meta에는 아무 변화 없어요') : ''}
   </div>`);
 }
@@ -224,7 +224,7 @@ function admgrPinClear() {
 /* 서버가 PIN을 거부하면(PIN 변경·잠금) 저장된 것도 지운다 */
 function admgrPinInvalidate() { admgr.write.pin = null; pinSet(null); renderAdmgr(true); }
 const admgrPendWhen = p => p.mode === 'timed' && p.apply_at ? admgrKst(p.apply_at).toISOString().slice(5, 16).replace('T', ' ') : `${p.apply_date} 23:45`;   // 시각 예약은 'MM-DD HH:MM'
-function admgrMidList() {   // 예약 목록 — 시각 예약(주말 모드) + 남아 있는 옛 23:45 예약 (히스토리 모달 껍데기 재사용)
+function admgrMidList() {   // 예약 목록 — 시각 예약 + 남아 있는 옛 23:45 예약 (히스토리 모달 껍데기 재사용)
   const w = admgr.write;
   const rows = [...(w.pendingByObj ? w.pendingByObj.values() : []), ...((w.lastPending && w.lastPending.pending) || []).filter(p => p.mode === 'timed')];
   $('abm-title').textContent = '반영 예약 목록'; $('abm-sub').style.display = 'none';
