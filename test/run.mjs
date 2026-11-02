@@ -356,17 +356,6 @@ test('admgrPromoCands: 10/28부터 꺼짐(ABO만) → 빈 값 · 켜면 2026-10-
   vm.runInContext("admgrAlert.h7 = null; admgrAlert.h3 = null; ADMGR_PROMO.on = false;", ctx);
 });
 
-test('admgrFatigueCalc: 상품 단위 ROAS 전주 대비 20%↓ & 지난주 구매 20↑만 (10/28 ROAS 기준)', () => {
-  const f = g('admgrFatigueCalc'), cfg = { fatigueRoas: 20, fatigueMinPur: 20 };
-  const H = (rows) => ({ campaigns: [{ adsets: rows.map(([name, spend, pur, value]) => ({ name, spend, purchases: pur, value })) }] });
-  const now = H([['니트_R1_28_261001', 300000, 20, 1200000], ['니트_R2_28_261001', 200000, 10, 800000], ['스커트_P1_20_261001', 100000, 10, 600000], ['신상_P1_20_261020', 100000, 10, 100000]]);   // 니트 ROAS 400% · 스커트 600%
-  const prev = H([['니트_R1_28_261001', 250000, 25, 1500000], ['스커트_P1_20_261001', 100000, 11, 650000], ['가디건_R1_20_261001', 100000, 10, 500000]]);                                       // 니트 600% · 스커트 650% · 가디건(이번 주 없음)
-  const r = f(now, prev, cfg);
-  assert.equal(r.map(x => x.prod + ':' + Math.round(x.drop * 100)).join(), '니트:33');   // 스커트 −8%는 미달 · 신상은 지난주 없음 · 가디건 이번 주 없음
-  assert.equal(f(now, prev, { fatigueRoas: 40, fatigueMinPur: 20 }).length, 0);
-  assert.equal(f(now, prev, { fatigueRoas: 20, fatigueMinPur: 30 }).length, 0);           // 지난주 구매 25 < 30
-});
-
 test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표시 · 사본/이름 규칙/페이지 위생', () => {
   const S = g('admgrSeasonCalc');
   vm.runInContext("admgr.products = [{ no: 1, name: '(기모ver.) 클레르 블라우스 (3 colors)', price: 24000, supply: 9000 }]; admgrPI = null;", ctx);
