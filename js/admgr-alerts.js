@@ -588,3 +588,19 @@ function admgrAdjApply() {
   closeModal('admgr-budget-modal'); toast(`${n}개를 임시 저장했어요 — 표에서 확인한 뒤 상단 [게시]를 누르세요`);
   admgrSetView('set'); renderAdmgr();
 }
+
+/* ── 검사 ⑪ 7일 점검표 (2026-11-02 사용자 확정 — Desktop/클ㄹ드/답변-예산운영방식.md): 어제까지 7일 공헌이익(매출×36% − 광고비 · 택배·포장은 고정비에 넣은 기준) · ROAS · 테스트 지출 비중.
+   월요일에 보면 지난주 월~일. 유지선 = 공헌이익 1,700만(주 고정비 1,154만 + 여유) · ROAS 500% · 테스트 25%. 알림은 숫자만 — 방식을 바꾸는 건 4주 연속 1,700만 미만 또는 2주 연속 450% 미만일 때만 */
+const ADMGR_WEEKLY = { contrib: 0.36, minContrib: 17000000, minRoas: 5, testShare: 0.25 };
+function admgrWeeklyCalc(h7, isTest = admgrIsTest) {   // 순수 계산 — 테스트용. 테스트 = 이름에 test 또는 7일 안에 만든 세트
+  let sp = 0, v = 0, p = 0, tsp = 0;
+  for (const c of ((h7 && h7.campaigns) || [])) for (const s of (c.adsets || [])) { const x = s.spend || 0; sp += x; v += admgrVJ(s); p += admgrPJ(s); if (isTest(s) || (s.created && admgrKstDay(s.created) >= todayStr(-7))) tsp += x; }
+  return sp > 0 ? { sp, v, p, roas: v / sp, contrib: v * ADMGR_WEEKLY.contrib - sp, test: tsp / sp } : null;
+}
+function admgrCheckWeekly() {
+  const w = admgrWeeklyCalc(admgrAlert.h7); if (!w) return [];
+  const W = ADMGR_WEEKLY, okC = w.contrib >= W.minContrib, okR = w.roas >= W.minRoas, okT = w.test <= W.testShare;
+  const f = (ok, s) => ok ? `<b>${s}</b>` : `<b style="color:#b45309;">${s} ▼</b>`;
+  return [{ key: 'weekly:' + todayStr(0), lvl: okC && okR && okT ? 'blue' : 'yellow', text: `<b>7일 점검표</b> 공헌이익 ${f(okC, admgrW(Math.round(w.contrib)))} · ROAS ${f(okR, Math.round(w.roas * 100) + '%')} · 테스트 지출 ${f(okT, Math.round(w.test * 100) + '%')} <small>어제까지 7일 · 광고비 ${admgrW(Math.round(w.sp))} · 구매 ${w.p}건 · 유지선 1,700만 · 500% · 25%</small>` }];
+}
+admgrAlert.checks.push(admgrCheckWeekly);

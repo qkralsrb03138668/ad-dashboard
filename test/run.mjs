@@ -486,6 +486,36 @@ test('admgrFastOf·admgrFastRevertOf: 3일 ROAS 1000%↑ → 2배 후보 · 올�
   vm.runInContext("admgr.fast.days = null; admgr.fast.boost = null;", ctx);
 });
 
+test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일예산 2만당 1건(최소 2) · 14시부터 +1 · 7일 450%↑ · 11~17시 · 10만↑ +50% · 30만↑ 제외 · 3일 안 증액 없음', () => {
+  const need = g('admgrTodayNeed');
+  assert.equal([need(20000, 11), need(40000, 11), need(50000, 11), need(80000, 11), need(100000, 11), need(200000, 11), need(20000, 14.5)].join(), '2,2,3,4,5,10,3');
+  vm.runInContext("admgr.preset = 'today'; admgr.fast.days = null; admgr.fast.boost = { items: {} }; admgrAlert.adjHist = []; admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'g', spend: 100000, purchases: 10, value: 500000 }, { id: 'w', spend: 100000, purchases: 10, value: 400000 }, { id: 'n', spend: 10000, purchases: 1, value: 100000 }] }] };", ctx);
+  const f = g('admgrTodayUpOf'), base = { id: 'g', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 30000, purchases: 2 };
+  assert.equal(f(base, 11.5).to, 60000);                                                    // 3만 · 오늘 2건 · 7일 500% → 2배
+  assert.equal(f({ ...base, purchases: 1 }, 11.5), null);                                   // 1건 → 아님
+  assert.equal(f(base, 10.5), null); assert.equal(f(base, 17), null);                        // 11시 전 · 17시 뒤
+  assert.equal(f(base, 14.5), null); assert.equal(f({ ...base, purchases: 3 }, 14.5).to, 60000);   // 14시부터 +1건
+  assert.equal(f({ ...base, id: 'w' }, 11.5), null);                                        // 7일 400% → 아님
+  assert.equal(f({ ...base, id: 'n' }, 11.5), null);                                        // 7일 표본 없음
+  assert.equal(f({ ...base, budget: 120000, purchases: 6 }, 11.5).to, 180000);              // 10만↑ → +50%
+  assert.equal(f({ ...base, budget: 120000, purchases: 5 }, 11.5), null);                   // 12만은 6건부터
+  assert.equal(f({ ...base, budget: 300000, purchases: 20 }, 11.5), null);                  // 30만↑ 제외
+  assert.equal(f({ ...base, name: '니트_R1_test' }, 11.5), null);                           // 테스트 세트 제외
+  vm.runInContext("admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(-1) } } };", ctx); assert.equal(f(base, 11.5), null);   // 3일 안 올림 → 쉼
+  vm.runInContext("admgr.fast.boost = { items: {} }; admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 15000, new_value: 30000, time: new Date(Date.now() - 36e5).toISOString() }];", ctx); assert.equal(f(base, 11.5), null);   // Meta 이력에 증액
+  vm.runInContext("admgrAlert.adjHist = null; admgrAlert.h7 = null; admgr.fast.boost = null;", ctx);
+});
+test('admgrGoodHist (11/2): 7일 ROAS 450%↑면 오늘 0건만으로 ÷10 하지 않음 (전엔 550%)', () => {
+  vm.runInContext("admgr.fast.days = null; admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'a', spend: 100000, purchases: 10, value: 460000 }, { id: 'b', spend: 100000, purchases: 10, value: 440000 }] }] };", ctx);
+  assert.equal(g('admgrGoodHist')({ id: 'a' }) + ',' + g('admgrGoodHist')({ id: 'b' }), 'true,false');
+  vm.runInContext("admgrAlert.h7 = null;", ctx);
+});
+test('admgrWeeklyCalc (11/2 7일 점검표): 공헌이익 = 매출×36% − 광고비 · ROAS · 테스트 지출 비중', () => {
+  const w = g('admgrWeeklyCalc')({ campaigns: [{ adsets: [{ id: 'a', name: '니트_R1', spend: 1000000, purchases: 50, value: 6000000 }, { id: 'b', name: '니트_R2_test', spend: 500000, purchases: 10, value: 1500000 }] }] });
+  assert.equal(Math.round(w.contrib), 1200000); assert.equal(Math.round(w.roas * 100), 500); assert.equal(Math.round(w.test * 100), 33);
+  assert.equal(g('admgrWeeklyCalc')({ campaigns: [] }), null);
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
