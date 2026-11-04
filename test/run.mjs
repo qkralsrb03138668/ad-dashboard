@@ -450,6 +450,9 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   assert.equal(f(base, 14.5), null); assert.equal(f({ ...base, purchases: 3 }, 14.5).to, 60000);   // 14시부터 +1건
   assert.equal(f({ ...base, id: 'w' }, 11.5), null);                                        // 7일 400% → 아님
   assert.equal(f({ ...base, id: 'n' }, 11.5), null);                                        // 7일 표본 없음
+  const nt = f({ ...base, id: 'n', spend: 40000, purchases: 4, value: 300000 }, 11.5);        // 7일 1만/1건 + 오늘 4만/4건 = 5만/5건/800% → 오늘 합산으로 후보 (테스트 종료 세트, 11/4)
+  assert.equal(nt.to, 60000); assert.equal(nt.h7.today, true); assert.equal(nt.h7.p, 5);
+  assert.equal(f({ ...base, id: 'n', spend: 20000, purchases: 2, value: 60000 }, 11.5), null);   // 합쳐도 3만/3건 → 표본 부족
   assert.equal(f({ ...base, budget: 120000, purchases: 6 }, 11.5).to, 180000);              // 10만↑ → +50%
   assert.equal(f({ ...base, budget: 120000, purchases: 5 }, 11.5), null);                   // 12만은 6건부터
   assert.equal(f({ ...base, budget: 300000, purchases: 20 }, 11.5), null);                  // 30만↑ 제외
