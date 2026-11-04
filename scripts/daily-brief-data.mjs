@@ -117,7 +117,7 @@ try {
 try {
   const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8'), base = fs.readFileSync(path.join(root, 'js/admgr.js'), 'utf8'), tabs = fs.readFileSync(path.join(root, 'js/admgr-tabs.js'), 'utf8');
   const grab = (re, t = src) => (t.match(re) || [])[0] || '';
-  const code = [...['admgrP7', 'admgrV7', 'ADMGR_ROAS', 'admgrPJ', 'admgrVJ'].map(k => grab(new RegExp(`const ${k} = [^\\n]+`), base)), grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/const admgrProductOf = [^\n]+/, tabs), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
+  const code = [...['admgrP7', 'admgrV7', 'ADMGR_ROAS', 'admgrPJ', 'admgrVJ', 'ADMGR_TODAY_UP', 'admgrTodayNeed'].map(k => grab(new RegExp(`const ${k} = [^\\n]+`), base)), grab(/const ADMGR_ADJ = [^\n]+/), grab(/const admgrKstDay = [^\n]+/), grab(/const admgrProductOf = [^\n]+/, tabs), grab(/function admgrAdjCalc\([\s\S]*?\n}\n/)].join('\n');
   if (!/function admgrAdjCalc/.test(code) || !/const ADMGR_ROAS/.test(code) || !/const admgrProductOf/.test(code)) throw new Error('admgrAdjCalc·ADMGR_ROAS·admgrProductOf를 못 찾음');
   const ctx = { admgrShiftDay: addDays };
   vm.createContext(ctx); vm.runInContext(code + '\nthis.calc = admgrAdjCalc;', ctx);
