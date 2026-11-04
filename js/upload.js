@@ -407,22 +407,30 @@ async function uplRun() {
   };
   await Promise.all(Array.from({ length: Math.min(UPL_PARALLEL, queue.length) }, worker));
   uplLog(`미디어 전송 끝 — ${Math.round((Date.now() - t0) / 1000)}초`);
-  // 2단계: 세트·광고 순차 생성
+  // 2단계: 세트·광고 순차 생성 — 일시 오류(입력 오류 4xx 빼고 전부)는 10초 뒤 한 번 더 자동으로 (2026-11-04: 17개 중 마지막 1개가 실패로 남던 것. 등록 소재는 서버가 creative_id로 중복을 막아 재시도가 안전)
   let ok = 0;
-  for (const f of pending) {
-    if (!f.media || pinFail) continue;
+  const createOne = async f => {
     try {
       uplSetStatus(f, '세트·광고 생성 중');
       const r = await uplCall({ action: 'create' }, { pin, model_ad_id: upl.modelAdId, name: f.name.trim(), budget: budgetOf(f), status: mode, media: f.media, text: effText(f), creative_id: f.creative_id || null });
-      f.result = r; ok++;
+      f.result = r; f.retry = false; ok++;
       uplSetStatus(f, `완료 (세트 ${r.adset_id} · 광고 ${r.ad_id}${upl.model.cbo ? '' : ` · ${budgetOf(f).toLocaleString()}원`})`);
       uplLog(r.already ? `${f.name}: 이미 생성돼 있던 광고라 새로 만들지 않았어요 → ${r.ad_id}` : `${f.name}: 광고 생성 완료 → ${r.ad_id}`, 'ok');
       if (r.note_stripped) uplLog(`${f.name}: 문구 앞의 AI 안내문을 서버가 지우고 만들었어요 — 저장된 문구를 확인하세요`, 'err');
     } catch (e) {
       uplSetStatus(f, '실패: ' + e.message);
       uplLog(`${f.name}: ${e.message}`, 'err');
-      if (/PIN/.test(e.message)) { uplLog('PIN 오류 — 중단', 'err'); break; }
+      if (/PIN/.test(e.message)) { pinFail = true; uplLog('PIN 오류 — 중단', 'err'); return; }
+      f.retry = !(e.status >= 400 && e.status < 500 && e.status !== 429);   // 입력 오류(예산·문구·링크)는 다시 해도 같다
     }
+  };
+  for (const f of pending) { if (!f.media || pinFail) continue; await createOne(f); }
+  const again = pinFail ? [] : pending.filter(f => !f.result && f.media && f.retry);
+  if (again.length) {   // ponytail: 한 번만 더 — 그래도 실패하면 사람이 '다시' (파일 직접 끌어온 경우 응답만 끊긴 성공은 서버가 못 걸러 중복될 수 있음, creative_id 없는 파일은 이름으로 거르기를 서버에 넣을 때 풀림)
+    uplLog(`실패 ${again.length}개 — 10초 뒤 자동으로 한 번 더 만들어 봐요`, 'err');
+    for (const f of again) uplSetStatus(f, '잠시 뒤 다시 시도…');
+    await new Promise(r => setTimeout(r, 10000));
+    for (const f of again) { if (pinFail) break; await createOne(f); }
   }
   upl.running = false; $('upl-run').disabled = false; uplRenderFiles();
   uplLog(`끝 — 성공 ${ok} / ${pending.length} · 총 ${Math.round((Date.now() - t0) / 1000)}초`, ok === pending.length ? 'ok' : 'err');

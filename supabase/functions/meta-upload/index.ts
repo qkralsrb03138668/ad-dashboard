@@ -39,7 +39,10 @@ type Rec = Record<string, unknown>;
 async function clearMetaCaches(): Promise<void> {   // 예산·광고 변경 후 화면이 바로 새 값을 보도록 (meta-budget과 같은 규칙)
   await dbRest(`api_cache?cache_key=like.${encodeURIComponent("meta:hierarchy")}*`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => {});
 }
-async function graph(path: string, init: { method?: string; params?: Record<string, string>; form?: FormData } = {}): Promise<Rec> {
+/* Meta 일시 오류 자동 재시도 (2026-11-04: 17개 중 마지막 1개가 이유 없이 실패 — 10/27 58개 중 1개와 같은 패턴). 3초·6초 뒤 두 번 더.
+   쓰기(POST)는 호출 한도 오류(4·17·32·613·80004·HTTP 429)만 — 이건 Meta가 아무것도 안 만든 게 확실해서. 알 수 없는 오류(1·2)·5xx는 만들어졌을 수도 있어 쓰기엔 재시도 안 함(세트·광고 중복 방지). 읽기(GET)는 전부 */
+const META_LIMIT = new Set([4, 17, 32, 613, 80004]), META_TEMP = new Set([1, 2]);
+async function graph(path: string, init: { method?: string; params?: Record<string, string>; form?: FormData } = {}, _try = 0): Promise<Rec> {
   const token = env("META_WRITE_TOKEN");
   if (!token) throw new Error("META_WRITE_TOKEN 미설정");
   let res: Response;
@@ -57,7 +60,10 @@ async function graph(path: string, init: { method?: string; params?: Record<stri
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body?.error) {
     const e = body?.error ?? {};
-    throw new Error(`Meta ${path.split("?")[0]}: ${e.error_user_msg ?? e.message ?? JSON.stringify(body)}`.slice(0, 400));
+    const write = !!(init.form || init.method === "POST"), code = Number(e.code);
+    const again = META_LIMIT.has(code) || res.status === 429 || (!write && (META_TEMP.has(code) || e.is_transient || res.status >= 500));
+    if (again && _try < 2) { await new Promise((r) => setTimeout(r, 3000 * (_try + 1))); return graph(path, init, _try + 1); }
+    throw new Error(`Meta ${path.split("?")[0]}: ${e.error_user_msg ?? e.message ?? JSON.stringify(body)}${again ? " (3번 시도)" : ""}`.slice(0, 400));
   }
   return body as Rec;
 }
