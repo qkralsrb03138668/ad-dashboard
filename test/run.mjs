@@ -457,6 +457,13 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   assert.equal(f({ ...base, budget: 120000, purchases: 5 }, 11.5), null);                   // 12만은 6건부터
   assert.equal(f({ ...base, budget: 300000, purchases: 20 }, 11.5), null);                  // 30만↑ 제외
   assert.equal(f({ ...base, name: '니트_R1_test' }, 11.5), null);                           // 테스트 세트 제외
+  vm.runInContext("admgr.test.loaded = true; admgr.test.data = { ads: [{ id: 'ad1', adset_id: 'g', effective_status: 'ACTIVE', reg_date: todayStr(-3), spend: 30000, purchases: 3, value: 200000 }] }; admgr.test.state = new Map();", ctx);
+  assert.equal(f({ ...base, name: '니트_R1_test' }, 11.5).test, true);                      // 우수 추천(D+3 · 667% · 3건) 광고가 있는 테스트 세트 = 승격 후보 → 들어감 (11/4)
+  vm.runInContext("admgr.test.data.ads[0].purchases = 1; admgr.test.data.ads[0].value = 60000;", ctx);
+  assert.equal(f({ ...base, name: '니트_R1_test' }, 11.5), null);                           // 애매(200%)면 아님
+  vm.runInContext("admgr.test.state.set('ad1', { verdict: 'good' });", ctx);
+  assert.equal(f({ ...base, name: '니트_R1_test' }, 11.5).test, true);                      // 사용자가 우수로 판정해도 들어감
+  vm.runInContext("admgr.test.loaded = false; admgr.test.data = null; admgr.test.state = new Map();", ctx);
   vm.runInContext("admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(-1) } } };", ctx); assert.equal(f(base, 11.5), null);   // 3일 안 올림 → 쉼
   vm.runInContext("admgr.fast.boost = { items: {} }; admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 15000, new_value: 30000, time: new Date(Date.now() - 36e5).toISOString() }];", ctx); assert.equal(f(base, 11.5), null);   // Meta 이력에 증액
   vm.runInContext("admgrAlert.adjHist = null; admgrAlert.h7 = null; admgr.fast.boost = null;", ctx);
