@@ -403,7 +403,9 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   assert.equal([R3(3), R3(2), R3(5, [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }]), R3(3, [], 140000)].join(), 'half:rescue,off,off,off');   // 10/30: 하루 2만↑(7일 14만)이면 회복 예외 없음
   // 10/30 하루 지출 5만↑(7일 35만): 450~550%도 바로 OFF · 3일 회복 예외도 없음 / 5만 미만(7일 34만)은 지금처럼 절반·회복
   const RB = (sp7, roas, p3) => { const x = f([S('v', 60000)], new Map([['v', W(sp7, 20, roas)]]), new Map([['v', W(60000, p3, 6)]]), [], '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : '') + (x.big ? ':big' : ''); };
-  assert.equal([RB(350000, 5, 1), RB(350000, 3.5, 5), RB(340000, 5, 1), RB(340000, 3.5, 5), RB(350000, 6, 1), RB(350000, 5, 3)].join(), 'off:big,half:rescue:big,half,off,watch:big,half:rescue:big');   // 7일 34만(하루 4.9만)·450% 미만·3일 회복 → 2만↑라 회복 예외 없이 OFF · 11/4 ③: 5만↑도 3일 550%↑·3건↑면 OFF 대신 절반
+  assert.equal([RB(350000, 5, 1), RB(350000, 3.5, 5), RB(340000, 5, 1), RB(340000, 3.5, 5), RB(350000, 6, 1), RB(350000, 5, 3)].join(), 'half:big,half:rescue:big,half,off,watch:big,half:rescue:big');   // 11/5 ⑤: 5만↑·7일 500%·3일 600%(1건) → 3일 400↑라 절반
+  const RB3 = (roas3, p3) => { const x = f([S('v', 60000)], new Map([['v', W(350000, 20, 5)]]), new Map([['v', W(60000, p3, roas3)]]), [], '2026-10-28', 3)[0]; return x.act; };
+  assert.equal([RB3(4.2, 9), RB3(3.9, 9), RB3(4.7, 17)].join(), 'half,off,half');   // ⑤ 랑느(3일 420%)·펄 윈터(469%) → 절반, 3일 390% → OFF   // 7일 34만(하루 4.9만)·450% 미만·3일 회복 → 2만↑라 회복 예외 없이 OFF · 11/4 ③: 5만↑도 3일 550%↑·3건↑면 OFF 대신 절반
   // 11/4 ①: 오늘 구매가 당일 증액 기준(4만 → 2건, 14시부터 3건) 이상이면 OFF·절반 보류 — hour 없으면(오늘 기간 아님) 안 봄
   const RH = (pur, hour, roas = 3) => { const x = f([S('h', 40000, { purchases: pur })], new Map([['h', W(200000, 10, roas)]]), new Map([['h', W(30000, 1, 1)]]), [], '2026-10-28', 3, undefined, {}, hour)[0]; return x.act + (x.would ? ':' + x.would : ''); };
   assert.equal([RH(2, 11), RH(1, 11), RH(2, 14), RH(3, 14), RH(2, null), RH(2, 11, 5)].join(), 'hold:off,off,off,hold:off,off,hold:half');
