@@ -448,7 +448,7 @@ test('admgrFastRevertOf·admgrFastRecent (11/2): 올린 뒤 이틀 ROAS 550% 미
 test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일예산 2만당 1건(최소 2) · 14시부터 +1 · 7일 450%↑ · 11~17시 · 10만↑ +50% · 30만↑ 제외 · 3일 안 증액·감액 없음', () => {
   const need = g('admgrTodayNeed');
   assert.equal([need(20000, 11), need(40000, 11), need(50000, 11), need(80000, 11), need(100000, 11), need(200000, 11), need(20000, 14.5)].join(), '2,2,3,4,5,10,3');
-  vm.runInContext("admgr.preset = 'today'; admgr.fast.days = null; admgr.fast.boost = { items: {} }; admgrAlert.adjHist = []; admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'g', spend: 100000, purchases: 10, value: 500000 }, { id: 'w', spend: 100000, purchases: 10, value: 400000 }, { id: 'n', spend: 10000, purchases: 1, value: 100000 }] }] };", ctx);
+  vm.runInContext("admgr.preset = 'today'; admgr.fast.days = null; admgr.fast.boost = { items: {} }; admgrAlert.adjHist = []; admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'g', spend: 100000, purchases: 10, value: 500000 }, { id: 'w', spend: 100000, purchases: 10, value: 400000 }, { id: 'n', spend: 10000, purchases: 1, value: 100000 }, { id: 's', spend: 35000, purchases: 5, value: 350000 }, { id: 's4', spend: 35000, purchases: 4, value: 350000 }, { id: 's8', spend: 35000, purchases: 5, value: 280000 }] }] };", ctx);
   const f = g('admgrTodayUpOf'), base = { id: 'g', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 30000, purchases: 2 };
   assert.equal(f(base, 11.5).to, 60000);                                                    // 3만 · 오늘 2건 · 7일 500% → 2배
   assert.equal(f({ ...base, purchases: 1 }, 11.5), null);                                   // 1건 → 아님
@@ -459,6 +459,13 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   const nt = f({ ...base, id: 'n', spend: 40000, purchases: 4, value: 300000 }, 11.5);        // 7일 1만/1건 + 오늘 4만/4건 = 5만/5건/800% → 오늘 합산으로 후보 (테스트 종료 세트, 11/4)
   assert.equal(nt.to, 60000); assert.equal(nt.h7.today, true); assert.equal(nt.h7.p, 5);
   assert.equal(f({ ...base, id: 'n', spend: 20000, purchases: 2, value: 60000 }, 11.5), null);   // 합쳐도 3만/3건 → 표본 부족
+  const sm = f({ ...base, id: 's', budget: 15000, purchases: 0 }, 11.5);                         // 소액(1.5만) · 오늘 0건이어도 7일 5건·1000% → 2배 (11/5)
+  assert.equal(sm.to, 30000); assert.equal(sm.multi, true);
+  assert.equal(f({ ...base, id: 's', budget: 15000, purchases: 2 }, 11.5).multi, false);            // 오늘 건수를 채우면 원래 길
+  assert.equal(f({ ...base, id: 's', budget: 30000, purchases: 0 }, 11.5), null);                   // 3만은 소액 아님
+  assert.equal(f({ ...base, id: 's4', budget: 15000, purchases: 0 }, 11.5), null);                  // 7일 4건
+  assert.equal(f({ ...base, id: 's8', budget: 15000, purchases: 0 }, 11.5), null);                  // 7일 800%
+  assert.equal(f({ ...base, id: 's', budget: 15000, purchases: 0 }, 17), null);                     // 17시 뒤엔 안 뜸
   assert.equal(f({ ...base, budget: 120000, purchases: 6 }, 11.5).to, 180000);              // 10만↑ → +50%
   assert.equal(f({ ...base, budget: 120000, purchases: 5 }, 11.5), null);                   // 12만은 6건부터
   assert.equal(f({ ...base, budget: 300000, purchases: 20 }, 11.5), null);                  // 30만↑ 제외

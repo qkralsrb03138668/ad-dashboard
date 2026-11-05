@@ -550,7 +550,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       if (admgr.fast.days) {
         if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>증액 되돌리기 <small class="ag-muted">올린 뒤 이틀 ROAS 550%↓</small>', r => !!admgrFastRevertOf(r), 'admgrFastModal()']);
       }
-      if (admgrKstHour() >= ADMGR_TODAY_UP.from && admgrKstHour() < ADMGR_TODAY_UP.to) todo.push(['todayup', '<span class="ag-dot green"></span>당일 증액 <small class="ag-muted">오늘 구매 기준 건수↑ · 7일 450%↑(표본 모자라면 오늘까지) · 승격 후보 포함</small>', r => !!admgrTodayUpOf(r), 'admgrFastModal()']);   // 11~17시만 (2026-11-02)
+      if (admgrKstHour() >= ADMGR_TODAY_UP.from && admgrKstHour() < ADMGR_TODAY_UP.to) todo.push(['todayup', '<span class="ag-dot green"></span>당일 증액 <small class="ag-muted">오늘 구매 기준 건수↑ · 7일 450%↑(표본 모자라면 오늘까지) · 승격 후보 포함 · 소액은 7일 5건↑·900%↑</small>', r => !!admgrTodayUpOf(r), 'admgrFastModal()']);   // 11~17시만 (2026-11-02)
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
   }
@@ -1406,8 +1406,11 @@ function admgrFastRevertOf(r) {   // 2배 올린 뒤 이틀이 지났고 그 이
    폭 = 2배, 일예산 10만↑은 +50%, 30만↑은 안 올림(기록상 40만↑ 세트 4건뿐). 11시 전엔 아직 신호가 아니고 17시 뒤엔 늘어난 몫 ROAS 424%라 11~17시에만 후보.
    근거(.insight-tmp): up3-k.mjs 오전 증액 늘어난 몫 — 증액 시점 구매 1건 591% · 2건 553% · 3건 541% · 4건↑ 499% (대부분 3만 미만 세트) / pace.mjs 11시 전 지출 38%,
    ROAS 450~700% 세트의 11시 기대 구매 2~3만 0.9 · 5~8만 2.2 · 8~12만 3.2건 → 기준 = 1.5배 / compound.mjs 7일 안 2·3번째 증액 다음 3일 608·594%(첫 599%), 증액 후 20~40만 620%.
+   소액 세트(2026-11-05 사용자 확정): 일예산 2.5만↓은 하루 구매 1~3건·저녁 구매라 '오늘 2건(14시부터 3건)'을 거의 못 채움(11/2 켠 1.5만 세트 6개가 3일 900~2700%인데 증액 후보에 한 번도 못 듦, why-noup.mjs)
+   → 어제까지 7일 구매 5건↑·ROAS 900%↑면 오늘 구매와 무관하게 후보(multi). small-good.mjs(5만 전에 5건 채운 소액 신규 세트): 900~1400% 25세트 다음 7일 555% · 1400%↑ 13세트 626%,
+   900%↑ 중 지출 늘린 30세트 하루 1.5→5.3만에 597%·세트당 7일 공헌 41만 vs 그대로 둔 8세트 18만. 550~900%는 다음 7일 477%라 뺌.
    기록은 fast_boost와 같은 칸에 → 3일 쉼(admgrFastRecent)·되돌리기(올린 뒤 이틀 ROAS 550% 미만, admgrFastRevertOf)를 그대로 쓴다 */
-const ADMGR_TODAY_UP = { minPur: 2, perWon: 20000, lateHour: 14, from: 11, to: 17, bigBudget: 100000, maxBudget: 300000, mul: 2, bigPlus: 1.5 };
+const ADMGR_TODAY_UP = { minPur: 2, perWon: 20000, lateHour: 14, from: 11, to: 17, bigBudget: 100000, maxBudget: 300000, mul: 2, bigPlus: 1.5, smallBudget: 25000, smallPur: 5 };   // smallBudget·smallPur: 일예산 이 이하 세트는 7일 구매 이 건수↑·ROAS 900%↑(ADMGR_ROAS.up)면 오늘 구매 없이도 후보
 const admgrKstHour = () => { const k = new Date(Date.now() + 9 * 3600e3); return k.getUTCHours() + k.getUTCMinutes() / 60; };
 const admgrTodayNeed = (budget, hour = admgrKstHour()) => Math.max(ADMGR_TODAY_UP.minPur, Math.round(budget / ADMGR_TODAY_UP.perWon)) + (hour >= ADMGR_TODAY_UP.lateHour ? 1 : 0);
 function admgrHist7(r, withToday = false) {   // 어제까지 7일(알림판 h7) — 표본 차면 {spend, p, roas}, 아니면 null
@@ -1437,11 +1440,13 @@ function admgrTodayUpOf(r, hour = admgrKstHour()) {   // 당일 증액 후보면
   if (admgr.preset !== 'today' || hour < ADMGR_TODAY_UP.from || hour >= ADMGR_TODAY_UP.to) return null;
   if (r._cbo || r.status !== 'ACTIVE' || !(r.budget > 0) || r.budget >= ADMGR_TODAY_UP.maxBudget) return null;
   const test = admgrIsTest(r); if (test && !admgrTestGood(r)) return null;   // 테스트 세트는 우수(승격 후보)만
-  const k = admgrPJ(r), need = admgrTodayNeed(r.budget, hour); if (k < need) return null;
-  const h7 = admgrHist7(r, true); if (!h7 || h7.roas < ADMGR_ROAS.off) return null;   // 7일 표본 모자라면 오늘까지 합산(테스트 막 끝난 세트)
+  const U = ADMGR_TODAY_UP, k = admgrPJ(r), need = admgrTodayNeed(r.budget, hour); let h7, multi = false;
+  if (k >= need) { h7 = admgrHist7(r, true); if (!h7 || h7.roas < ADMGR_ROAS.off) return null; }   // 7일 표본 모자라면 오늘까지 합산(테스트 막 끝난 세트)
+  else {   // 소액 세트는 오늘 구매가 모자라도 어제까지 7일 구매 5건↑·ROAS 900%↑면 후보 (2026-11-05 사용자 확정)
+    h7 = r.budget <= U.smallBudget ? admgrHist7(r) : null; if (!h7 || h7.p < U.smallPur || h7.roas < ADMGR_ROAS.up) return null; multi = true; }
   if (admgrUpRecent(r) || admgrCutRecent(r)) return null;   // 3일 안에 올렸거나 줄인 세트는 쉼
   const to = Math.min(ADMGR_TODAY_UP.maxBudget, Math.round(r.budget * (r.budget >= ADMGR_TODAY_UP.bigBudget ? ADMGR_TODAY_UP.bigPlus : ADMGR_TODAY_UP.mul) / 1000) * 1000);
-  return { k, need, h7, to, test };
+  return { k, need, h7, to, test, multi };
 }
 function admgrFastBadge(r) {   // 되돌리기 후보 배지 (당일 증액 후보는 '오늘 할 일' 칩에서)
   if (admgr.view !== 'set' || !admgrJudgeView()) return '';
@@ -1474,16 +1479,16 @@ function admgrFastModal() {
     : k === 'clash' ? `<b style="color:#b45309;">그대로</b><div style="font-size:.64rem;color:#9ca3af;">7일 ${P(x.a.r7)}<br>예산 조정 ${x.a.act === 'off' ? 'OFF' : '절반'} 후보</div>` : `<b style="color:#b45309;white-space:nowrap;">되돌리기 → ${man(x.to)}</b>`;
   const row = (x, k) => { const r = x.r, pend = admgrDraft[r.id] != null;
     return `<tr${pend ? ' style="opacity:.55;"' : ''}><td><input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${!pend ? 'checked' : ''} /></td>
-      <td class="name-cell" style="text-align:left;white-space:normal;min-width:220px;">${esc(admgrBase(r.name))}${x.t && x.t.test ? ' <span class="status-badge badge-green" style="font-size:.58rem;">승격 후보</span>' : ''}${pend ? '<div style="font-size:.64rem;color:#9ca3af;">이미 임시 저장됨</div>' : ''}</td>
+      <td class="name-cell" style="text-align:left;white-space:normal;min-width:220px;">${esc(admgrBase(r.name))}${x.t && x.t.test ? ' <span class="status-badge badge-green" style="font-size:.58rem;">승격 후보</span>' : ''}${x.t && x.t.multi ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">소액 · 7일 성적</span>' : ''}${pend ? '<div style="font-size:.64rem;color:#9ca3af;">이미 임시 저장됨</div>' : ''}</td>
       <td style="white-space:nowrap;">${man(r.budget)}</td>
       <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.b.sp)} · ${x.b.p}건${cpa(x.b.sp, x.b.p)}</div>` : `${x.t.h7.today ? '오늘까지' : '7일'} <b>${P(x.t.h7.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.t.h7.spend)} · ${x.t.h7.p}건${cpa(x.t.h7.spend, x.t.h7.p)}${x.t.h7.today ? '<br>7일 표본 부족 → 오늘 합산' : ''}</div>`}</td>
-      <td style="white-space:nowrap;">${today(r)}${x.t ? `<div style="font-size:.64rem;color:#6b7280;">기준 ${x.t.need}건</div>` : ''}</td><td style="min-width:92px;">${res(x, k)}</td></tr>`; };
+      <td style="white-space:nowrap;">${today(r)}${x.t ? `<div style="font-size:.64rem;color:#6b7280;">${x.t.multi ? '오늘 건수 안 봄' : `기준 ${x.t.need}건`}</div>` : ''}</td><td style="min-width:92px;">${res(x, k)}</td></tr>`; };
   const sec = (k, t, c, note) => L[k].length ? `<tr><td colspan="6" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L[k].length}${note ? ` <small style="font-weight:600;color:#9ca3af;">${note}</small>` : ''}</td></tr>${L[k].sort((a, b) => (b.t ? b.t.h7.roas : 0) - (a.t ? a.t.h7.roas : 0)).map(x => row(x, k)).join('')}` : '';
   const n = L.today.length + L.clash.length + L.back.length;
   $('abm-title').textContent = `증액 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;"><b>당일 증액</b>(11~17시): 오늘 구매가 기준 건수(일예산 2만당 1건 · 최소 2건 · 14시부터 +1건) 이상이고 7일 ROAS 450%↑인 운영 세트 → 2배(10만↑ +50% · 30만↑ 안 올림). 테스트 종료로 막 넘어와 7일 표본(5건 또는 5만)이 모자라면 오늘까지 합쳐서 봐요. 아직 _test인 세트도 우수(승격 후보)면 같은 기준으로 들어가요. 올린 세트는 3일 쉬고, 이틀 ROAS 550% 미만이면 되돌리기. 줄인 세트도 3일 동안은 후보에서 빠져요. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영.</div>
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;"><b>당일 증액</b>(11~17시): 오늘 구매가 기준 건수(일예산 2만당 1건 · 최소 2건 · 14시부터 +1건) 이상이고 7일 ROAS 450%↑인 운영 세트 → 2배(10만↑ +50% · 30만↑ 안 올림). 테스트 종료로 막 넘어와 7일 표본(5건 또는 5만)이 모자라면 오늘까지 합쳐서 봐요. 아직 _test인 세트도 우수(승격 후보)면 같은 기준으로 들어가요. 올린 세트는 3일 쉬고, 이틀 ROAS 550% 미만이면 되돌리기. 일예산 2.5만 이하 소액 세트는 오늘 구매가 모자라도 7일 구매 5건↑·ROAS 900%↑면 후보예요. 줄인 세트도 3일 동안은 후보에서 빠져요. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영.</div>
     ${n ? `<div class="table-wrap" style="max-height:62vh;overflow:auto;"><table style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 7일</th><th>오늘</th><th>결과</th></tr></thead>
-      <tbody>${sec('today', '당일 증액 후보', '#15803d', '오늘 구매 기준 건수↑ · 7일 450%↑')}${sec('clash', '겹침 — 그대로', '#b45309', '오늘은 좋지만 7일은 예산 조정 후보')}${sec('back', '되돌리기', '#b45309', '2배 올린 뒤 이틀 ROAS 550% 미만')}</tbody></table></div>`
+      <tbody>${sec('today', '당일 증액 후보', '#15803d', '오늘 구매 기준 건수↑ · 7일 450%↑ (소액은 7일 5건↑·900%↑)')}${sec('clash', '겹침 — 그대로', '#b45309', '오늘은 좋지만 7일은 예산 조정 후보')}${sec('back', '되돌리기', '#b45309', '2배 올린 뒤 이틀 ROAS 550% 미만')}</tbody></table></div>`
       : '<div class="empty-state" style="padding:20px;"><p>오늘은 증액 후보가 없어요.</p></div>'}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${n && admgr.write.st && dnrbCan('budget') ? '<button class="btn-analyze" onclick="admgrFastApply()">체크한 것 임시 저장에 넣기</button>' : ''}</div>`;
   admgrAbmWide();
