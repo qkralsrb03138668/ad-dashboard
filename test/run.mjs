@@ -441,7 +441,7 @@ test('admgrFastRevertOf·admgrFastRecent (11/2): 올린 뒤 이틀 ROAS 550% 미
   vm.runInContext("admgr.fast.days = null; admgr.fast.boost = null;", ctx);
 });
 
-test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일예산 2만당 1건(최소 2) · 14시부터 +1 · 7일 450%↑ · 11~17시 · 10만↑ +50% · 30만↑ 제외 · 3일 안 증액 없음', () => {
+test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일예산 2만당 1건(최소 2) · 14시부터 +1 · 7일 450%↑ · 11~17시 · 10만↑ +50% · 30만↑ 제외 · 3일 안 증액·감액 없음', () => {
   const need = g('admgrTodayNeed');
   assert.equal([need(20000, 11), need(40000, 11), need(50000, 11), need(80000, 11), need(100000, 11), need(200000, 11), need(20000, 14.5)].join(), '2,2,3,4,5,10,3');
   vm.runInContext("admgr.preset = 'today'; admgr.fast.days = null; admgr.fast.boost = { items: {} }; admgrAlert.adjHist = []; admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'g', spend: 100000, purchases: 10, value: 500000 }, { id: 'w', spend: 100000, purchases: 10, value: 400000 }, { id: 'n', spend: 10000, purchases: 1, value: 100000 }] }] };", ctx);
@@ -468,6 +468,9 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   vm.runInContext("admgr.test.loaded = false; admgr.test.data = null; admgr.test.state = new Map();", ctx);
   vm.runInContext("admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(-1) } } };", ctx); assert.equal(f(base, 11.5), null);   // 3일 안 올림 → 쉼
   vm.runInContext("admgr.fast.boost = { items: {} }; admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 15000, new_value: 30000, time: new Date(Date.now() - 36e5).toISOString() }];", ctx); assert.equal(f(base, 11.5), null);   // Meta 이력에 증액
+  vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 60000, new_value: 30000, time: new Date(Date.now() - 2 * 864e5).toISOString() }];", ctx); assert.equal(f(base, 11.5), null);   // 그저께 감액 → 3일 쉼 (11/5)
+  vm.runInContext("admgrAlert.adjHist[0].time = new Date(Date.now() - 3 * 864e5).toISOString();", ctx); assert.equal(f(base, 11.5).to, 60000);   // 3일 지나면 다시 후보
+  vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'x', old_value: 60000, new_value: 30000, time: new Date().toISOString() }];", ctx); assert.equal(f(base, 11.5).to, 60000);   // 다른 세트 감액은 무관
   vm.runInContext("admgrAlert.adjHist = null; admgrAlert.h7 = null; admgr.fast.boost = null;", ctx);
 });
 test('admgrWeeklyCalc (11/2 7일 점검표): 공헌이익 = 매출×36% − 광고비 · ROAS · 테스트 지출 비중', () => {
