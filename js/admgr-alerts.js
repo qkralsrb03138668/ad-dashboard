@@ -333,8 +333,12 @@ function admgrReqListModal() {
    ② 표본 : 7일 지출이 전부 최근 3일 안에 있으면(그 전 4일 지출 0) 건너뜀 — 만든 지 3일↑여도 돌기 시작한 지 며칠 안 된 세트는 7일 규칙 대상이 아님
    ③ 5만↑ 세트도 3일 550%↑·3건↑(감액 이력 없음)이면 OFF 대신 절반 (rescue-aftercut.mjs: 그런 세트 다음 7일 ~530%, 손익분기 278~338% 위)
    ④ 감액 4~10일 전 있어도 7일 450~550%·3일 550%↑·3건↑이면 OFF 대신 현 예산 유지(대기) — 감액 이력 유무로 회복 결과가 안 갈림(rescue-aftercut.mjs: 감액 뒤 529~547% vs 없음 520~533%, 550↑ 37~44% 같음). 7일 450% 미만은 회복해도 495%·27%라 그대로 OFF
-   ⑤ (2026-11-05 사용자 확정) 5만↑ 세트 7일 450~550%는 3일 400%↑면 OFF 대신 절반, 3일 400% 미만만 바로 OFF — big-mid.mjs: 그런 세트 계속 돌린 다음 7일 ROAS 486~501%(손익분기 338% 위, 공헌이익 +), 3일 400 미만은 절반해도 적자 32% */
-const ADMGR_ADJ = { minPur: 5, minSpend: 50000, upMinPur: 10, cool: 3, back: 10, minAge: 3, rescuePur: 3, prodPur3: 10, prodUpPur3: 20, bigSpend: 50000, rescueSpend: 20000, bigOff3: 4 };   // bigSpend: 하루 지출(7일÷7) 이 이상이면 550% 미만 바로 OFF · rescueSpend: 3일 회복 예외는 하루 지출 이 미만만   // ROAS 선은 ADMGR_ROAS (js/admgr.js)
+   ⑤ (2026-11-05 사용자 확정) 5만↑ 세트 7일 450~550%는 3일 400%↑면 OFF 대신 절반, 3일 400% 미만만 바로 OFF — big-mid.mjs: 그런 세트 계속 돌린 다음 7일 ROAS 486~501%(손익분기 338% 위, 공헌이익 +), 3일 400 미만은 절반해도 적자 32%
+   ⑥ (2026-11-05 사용자 "두번째로 넣어줘") 표본(5건·5만) 전인 소액 세트도 7일 지출 3만↑이면 테스트 판정과 같은 기준으로 OFF 후보 — 구매 0 → OFF · ROAS 450% 미만 → OFF(금·토·일은 보류).
+     이름에 test 없는 1.5만 분리 세트(11/2 켠 40개)가 테스트 탭에도 7일 규칙에도 안 걸려 5일째(5만)까지 판정이 없던 공백. ②(최근 3일뿐) 건너뜀은 이 줄엔 적용 안 함.
+     주의 — .insight-tmp/small-new.mjs(8/8~10/26 첫 지출 611세트, 꺼지지 않고 계속 돈 세트만): 누적 3만 시점 구매 0 → 다음 7일 531% · 450% 미만 486% · 450~550% 450% · 550%↑ 473% 로 갈리지 않음.
+     3만 시점 세트 숫자는 예측력이 약하다는 뜻(계속 돈 비율은 16%·44%·64%·88%로 달라 선택 편향 있음). 사용자에게 알렸고, 기준은 테스트 탭과 맞춘 것 */
+const ADMGR_ADJ = { minPur: 5, minSpend: 50000, upMinPur: 10, cool: 3, back: 10, minAge: 3, rescuePur: 3, prodPur3: 10, prodUpPur3: 20, bigSpend: 50000, rescueSpend: 20000, bigOff3: 4, smallSpend: 30000 };   // smallSpend: 표본(5건·5만) 전이라도 7일 지출 이 이상이면 테스트 기준으로 OFF 후보(⑥)   // bigSpend: 하루 지출(7일÷7) 이 이상이면 550% 미만 바로 OFF · rescueSpend: 3일 회복 예외는 하루 지출 이 미만만   // ROAS 선은 ADMGR_ROAS (js/admgr.js)
 async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액 날짜 → 대기·재확인)
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.adjLoading || (A.adjHist && Date.now() - A.adjHistAt < 30 * 60000) || Date.now() - (A.adjFailAt || 0) < 5 * 60000) return;
   A.adjLoading = true;
@@ -361,8 +365,16 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, d
     if (s.created && admgrKstDay(s.created) > ageTo) continue;   // 신규(3일 미만)는 테스트 판정이 맡는다
     const w = s7.get(s.id); if (!w || !(w.spend > 0)) continue;
     const p7 = admgrPJ(w), r7 = admgrVJ(w) / w.spend;   // 7일 ROAS (구매 0이면 0)
-    if (!(p7 >= C.minPur || w.spend >= C.minSpend)) continue;   // 표본 부족
     const t = s3.get(s.id), sp3 = t ? t.spend || 0 : 0, p3 = t ? admgrPJ(t) : 0, r3 = sp3 > 0 ? admgrVJ(t) / sp3 : null;
+    if (!(p7 >= C.minPur || w.spend >= C.minSpend)) {   // 표본 부족 — ⑥ 소액 세트만 테스트 판정 기준으로 OFF 후보 (이름에 test 있는 세트는 테스트 탭이 맡는다)
+      const wk = [5, 6, 0].includes(dow);   // 금·토·일엔 450% 미만 OFF 보류 (테스트 판정 admgrWkHold와 같음), 구매 0은 그대로
+      if (w.spend >= C.smallSpend && !/test/i.test(String(s.name || '')) && (!p7 || (r7 < R.off && !wk))) {
+        const k0 = hour != null ? admgrPJ(s) : 0, need = hour != null ? admgrTodayNeed(s.budget, hour) : 0, b0 = { s, r7, r3, p7, p3, sp7: w.spend, sp3, from: s.budget, lastCut: null, big: false, small: true };
+        out.push(hour != null && k0 >= need ? { ...b0, act: 'hold', would: 'off', to: s.budget, why: `오늘 ${k0}건(기준 ${need}건↑) — OFF는 내일 다시 (7일 ${pc(r7)})` }
+          : { ...b0, act: 'off', to: 0, why: p7 ? `소액 세트 · 지출 ${Math.round(w.spend / 1000) / 10}만원에 ROAS ${pc(r7)}(${pc(R.off)} 미만) — 테스트 기준으로 OFF` : `소액 세트 · 구매 0인데 ${Math.round(w.spend / 1000) / 10}만원 씀(${C.smallSpend / 10000}만↑) — 테스트 기준으로 OFF` });
+      }
+      continue;
+    }
     if (w.spend - sp3 < 1000) continue;   // ② 7일 지출이 전부 최근 3일 — 표본이 3일치뿐이라 내일부터 (2026-11-04)
     const L = last.get(s.id) || {}, cool = !!(L.cut && L.cut >= coolFrom), prevCut = !!(L.cut && !cool && L.cut >= backFrom);
     const big = w.spend / 7 >= C.bigSpend;   // 하루 5만↑ — 절반 없이 550% 미만이면 OFF (2026-10-30), 단 3일 회복(③)이면 절반
@@ -418,7 +430,7 @@ function admgrAdjModal() {
   const sum = () => { let a = 0, b = 0; R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)).forEach(x => { a += x.from; b += x.to; }); return { a, b }; }, S = sum(), B = admgrBudgetTotal(false);
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : 1;
   $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일 <b>ROAS</b>로 골랐어요 (${admgrAttrTxt()}). 450% 미만 OFF · 450~550% 절반(3일 뒤에도 550% 미만이면 OFF) · 하루 지출 5만↑ 세트는 450~550%면 절반, 3일 400% 미만으로 꺾였으면 바로 OFF · 550~900% 유지 · 900%↑ 증액(1100%↑ +30%). 7일 구매 5건 또는 지출 5만원부터 판단 · 7일 450% 미만이어도 3일 550%↑·3건↑면 OFF 대신 절반(하루 지출 2만 미만 · 감액 이력 없을 때) · 감액 뒤라도 7일 450~550%·3일 550%↑·3건↑면 현 예산 유지 · 오늘 구매가 당일 증액 기준 건수(4만↓ 2건 · 5~6만 3건 · 7~8만 4건 …)를 넘으면 OFF·절반은 내일 다시 · 돌기 시작한 지 3일 안 된 세트는 안 봄 · 상품 전체 3일 450% 미만(10건↑)이면 그 상품 유지 세트도 절반, 상품이 550%↑로 살아나면 원복 · 상품 3일 900%↑(20건↑)면 유지 세트도 +20%. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">어제까지 7일 <b>ROAS</b>로 골랐어요 (${admgrAttrTxt()}). 450% 미만 OFF · 450~550% 절반(3일 뒤에도 550% 미만이면 OFF) · 하루 지출 5만↑ 세트는 450~550%면 절반, 3일 400% 미만으로 꺾였으면 바로 OFF · 550~900% 유지 · 900%↑ 증액(1100%↑ +30%). 7일 구매 5건 또는 지출 5만원부터 판단 · 7일 450% 미만이어도 3일 550%↑·3건↑면 OFF 대신 절반(하루 지출 2만 미만 · 감액 이력 없을 때) · 감액 뒤라도 7일 450~550%·3일 550%↑·3건↑면 현 예산 유지 · 오늘 구매가 당일 증액 기준 건수(4만↓ 2건 · 5~6만 3건 · 7~8만 4건 …)를 넘으면 OFF·절반은 내일 다시 · 표본 전인 소액 세트도 7일 지출 3만↑에 구매 0이거나 450% 미만이면 테스트 기준으로 OFF(450% 미만은 금·토·일 보류) · 돌기 시작한 지 3일 안 된 세트는 안 봄 · 상품 전체 3일 450% 미만(10건↑)이면 그 상품 유지 세트도 절반, 상품이 550%↑로 살아나면 원복 · 상품 3일 900%↑(20건↑)면 유지 세트도 +20%. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.
       <div>후보 세트 지출 합 — 7일 ${admgrW(Math.round(R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)).reduce((a, x) => a + x.sp7, 0)))} · 3일 ${admgrW(Math.round(R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)).reduce((a, x) => a + x.sp3, 0)))}</div>
       <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
     <div class="table-wrap" style="max-height:62vh;overflow:auto;"><table style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>7일 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>3일 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>일예산</th><th>결과</th></tr></thead>
