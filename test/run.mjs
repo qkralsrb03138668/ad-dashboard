@@ -451,6 +451,7 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   vm.runInContext("admgr.preset = 'today'; admgr.fast.days = null; admgr.fast.boost = { items: {} }; admgrAlert.adjHist = []; admgrAlert.h7 = { campaigns: [{ adsets: [{ id: 'g', spend: 100000, purchases: 10, value: 500000 }, { id: 'w', spend: 100000, purchases: 10, value: 400000 }, { id: 'n', spend: 10000, purchases: 1, value: 100000 }, { id: 's', spend: 35000, purchases: 5, value: 350000 }, { id: 's4', spend: 35000, purchases: 4, value: 350000 }, { id: 's8', spend: 35000, purchases: 5, value: 280000 }] }] };", ctx);
   const f = g('admgrTodayUpOf'), base = { id: 'g', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 30000, purchases: 2 };
   assert.equal(f(base, 11.5).to, 60000);                                                    // 3만 · 오늘 2건 · 7일 500% → 2배
+  vm.runInContext("admgrAlert.adjHist = null;", ctx); assert.equal(f(base, 11.5), null); vm.runInContext("admgrAlert.adjHist = [];", ctx);   // 예산 이력 받기 전엔 후보 없음 (11/6)
   assert.equal(f({ ...base, purchases: 1 }, 11.5), null);                                   // 1건 → 아님
   assert.equal(f(base, 10.5), null); assert.equal(f(base, 17), null);                        // 11시 전 · 17시 뒤
   assert.equal(f(base, 14.5), null); assert.equal(f({ ...base, purchases: 3 }, 14.5).to, 60000);   // 14시부터 +1건
@@ -500,10 +501,10 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'x', old_value: 60000, new_value: 30000, time: new Date().toISOString() }];", ctx); assert.equal(f(base, 11.5).to, 60000);   // 다른 세트 감액은 무관
   vm.runInContext("admgrAlert.adjHist = null; admgrAlert.h7 = null; admgr.fast.boost = null;", ctx);
 });
-test('admgrTodoCount (11/5 오늘 할 일 → 알림판): 당일 증액·되돌리기 건수 — 임시 저장한 세트와 예산 조정 후보(OFF·절반) 겹침은 뺌', () => {
+test('admgrTodoCount (11/5 오늘 할 일 → 알림판): 당일 증액·되돌리기 건수 — 예산 조정 후보(OFF·절반) 겹침은 뺌 · 임시 저장한 세트는 넣고 게시 전 건수로', () => {
   const sets = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id })), up = new Set(['a', 'b', 'c']), back = new Set(['c', 'd', 'e']);
   const r = g('admgrTodoCount')(sets, new Set(['b']), { e: 30000 }, x => up.has(x.id), x => back.has(x.id));
-  assert.equal(r.up + ',' + r.back, '2,1');   // a·c 증액(b는 예산 조정 후보와 겹침) · d 되돌리기(c는 증액이 먼저, e는 임시 저장됨)
+  assert.equal(r.up + ',' + r.back + ',' + r.pend, '2,2,1');   // a·c 증액(b는 예산 조정 후보와 겹침) · d·e 되돌리기(c는 증액이 먼저) · e는 임시 저장만 하고 게시 전 — 건수에 넣고 따로 셈 (11/6)
 });
 test('admgrWeeklyCalc (11/2 7일 점검표): 공헌이익 = 매출×36% − 광고비 · ROAS · 테스트 지출 비중', () => {
   const w = g('admgrWeeklyCalc')({ campaigns: [{ adsets: [{ id: 'a', name: '니트_R1', spend: 1000000, purchases: 50, value: 6000000 }, { id: 'b', name: '니트_R2_test', spend: 500000, purchases: 10, value: 1500000 }] }] });

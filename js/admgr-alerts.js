@@ -414,19 +414,20 @@ function admgrCheckAdj() {
 }
 admgrAlert.checks.push(admgrCheckAdj);
 /* '오늘 할 일' 칩을 알림판에도 (2026-11-05 사용자 요청) — 칩은 운영·CBO 역할에서만 보여서 다른 화면에 있으면 놓친다. 칩은 그대로 두고 같은 계산으로 건수만 알림.
-   당일 증액(11~17시) · 증액 되돌리기 → 증액 후보 창 / CBO 지출 0 광고 → CBO 역할 광고 탭. 승격 후보는 이미 위 admgrCheckPromo. 임시 저장한 세트·예산 조정 후보(OFF·절반)와 겹친 세트는 건수에서 뺌 */
+   당일 증액(11~17시) · 증액 되돌리기 → 증액 후보 창 / CBO 지출 0 광고 → CBO 역할 광고 탭. 승격 후보는 이미 위 admgrCheckPromo. 예산 조정 후보(OFF·절반)와 겹친 세트는 건수에서 뺌.
+   임시 저장한 세트도 건수에 넣고 '게시 전 n'으로 따로 알림 (2026-11-06 사용자 요청) — 빼면 임시 저장만 하고 게시를 잊었을 때 알림이 9 → 1로 줄어 다 끝난 것처럼 보였다 */
 function admgrTodoCount(sets, adjIds, drafts, upOf, backOf) {   // 순수 계산 — 테스트용
-  let up = 0, back = 0;
-  for (const r of sets) { if (drafts[r.id] != null) continue; if (upOf(r)) { if (!adjIds.has(r.id)) up++; } else if (backOf(r)) back++; }
-  return { up, back };
+  let up = 0, back = 0, pend = 0;   // pend = 그중 임시 저장만 돼 있고 아직 게시 전
+  for (const r of sets) { let hit = false; if (upOf(r)) { if (!adjIds.has(r.id)) { up++; hit = true; } } else if (backOf(r)) { back++; hit = true; } if (hit && drafts[r.id] != null) pend++; }
+  return { up, back, pend };
 }
 function admgrCheckTodo() {
   const out = [], R = admgrRows();
   if (dnrbCan('budget')) {
     if (admgr.data && !admgr.demo) setTimeout(() => admgrFastEnsure(), 0);   // 되돌리기에 쓰는 3일 성적·증액 기록 (30분 캐시)
     const adj = new Set((admgrAdjRows() || []).filter(x => x.act === 'off' || x.act === 'half').map(x => x.s.id));
-    const { up, back } = admgrTodoCount(R.sets, adj, admgrDraft, r => admgrTodayUpOf(r), r => admgr.fast.days ? admgrFastRevertOf(r) : null);
-    if (up || back) out.push({ key: 'todo:' + todayStr(0), lvl: back ? 'yellow' : 'blue', text: `<b>증액 후보</b> 당일 증액 ${up} · 되돌리기 ${back} <small>당일 증액은 11~17시 · 되돌리기는 올린 뒤 이틀 ROAS 550%↓</small>`, act: { label: '보기', onclick: 'admgrFastModal()' } });
+    const { up, back, pend } = admgrTodoCount(R.sets, adj, admgrDraft, r => admgrTodayUpOf(r), r => admgr.fast.days ? admgrFastRevertOf(r) : null);
+    if (up || back) out.push({ key: 'todo:' + todayStr(0), lvl: back || pend ? 'yellow' : 'blue', text: `<b>증액 후보</b> 당일 증액 ${up} · 되돌리기 ${back}${pend ? ` · <b style="color:#b45309;">임시 저장만 하고 게시 전 ${pend}</b>` : ''} <small>당일 증액은 11~17시 · 되돌리기는 올린 뒤 이틀 ROAS 550%↓</small>`, act: { label: '보기', onclick: 'admgrFastModal()' } });
   }
   const zero = R.ads.filter(x => x._cbo && x.status === 'ACTIVE' && !(x.spend > 0)).length;
   if (zero) out.push({ key: 'zero:' + todayStr(0), lvl: 'blue', text: `<b>CBO 지출 0 광고</b> ${zero}개 <small>켜져 있는데 이 기간 지출 없음</small>`, act: { label: '보기', onclick: "admgrRoleSet('cbo');admgrAdFilter('zero')" } });

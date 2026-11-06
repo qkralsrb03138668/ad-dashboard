@@ -1447,6 +1447,7 @@ function admgrTestGood(r) {   // 승격 후보 = 아직 _test인데 테스트 �
 function admgrTodayUpOf(r, hour = admgrKstHour()) {   // 당일 증액 후보면 {k: 오늘 구매, need: 기준 건수, h7, to, test: 승격 후보(테스트 세트)}
   if (admgr.preset !== 'today' || hour < ADMGR_TODAY_UP.from || hour >= ADMGR_TODAY_UP.to) return null;
   if (r._cbo || r.status !== 'ACTIVE' || !(r.budget > 0) || r.budget >= ADMGR_TODAY_UP.maxBudget) return null;
+  if (typeof admgrAlert === 'undefined' || !admgrAlert.adjHist) return null;   // Meta 예산 이력을 받기 전엔 3일 쉼을 확인할 수 없어 후보를 안 띄움 — 화면을 연 직후 몇 초 동안 쉬어야 할 세트 5개가 더 잡혀 알림이 16 → 11로 바뀌던 것 (2026-11-06)
   const test = admgrIsTest(r); if (test && !admgrTestGood(r)) return null;   // 테스트 세트는 우수(승격 후보)만
   const U = ADMGR_TODAY_UP, k = admgrPJ(r), need = admgrTodayNeed(r.budget, hour), streak = admgrStreakOf(r); let h7, multi = false;
   if (streak) h7 = { spend: streak.sp, p: streak.p, roas: streak.roas, d3: true };   // 연속 우수 — 3일 성적으로 표시
