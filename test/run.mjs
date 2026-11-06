@@ -466,6 +466,21 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   assert.equal(f({ ...base, id: 's4', budget: 15000, purchases: 0 }, 11.5), null);                  // 7일 4건
   assert.equal(f({ ...base, id: 's8', budget: 15000, purchases: 0 }, 11.5), null);                  // 7일 800%
   assert.equal(f({ ...base, id: 's', budget: 15000, purchases: 0 }, 17), null);                     // 17시 뒤엔 안 뜸
+  /* 연속 우수 (11/6): 어제까지 3일 매일 900%↑ · 3일 6건↑ → 3일 쉼 없이 · 오늘 건수 무관 */
+  const D = (sp, p, v) => new Map([['g', { sp, p, v }]]), boost = "admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(-1) } } };";
+  ctx.__d = [D(18000, 3, 200000), D(19000, 10, 390000), D(40000, 6, 480000)]; vm.runInContext("admgr.fast.days = __d;" + boost, ctx);
+  const sk = f({ ...base, purchases: 0 }, 11.5);                                                // 어제 올렸고 오늘 0건이어도 후보
+  assert.equal(sk.to, 60000); assert.equal(sk.streak, true); assert.equal(sk.h7.d3, true); assert.equal(sk.h7.p, 19);
+  vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 60000, new_value: 30000, time: new Date().toISOString() }];", ctx);
+  assert.equal(f({ ...base, purchases: 0 }, 11.5), null);                                       // 줄인 뒤 3일 쉼은 그대로
+  vm.runInContext("admgrAlert.adjHist = [];", ctx);
+  ctx.__d = [D(18000, 3, 200000), D(19000, 10, 390000), D(40000, 6, 350000)]; vm.runInContext("admgr.fast.days = __d;", ctx);
+  assert.equal(f({ ...base, purchases: 5 }, 11.5), null);                                       // 하루 875% → 연속 아님 → 올린 뒤 3일 쉼
+  ctx.__d = [D(18000, 1, 200000), D(19000, 2, 390000), D(40000, 2, 480000)]; vm.runInContext("admgr.fast.days = __d;", ctx);
+  assert.equal(f({ ...base, purchases: 5 }, 11.5), null);                                       // 3일 5건 → 아님
+  ctx.__d = [new Map(), D(19000, 10, 390000), D(40000, 6, 480000)]; vm.runInContext("admgr.fast.days = __d;", ctx);
+  assert.equal(f({ ...base, purchases: 5 }, 11.5), null);                                       // 3일 중 하루 지출 없음 → 아님
+  vm.runInContext("admgr.fast.days = null; admgr.fast.boost = { items: {} };", ctx);
   assert.equal(f({ ...base, budget: 120000, purchases: 6 }, 11.5).to, 180000);              // 10만↑ → +50%
   assert.equal(f({ ...base, budget: 120000, purchases: 5 }, 11.5), null);                   // 12만은 6건부터
   assert.equal(f({ ...base, budget: 300000, purchases: 20 }, 11.5), null);                  // 30만↑ 제외
