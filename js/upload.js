@@ -421,7 +421,7 @@ async function uplRun() {
       uplSetStatus(f, '실패: ' + e.message);
       uplLog(`${f.name}: ${e.message}`, 'err');
       if (/PIN/.test(e.message)) { pinFail = true; uplLog('PIN 오류 — 중단', 'err'); return; }
-      f.retry = !(e.status >= 400 && e.status < 500 && e.status !== 429);   // 입력 오류(예산·문구·링크)는 다시 해도 같다
+      f.retry = !(e.status >= 400 && e.status < 500 && e.status !== 429);   // 입력 오류(예산·문구·링크)·Meta 정책 거절(서버가 422)은 다시 해도 같다
     }
   };
   for (const f of pending) { if (!f.media || pinFail) continue; await createOne(f); }

@@ -63,7 +63,10 @@ async function graph(path: string, init: { method?: string; params?: Record<stri
     const write = !!(init.form || init.method === "POST"), code = Number(e.code);
     const again = META_LIMIT.has(code) || res.status === 429 || (!write && (META_TEMP.has(code) || e.is_transient || res.status >= 500));
     if (again && _try < 2) { await new Promise((r) => setTimeout(r, 3000 * (_try + 1))); return graph(path, init, _try + 1); }
-    throw new Error(`Meta ${path.split("?")[0]}: ${e.error_user_msg ?? e.message ?? JSON.stringify(body)}${again ? " (3번 시도)" : ""}`.slice(0, 400));
+    const err = new Error(`Meta ${path.split("?")[0]}: ${e.error_user_msg ?? e.message ?? JSON.stringify(body)}${again ? " (3번 시도)" : ""}`.slice(0, 400)) as Error & { permanent?: boolean };
+    // Meta가 내용을 보고 거절한 것(정책·입력 오류)은 다시 해도 같다 → 맨 아래 catch가 422로 돌려주고 화면은 4xx라 자동 재시도를 건너뛴다 (2026-11-05: 저작권 음악 릴스 거절을 10초 뒤 또 시도)
+    err.permanent = !(again || META_TEMP.has(code) || e.is_transient || res.status >= 500);
+    throw err;
   }
   return body as Rec;
 }
@@ -744,6 +747,6 @@ Deno.serve(async (req) => {
     }
     return json({ error: `알 수 없는 action: ${action}` }, 400);
   } catch (e) {
-    return json({ error: maskTok(String((e as Error).message ?? e)).slice(0, 400) }, 500);
+    return json({ error: maskTok(String((e as Error).message ?? e)).slice(0, 400) }, (e as { permanent?: boolean })?.permanent ? 422 : 500);
   }
 });
