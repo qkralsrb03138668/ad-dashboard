@@ -493,6 +493,7 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   assert.equal(f({ ...base, name: '니트_R1_test' }, 11.5).test, true);                      // 사용자가 우수로 판정해도 들어감
   vm.runInContext("admgr.test.loaded = false; admgr.test.data = null; admgr.test.state = new Map();", ctx);
   vm.runInContext("admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(-1) } } };", ctx); assert.equal(f(base, 11.5), null);   // 3일 안 올림 → 쉼
+  vm.runInContext("admgr.fast.boost = { items: { g: { from: 30000, to: 60000, day: todayStr(-1) } } };", ctx); assert.equal(f(base, 11.5).to, 60000);   // 어제 임시 저장만 하고 게시 안 함(예산 그대로 3만) → 다시 후보 (11/6)
   vm.runInContext("admgr.fast.boost = { items: {} }; admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 15000, new_value: 30000, time: new Date(Date.now() - 36e5).toISOString() }];", ctx); assert.equal(f(base, 11.5), null);   // Meta 이력에 증액
   vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 60000, new_value: 30000, time: new Date(Date.now() - 2 * 864e5).toISOString() }];", ctx); assert.equal(f(base, 11.5), null);   // 그저께 감액 → 3일 쉼 (11/5)
   vm.runInContext("admgrAlert.adjHist[0].time = new Date(Date.now() - 3 * 864e5).toISOString();", ctx); assert.equal(f(base, 11.5).to, 60000);   // 3일 지나면 다시 후보
