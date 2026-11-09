@@ -343,6 +343,7 @@ function regRender() {
         <td>${r.done || reg.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="regDel('${r.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td></tr>`; }).join('')}</tbody></table></div>`;
   const todo = reg.rows.filter(r => !r.done).length;
   $('reg-run').innerHTML = `<i class="fa-solid fa-check"></i> 등록 (${todo}개)`; $('reg-run').disabled = !todo || reg.running;
+  $('reg-noperm').style.display = dnrbCan('creative') ? 'none' : '';   // 권한 없으면 버튼이 숨겨짐(dnrbApplyPerms) — 이유를 보여준다 (폰에서 직원 계정으로 '등록 버튼이 안 보인다' 2026-11-09)
   regSelBtn();
 }
 /* 문구 모달 공용 사용 — 등록 행: idx>=0 / 전체 -1 / 선택 -2 */
