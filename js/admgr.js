@@ -1506,13 +1506,13 @@ function admgrFastModal() {
   admgrAbmWide();
   $('admgr-budget-modal').classList.add('show');
 }
-function admgrFastOff(id) {   // 조정창에서 세트 끄기 — 토글·예산 조정 후보 OFF와 같은 끄기 임시 저장, 예산 임시 저장은 지움. 다시 누르면 취소 (2026-11-09 사용자 요청)
+function admgrFastOff(id, adj) {   // adj = 예산 조정 후보 창에서 누름(2026-11-10) · 조정창에서 세트 끄기 — 토글·예산 조정 후보 OFF와 같은 끄기 임시 저장, 예산 임시 저장은 지움. 다시 누르면 취소 (2026-11-09 사용자 요청)
   const r = admgrRows().sets.find(x => x.id === id); if (!r) return;
   if (admgrSDraft[id]) { delete admgrSDraft[id]; toast('OFF 임시 저장을 취소했어요'); }
   else { admgrSDraft[id] = { level: 'adset', name: r.name, status: 'PAUSED' }; delete admgrDraft[id]; toast("OFF 임시 저장 — 상단 '게시'로 반영"); }
   lsSet('adc_admgr_sdraft', admgrSDraft); lsSet('adc_admgr_draft', admgrDraft);
   const w = document.querySelector('#abm-body .table-wrap'), top = w ? w.scrollTop : 0;
-  renderAdmgr(true); admgrFastModal();
+  renderAdmgr(true); (adj ? admgrAdjModal : admgrFastModal)();
   const w2 = document.querySelector('#abm-body .table-wrap'); if (w2) w2.scrollTop = top;
 }
 function admgrFastApply() {
