@@ -156,9 +156,9 @@ function uplIgAdd() {
 function uplDelFile(id) { upl.files = upl.files.filter(f => f.id !== id); uplRenderFiles(); }
 const fmtMB = n => (n / 1048576).toFixed(1) + ' MB';
 /* 마진 구간별 세트 예산 자동 기입 (2026-11-11 사용자 요청) — 세트명의 마진 숫자(천 원 단위, 상품명_…_마진_YYMMDD_test) 기준:
-   2.5만 미만 15,000 · 4만 미만 20,000 · 6만 미만 30,000 · 그 이상 40,000. 직접 고친 칸(budgetSet)은 그대로, 마진 숫자가 없으면 기본 일예산 */
+   2.5만 미만 15,000 · 4만 미만 20,000 · 5.5만 미만 25,000 · 6.5만 미만 30,000 · 7.5만 미만 35,000 · 그 이상 40,000 (2026-11-11 4만↑ 구간 세분). 직접 고친 칸(budgetSet)은 그대로, 마진 숫자가 없으면 기본 일예산 */
 const uplMarginOf = name => { const m = String(name || '').match(/_(\d{1,3})_\d{6}(?:_test)?$/); return m ? Number(m[1]) : null; };
-const uplMarginBudget = name => { const k = uplMarginOf(name); return k == null ? null : k < 25 ? 15000 : k < 40 ? 20000 : k < 60 ? 30000 : 40000; };
+const uplMarginBudget = name => { const k = uplMarginOf(name); return k == null ? null : k < 25 ? 15000 : k < 40 ? 20000 : k < 55 ? 25000 : k < 65 ? 30000 : k < 75 ? 35000 : 40000; };
 function uplRenderFiles() {
   for (const f of upl.files) if (!f.budgetSet && !f.result) f.budget = uplMarginBudget(f.name);
   const box = $('upl-files');
