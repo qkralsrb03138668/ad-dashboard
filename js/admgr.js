@@ -389,6 +389,46 @@ function admgrHistCell(w, days) {
   return `<div class="ag-hist" title="어제까지 ${days}일 · 기본값(클릭 7일 + 조회 1일)"><b>${comma(p)}건</b><small>구매당 ${p ? comma(Math.round(sp / p)) + '원' : '—'}</small><small>지출 ${sp ? admgrW(Math.round(sp)) + '원' : '0원'}</small><small style="color:${rc};font-weight:700;">ROAS ${roas == null ? '—' : Math.round(roas * 100).toLocaleString() + '%'}</small></div>`;
 }
 const admgrHistTd = (r, k) => admgrHistCell(admgrHistOf(r, k), k === 'h7' ? 7 : 3);
+/* ═══ '3시간 구매' 열 — 광고관리자 테스트 탭의 광고세트 표에만 (2026-11-11 사용자 요청: 3시간 단위로 구매가 찍히는 걸 따라가기) ═══
+   세트별 시간대 성과(meta-ads hourlystats — 어제+오늘 한 번에)를 3시간 8칸으로 묶는다. 기간이 오늘·어제일 때만.
+   Meta 시간대 기록은 구매를 '광고를 본 시각' 칸에 넣는다 — 지난 칸 숫자도 나중에 늘 수 있다(합계는 '구매' 열과 같은 기본값 창).
+   ponytail: 세트마다 1번 호출(4개씩 동시 · 서버 5분 캐시 · 화면 10분 캐시 · 지출 있는 세트만). 세트가 수백 개로 늘면 서버에 level=adset 한 번 호출 액션을 추가할 것 */
+admgr.h3x = { by: new Map(), busy: false };   // 세트 id → { at, fail, days: { 날짜: [8 × {p, sp}] } }
+const admgrH3Day = () => admgr.preset === 'today' ? todayStr(0) : admgr.preset === 'yesterday' ? todayStr(-1) : null;
+function admgrH3Bucket(rows) {   // 순수 계산 — [{date, hour, spend, purchases}] → { 날짜: [8 × {p, sp}] }
+  const out = {};
+  for (const x of rows || []) { const a = out[x.date] || (out[x.date] = Array.from({ length: 8 }, () => ({ p: 0, sp: 0 }))), b = a[Math.min(7, Math.max(0, Math.floor((x.hour || 0) / 3)))]; b.p += x.purchases || 0; b.sp += x.spend || 0; }
+  return out;
+}
+async function admgrH3Ensure(rows) {
+  const H = admgr.h3x; if (H.busy || admgr.demo || !admgrCfg() || !admgrH3Day()) return;
+  const now = Date.now(), need = rows.filter(r => { const c = H.by.get(r.id); return (r.spend > 0 || (r.purchases || 0) > 0) && (!c || now - c.at > (c.fail ? 5 : 10) * 60000); });
+  if (!need.length) return;
+  H.busy = true; let i = 0, n = 0;
+  await Promise.all([0, 1, 2, 3].map(async () => { while (i < need.length) { const r = need[i++];
+    try { const d = await metaGet({ action: 'hourlystats', object_id: r.id }); if (!d || !Array.isArray(d.rows)) throw new Error('rows 없음'); H.by.set(r.id, { at: Date.now(), days: admgrH3Bucket(d.rows) }); }
+    catch (e) { H.by.set(r.id, { at: Date.now(), fail: true, days: (H.by.get(r.id) || {}).days || {} }); }   // 실패하면 5분 뒤 다시 — 받아 둔 값은 그대로 보여줌
+    if (++n % 20 === 0 && admgr.lab) renderAdmgr(true); } }));
+  H.busy = false; if (admgr.lab) renderAdmgr(true);
+}
+function admgrH3Cell(a, day, st) {   // a: 8칸 | null(st: 'load' 받는 중 · 'fail' 실패 · 'na' 기간이 오늘·어제가 아님)
+  if (!a) return `<span style="color:#9ca3af;" title="${st === 'load' ? '시간대 기록을 받는 중' : st === 'fail' ? '시간대 기록을 못 받았어요 — 5분 뒤 다시 받아요' : '기간이 오늘·어제일 때만 보여요'}">${st === 'load' ? '…' : '—'}</span>`;
+  const cur = day === todayStr(0) ? Math.floor(admgrKstHour() / 3) : 8;   // 오늘이면 지금 칸 표시, 아직 안 온 칸은 점
+  return `<div class="ag-h3">${a.map((b, i) => `<span class="${i > cur ? 'fut' : b.p >= 4 ? 'p3' : b.p >= 2 ? 'p2' : b.p >= 1 ? 'p1' : ''}${i === cur ? ' cur' : ''}" title="${i * 3}~${i * 3 + 3}시${i === cur ? ' (진행 중)' : ''} · 구매 ${comma(b.p)}건 · 지출 ${comma(Math.round(b.sp))}원"><i>${i * 3}</i><b>${i > cur ? '·' : comma(b.p)}</b></span>`).join('')}</div>`;
+}
+const ADMGR_H3_ZERO = Array.from({ length: 8 }, () => ({ p: 0, sp: 0 }));
+function admgrH3Td(r) {
+  const d = admgrH3Day(); if (!d) return admgrH3Cell(null, d, 'na');
+  const c = admgr.h3x.by.get(r.id);
+  if (!c) return r.spend > 0 || (r.purchases || 0) > 0 ? admgrH3Cell(null, d, 'load') : admgrH3Cell(ADMGR_H3_ZERO, d);   // 지출 없는 세트는 안 받고 0
+  return c.days[d] ? admgrH3Cell(c.days[d], d) : c.fail ? admgrH3Cell(null, d, 'fail') : admgrH3Cell(ADMGR_H3_ZERO, d);
+}
+function admgrH3Total(rows) {   // 표시 중인 세트 합
+  const d = admgrH3Day(); if (!d) return admgrH3Cell(null, d, 'na');
+  const t = ADMGR_H3_ZERO.map(() => ({ p: 0, sp: 0 })); let any = false;
+  for (const r of rows) { const c = admgr.h3x.by.get(r.id), a = c && c.days[d]; if (a) { any = true; a.forEach((b, i) => { t[i].p += b.p; t[i].sp += b.sp; }); } }
+  return any ? admgrH3Cell(t, d) : admgrH3Cell(null, d, 'load');
+}
 const admgrViewBadge = r => admgrViewDep(r) ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;padding:1px 5px;" title="클릭 후 7일 구매 ${comma(admgrP7(r))}건 · 조회 후 1일 구매 ${comma(r.purchases_1dv || 0)}건 — 광고를 누르지 않고 산 사람이 누른 사람보다 많아요. 판단은 ROAS(클릭7일)·구매(클릭7일) 열로">조회 의존</span>` : '';
 const admgrRoas1Td = r => r.spend ? (admgrV7(r) / r.spend < 1 ? `<b style="color:#dc2626;">${(admgrV7(r) / r.spend).toFixed(2)}</b>` : (admgrV7(r) / r.spend).toFixed(2)) : '—';   // 클릭 1일 ROAS (2026-10-22) — 조회 의존 배지는 세트명 옆 (사용자 요청)
 const admgrRoasTd = r => r.spend ? (r.value / r.spend < 1 ? `<b style="color:#dc2626;">${(r.value / r.spend).toFixed(2)}</b>` : (r.value / r.spend).toFixed(2)) : '—';   // 1 미만만 강조 (전부 색칠하면 소음)
@@ -593,10 +633,12 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
     ${admgrTile('ROAS', tot.spend ? (tot.value / tot.spend).toFixed(2) : '—')}${admgrTile('표시 중 ' + VIEW_LABEL, vis.length + '개')}
   </div>`);
   const cpcTd = r => r.clicks ? won(r.spend / r.clicks) : '—';
+  const h3col = !!admgr.lab && isSet && !admgrMobile();   // '3시간 구매' 열 — 테스트 탭 광고세트 표에만
+  if (h3col) admgrH3Ensure(vis);
   const totalRow = (lead, extraCols) => `<tfoot><tr>
     <td colspan="${lead}" style="text-align:left;">${vis.length}개 ${VIEW_LABEL}의 결과</td>
     ${extraCols}
-    <td>${won(tot.spend)}</td>${isCamp || isSet ? '' : `<td class="m-hide">${comma(tot.clicks)}</td>`}<td>${comma(tot.purchases)}</td><td>${admgrHistCell(tot.h7, 7)}</td><td>${admgrHistCell(tot.h3, 3)}</td>
+    <td>${won(tot.spend)}</td>${isCamp || isSet ? '' : `<td class="m-hide">${comma(tot.clicks)}</td>`}<td>${comma(tot.purchases)}</td>${h3col ? `<td>${admgrH3Total(vis)}</td>` : ''}<td>${admgrHistCell(tot.h7, 7)}</td><td>${admgrHistCell(tot.h3, 3)}</td>
     <td class="m-hide">${admgrCpa(tot)}</td><td class="m-hide">${won(tot.value)}</td><td>${admgrRoasTd(tot)}</td><td>${comma(tot.purchases_7d)}</td><td>${admgrRoas1Td(tot)}</td><td class="m-hide">${cpcTd(tot)}</td><td class="xp"></td>
   </tr></tfoot>`;
   /* 행 끝 ∨ — 기본 숨김 열(구매당 비용·전환값·클릭·CPC·최근 변경·게재)을 상세 행으로 (2026-09-14 리디자인: 기본 열 6개) */
@@ -613,7 +655,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   } else if (isCamp || isSet) {
     table = `<div class="table-wrap"><table>
       <thead><tr><th class="cb"><input type="checkbox" ${vis.length && vis.every(r => (isCamp ? admgr.selCamps : admgr.selSets).has(r.id)) ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 ${VIEW_LABEL} 전체 선택/해제" /></th><th class="l tg" title="켜기/끄기 — 클릭하면 임시 저장, 상단 '게시'로 반영">켜짐</th>${admgrTh('name', VIEW_LABEL, 'l')}${admgrTh('budget', '예산', 'm-hide')}${showChg ? '<th class="l m-hide" title="오늘 예산 변경 (Meta 활동 로그)">최근 변경</th>' : ''}
-        ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${admgrTh('p7d', '7일', '', '어제까지 최근 7일 — 구매 · 구매당 비용 · 지출 · ROAS (기본값: 클릭 7일 + 조회 1일) · 위에서 고른 기간과 무관 · 클릭하면 구매 순 정렬')}${admgrTh('p3d', '3일', '', '어제까지 최근 3일 — 구매 · 구매당 비용 · 지출 · ROAS (기본값: 클릭 7일 + 조회 1일) · 위에서 고른 기간과 무관 · 클릭하면 구매 순 정렬')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(클릭7일)')}${admgrTh('roas1', 'ROAS(클릭7일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
+        ${admgrTh('spend', '지출')}${admgrTh('purch', '구매')}${h3col ? '<th title="3시간 단위 구매 수 (0·3·6·…·21시 시작 칸) — 기간이 오늘·어제일 때만 · Meta는 구매를 광고를 본 시각 칸에 넣어서 지난 칸도 나중에 늘 수 있어요 · 칸에 마우스를 올리면 지출">3시간 구매</th>' : ''}${admgrTh('p7d', '7일', '', '어제까지 최근 7일 — 구매 · 구매당 비용 · 지출 · ROAS (기본값: 클릭 7일 + 조회 1일) · 위에서 고른 기간과 무관 · 클릭하면 구매 순 정렬')}${admgrTh('p3d', '3일', '', '어제까지 최근 3일 — 구매 · 구매당 비용 · 지출 · ROAS (기본값: 클릭 7일 + 조회 1일) · 위에서 고른 기간과 무관 · 클릭하면 구매 순 정렬')}${admgrTh('cpa', '구매당 비용', 'm-hide')}${admgrTh('value', '전환값', 'm-hide')}${admgrTh('roas', 'ROAS')}${admgrTh('purch1', '구매(클릭7일)')}${admgrTh('roas1', 'ROAS(클릭7일)')}${admgrTh('cpc', 'CPC', 'm-hide')}<th class="xp"></th></tr></thead>
       <tbody>${vis.map(r => `
         <tr class="ag-row ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'sel' : ''}" onclick="admgrRowClick(event,'${isCamp ? 'camp' : 'set'}','${r.id}')" title="행을 클릭하면 선택/해제">
           <td class="cb"><input type="checkbox" ${(isCamp ? admgr.selCamps : admgr.selSets).has(r.id) ? 'checked' : ''}
@@ -626,7 +668,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
           <td class="m-hide">${admgrBudgetCell(r, isCamp ? 'campaign' : 'adset')}</td>
           ${showChg ? `<td class="l m-hide">${admgrChgCell(r)}</td>` : ''}
           <td>${admgrMoney(r.spend)}</td>
-          <td>${comma(r.purchases || 0)}</td>
+          <td>${comma(r.purchases || 0)}</td>${h3col ? `<td>${admgrH3Td(r)}</td>` : ''}
           <td>${admgrHistTd(r, 'h7')}</td><td>${admgrHistTd(r, 'h3')}</td>
           <td class="m-hide">${admgrCpa(r)}</td>
           <td class="m-hide">${admgrMoney(r.value)}</td>

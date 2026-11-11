@@ -521,6 +521,12 @@ test('admgrDailyCalc (11/11 광고관리자 테스트 탭): 어제 하루 ROAS�
   assert.deepEqual(m, { up: 'up:130000', down: 'down:35000', half: 'half:30000', zero: 'half:20000' });   // up2 = 구매 2건이라 유지 · zeroS = 구매 0인데 2만 미만 · tiny = 지출 1만 미만 · floor = 하한 · cap = 상한
 });
 
+test('admgrH3Bucket (11/11 테스트 탭 3시간 구매 열): 시간대 행 → 날짜별 3시간 8칸', () => {
+  const r = g('admgrH3Bucket')([{ date: '2026-11-11', hour: 0, spend: 1000, purchases: 1 }, { date: '2026-11-11', hour: 2, spend: 500, purchases: 2 }, { date: '2026-11-11', hour: 3, spend: 700, purchases: 0 }, { date: '2026-11-11', hour: 23, spend: 300, purchases: 4 }, { date: '2026-11-10', hour: 14, spend: 900, purchases: 5 }]);
+  assert.equal(r['2026-11-11'].map(b => b.p).join(), '3,0,0,0,0,0,0,4'); assert.equal(r['2026-11-11'][0].sp, 1500); assert.equal(r['2026-11-11'][1].sp, 700);
+  assert.equal(r['2026-11-10'].map(b => b.p).join(), '0,0,0,0,5,0,0,0'); assert.equal(Object.keys(g('admgrH3Bucket')(null)).length, 0);
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
