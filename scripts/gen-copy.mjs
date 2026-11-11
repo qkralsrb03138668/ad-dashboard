@@ -86,7 +86,15 @@ console.log(`▶ 생성할 상품 ${targets.length}개 · 모델 ${claudeModel(C
 console.log(`  상품 1개에 보통 20~40초 걸려요 — 옆의 시간이 올라가고 있으면 정상 진행 중이니 창을 닫지 마세요`);
 const mmss = s => `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`;
 let ok = 0; const failed = [];
+/* 진행 상황 → 공유 상태 'gencopy_progress' (2026-11-11 사용자 요청: 버튼 누른 뒤 화면에서 진행 상황 보기). 맥 한 대만 쓰니 최신본 위에 덮어쓴다. 실패해도 생성은 계속 */
+const prog = { run_at: new Date().toISOString(), phase: 'running', total: targets.length, cur: null, results: [] };
+async function progSave() {
+  if (dry) return;
+  try { const g = await api('client-log', { action: 'state_get', key: 'gencopy_progress' }); await api('client-log', { action: 'state_set' }, { key: 'gencopy_progress', base: g.ver ?? null, data: prog }); } catch { /* 표시용 */ }
+}
+await progSave();
 for (const t of targets) {
+  prog.cur = { no: t.product_no, name: t.product_name || '', started: new Date().toISOString(), ids: t.creatives.map(c => c.id) }; await progSave();
   try {
     const f = await api('cafe24-perf', { action: 'copy_facts', product_no: t.product_no });
     const label = `… #${t.product_no} ${t.product_name || ''} 생성 중`;
@@ -100,11 +108,14 @@ for (const t of targets) {
     await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });
     for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url }, regen: false });
     ok++; console.log(`✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
+    prog.results.push({ no: t.product_no, name: t.product_name || '', ok: true, n: t.creatives.length, at: new Date().toISOString() });
   } catch (e) {
     const m = String(e.message).split('\n')[0]; failed.push(`#${t.product_no} ${m}`); console.log(`\n✗ #${t.product_no}: ${m}`);
+    prog.results.push({ no: t.product_no, name: t.product_name || '', ok: false, err: m.slice(0, 200), at: new Date().toISOString() });
     if (flagged && !dry) for (const cr of t.creatives) if (cr.regen) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, regen: false }).catch(() => {});   // 요청 풀기 — 1분마다 같은 실패 반복 방지
   }   // 이유는 claude.mjs가 한국어로 정리
 }
+prog.phase = 'done'; prog.cur = null; prog.done_at = new Date().toISOString(); await progSave();
 const fail = targets.length - ok;
 console.log(fail ? `\n❌ ${fail}개 실패 · ${ok}개 완료 — 위의 ✗ 줄이 이유예요. 다시 실행하면 실패한 것만 다시 만들어요` : `\n✅ 완료 — 상품 ${ok}개 문구를 만들어 저장했어요`);
 try { fs.appendFileSync(path.join(process.env.HOME || '', 'Library/Logs/gen-copy.log'), `${new Date().toISOString()} ${process.argv.slice(2).join(' ')} → 완료 ${ok} · 실패 ${fail}${fail ? ' · ' + failed.join(' | ') : ''}\n`); } catch { /* 로그는 있으면 좋고 */ }
