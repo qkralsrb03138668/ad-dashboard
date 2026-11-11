@@ -53,6 +53,7 @@ async function uplLoadRegistered() {
       } catch (e) { /* 없으면 그대로 */ }
     }
     if (added) { uplRenderFiles(); toast(`등록된 소재 ${added}개를 불러왔어요`); }
+    if (upl.files.some(f => f.regen)) uplGenWatch();   // 생성 요청 중인 소재가 있으면 결과 확인
   } catch (e) { /* 미배포·권한 없음 등은 조용히 */ }
 }
 async function uplLoad() {
@@ -170,7 +171,7 @@ function uplRenderFiles() {
       <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${mediaThumbPv(f.file ? (f.thumbUrl || (f.thumbUrl = (() => { try { return URL.createObjectURL(f.file); } catch (e) { return ''; } })())) : mediaThumbSrc(f.media), f.kind, 40, { title: f.file ? f.file.name : f.name, kind: f.kind, local: f.file ? f.thumbUrl : null, media: f.media })}<div>${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : f.media && f.media.type === 'ig_post' ? `<i class="fa-brands fa-instagram" style="color:#be185d;"></i> 인스타 게시물${f.product_name ? ' · ' + esc(f.product_name) : ' · <span style="color:#b45309;">상품을 골라 주세요</span>'}` : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></div></div></td>
       <td>${f.media && f.media.type === 'ig_post' && !f.result ? `<div style="position:relative;margin-bottom:4px;"><input class="inp" value="${esc(f.product ? f.product.name : '')}" placeholder="상품 검색 — 두 글자 이상 치면 목록이 떠요" style="min-width:260px;background:#fff;font-size:.76rem;" oninput="uplIgSearch(${i}, this.value, this)" onfocus="uplIgSearch(${i}, this.value, this)" ${upl.running?'disabled':''} /><div id="upl-ig-hits-${i}" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:20;background:#fff;border:1px solid #c7d2fe;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:220px;overflow:auto;"></div></div>` : ''}<input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
       <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null;upl.files[${i}].budgetSet=true" ${upl.running||f.result?'disabled':''} title="${!f.budgetSet && uplMarginOf(f.name) != null ? `마진 ${uplMarginOf(f.name)}천 원 → 자동 ${f.budget.toLocaleString()}원 (고치면 그 값 유지)` : '비우면 기본 일예산'}" />`}</td>
-      <td style="text-align:center;">${f.media && f.media.type === 'ig_post' ? `<input class="inp" value="${esc((f.text || {}).link || '')}" placeholder="랜딩 링크 https://…" style="min-width:220px;background:#fff;font-size:.76rem;" oninput="upl.files[${i}].text.link=this.value.trim()" ${upl.running ? 'disabled' : ''} title="문구·소재는 게시물 그대로 — 버튼 링크만 입력" />` : `<button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? '<i class="fa-solid fa-rotate" style="color:#b45309;"></i> 재생성 대기' : copyHasNote(f.text || upl.commonText) ? '<b style="color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> AI 안내문 섞임</b>' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button>`}</td>
+      <td style="text-align:center;">${f.media && f.media.type === 'ig_post' ? `<input class="inp" value="${esc((f.text || {}).link || '')}" placeholder="랜딩 링크 https://…" style="min-width:220px;background:#fff;font-size:.76rem;" oninput="upl.files[${i}].text.link=this.value.trim()" ${upl.running ? 'disabled' : ''} title="문구·소재는 게시물 그대로 — 버튼 링크만 입력" />` : `<button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? `<i class="fa-solid fa-rotate fa-spin" style="color:#b45309;"></i> ${f.text ? '재생성' : '생성'} 대기` : copyHasNote(f.text || upl.commonText) ? '<b style="color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> AI 안내문 섞임</b>' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button>`}</td>
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
@@ -213,16 +214,49 @@ function uplSelBtn() {
   $('upl-run').title = n ? '체크를 모두 풀면 전체를 생성해요' : '파일을 체크하면 그것만 생성해요';
   b.disabled = !n; b.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 선택 파일 문구 기입${n ? ` (${n})` : ''}`;
   if (bb) { bb.disabled = !n; bb.innerHTML = `<i class="fa-solid fa-coins"></i> 선택 파일 예산 입력${n ? ` (${n})` : ''}`; }
+  const gc = $('upl-gen-copy'), ng = uplGenTargets().length;
+  if (gc) { gc.disabled = !ng; gc.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> ${n ? '체크한 것 중 ' : ''}문구 없는 소재 문구 생성${ng ? ` (${ng})` : ''}`; }
   const rg = $('upl-regen-sel'), nr = upl.files.filter(f => f.sel && f.creative_id).length;
   if (rg) { rg.disabled = !nr; rg.innerHTML = `<i class="fa-solid fa-rotate"></i> 선택 소재 문구 다시 생성${nr ? ` (${nr})` : ''}`; }
 }
 async function uplRegenSel() {   // 체크한 등록 소재에 '문구 다시 생성' 표시 → 바탕화면 문구생성.command가 그 상품만 새로 만든다
   const rows = upl.files.filter(f => f.sel && f.creative_id && !f.result);
   if (!rows.length) { toast('등록 소재를 체크하세요 (직접 올린 파일은 해당 없음)'); return; }
-  if (!confirm(`체크한 ${rows.length}개 소재의 상품 문구를 다시 생성하도록 표시할까요?\n표시 후 바탕화면 [문구생성.command]를 실행하면 그 상품만 새로 만들어요.`)) return;
+  if (!confirm(`체크한 ${rows.length}개 소재의 상품 문구를 다시 만들까요?\n이 맥이 1분 안에 받아서 그 상품만 새로 만들어요.`)) return;
   let n = 0;
   for (const f of rows) { try { await uplCall({ action: 'creative_save' }, { id: f.creative_id, regen: true }); f.regen = true; n++; } catch (e) { toast('표시 실패: ' + e.message); } }
-  uplRenderFiles(); toast(`${n}개 표시했어요 — 바탕화면 문구생성.command를 실행하세요`);
+  uplRenderFiles(); toast(`${n}개 다시 생성을 요청했어요 — 이 맥이 1분 안에 받아서 만들어요`); if (n) uplGenWatch();
+}
+/* 문구 없는 소재 문구 생성 (2026-11-11 사용자 요청) — 화면은 '생성 요청'(regen 표시)만 남기고, 이 맥의 자동 실행(launchd → gen-copy.mjs --flagged)이
+   1분마다 받아 Claude 구독으로 만든다. 화면은 20초마다 결과를 확인해 문구를 채운다 (요청이 풀렸는데 문구가 없으면 실패 — 맥 로그 확인) */
+const uplGenTargets = () => { const pend = upl.files.filter(f => f.creative_id && f.product_no && !f.result && !f.text && !f.regen); return pend.some(f => f.sel) ? pend.filter(f => f.sel) : pend; };
+async function uplGenCopy() {
+  const rows = uplGenTargets(); if (!rows.length) { toast('문구 없는 등록 소재가 없어요'); return; }
+  let n = 0;
+  for (const f of rows) { try { await uplCall({ action: 'creative_save' }, { id: f.creative_id, regen: true }); f.regen = true; n++; } catch (e) { toast('요청 실패: ' + e.message); } }
+  uplRenderFiles();
+  if (n) { toast(`${n}개 문구 생성을 요청했어요 — 이 맥이 1분 안에 받아서 만들어요 (상품 1개에 20~40초)`); uplGenWatch(); }
+}
+let uplGenTimer = null;
+function uplGenWatch() {
+  if (uplGenTimer) return;
+  uplGenTimer = setInterval(async () => {
+    const wait = upl.files.filter(f => f.creative_id && f.regen && !f.result);
+    if (!wait.length) { clearInterval(uplGenTimer); uplGenTimer = null; return; }
+    try {
+      const { rows } = await uplCall({ action: 'creatives_list', status: 'registered', limit: 300 });
+      const by = new Map(rows.map(r => [r.id, r]));
+      let done = 0; const failed = [];
+      for (const f of wait) {
+        const r = by.get(f.creative_id); if (!r || r.regen) continue;
+        f.regen = false;
+        if (r.text && r.text.message) { f.text = { ...r.text, link: r.text.link || f.url }; done++; } else failed.push(f.product_name || f.name);
+      }
+      if (done || failed.length) uplRenderFiles();
+      if (done) toast(`문구 ${done}개가 만들어졌어요`);
+      if (failed.length) toast(`문구 생성 실패 ${failed.length}개 — ${failed[0]}${failed.length > 1 ? ' 외' : ''} (맥의 ~/Library/Logs/gen-copy-auto.log 확인, claude 로그인 만료일 수 있어요)`, 'err');
+    } catch (e) { /* 다음 차례에 다시 */ }
+  }, 20000);
 }
 function uplBudgetSel() {   // 체크한 파일들의 세트 예산을 한 번에 지정
   const rows = upl.files.filter(f => f.sel && !f.result); if (!rows.length) { toast('파일을 먼저 체크하세요'); return; }

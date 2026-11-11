@@ -1,6 +1,8 @@
 // 문구 없는 등록 대기 소재의 상품 문구를 이 맥의 Claude Code(구독)로 생성해 상품에 고정 — API 결제 없이.
 //   node scripts/gen-copy.mjs            → 대기 소재 중 문구·저장본 없는 상품만 생성 → product_copy 고정 + 해당 소재 문구 채움
 //   node scripts/gen-copy.mjs --dry 2450 → 상품 2450 문구를 화면에만 출력 (저장 안 함)
+//   node scripts/gen-copy.mjs --flagged  → 대시보드에서 '문구 생성/다시 생성' 요청(regen)한 소재만. 이 맥의 launchd가 1분마다 부른다 (2026-11-11).
+//                                          실패하면 요청을 풀어 무한 재시도를 막는다 — 화면은 '요청 풀림 + 문구 없음'을 실패로 알린다
 // 인증: 이 폴더의 config.js(SUPABASE_URL·anon key·DASH_KEY). 지시문: supabase/functions/cafe24-perf/ad-copy-prompt.ts (서버와 동일)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -47,7 +49,7 @@ ${facts}`;
   return text;
 }
 
-const dry = process.argv.includes('--dry');
+const dry = process.argv.includes('--dry'), flagged = process.argv.includes('--flagged');
 const only = process.argv.filter(a => /^\d+$/.test(a)).map(Number);
 let targets;   // [{product_no, product_name, creatives:[...]}]
 if (only.length) {   // 지정 상품은 저장본이 있어도 다시 생성(덮어씀) + 그 상품의 대기 소재 문구도 갱신
@@ -57,7 +59,7 @@ if (only.length) {   // 지정 상품은 저장본이 있어도 다시 생성(�
 else {
   const { rows } = await api('meta-upload', { action: 'creatives_list', status: 'registered', limit: 500 });
   const regen = rows.filter(r => r.product_no && r.regen);                          // 대시보드에서 '문구 다시 생성' 표시한 소재 → 저장본 있어도 새로
-  const need = rows.filter(r => r.product_no && !r.regen && !(r.text && r.text.message));
+  const need = flagged ? [] : rows.filter(r => r.product_no && !r.regen && !(r.text && r.text.message));
   const byNo = new Map();
   const put = (r, force) => { if (!byNo.has(r.product_no)) byNo.set(r.product_no, { product_no: r.product_no, product_name: r.product_name, creatives: [], force: false }); const t = byNo.get(r.product_no); t.creatives.push(r); if (force) t.force = true; };
   for (const r of regen) put(r, true);
@@ -78,7 +80,8 @@ else {
   }
   targets = [...byNo.values()];
 }
-if (!targets.length) { console.log('✅ 문구가 필요한 대기 소재가 없어요'); process.exit(0); }
+if (!targets.length) { if (!flagged) console.log('✅ 문구가 필요한 대기 소재가 없어요'); process.exit(0); }   // 자동 실행은 할 일 없으면 조용히
+if (flagged) console.log(`\n── ${new Date().toLocaleString('ko-KR')} 자동 실행`);
 console.log(`▶ 생성할 상품 ${targets.length}개 · 모델 ${claudeModel(COPY_MODELS)}${dry ? ' (--dry: 저장 안 함)' : ''}`);
 console.log(`  상품 1개에 보통 20~40초 걸려요 — 옆의 시간이 올라가고 있으면 정상 진행 중이니 창을 닫지 마세요`);
 const mmss = s => `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`;
@@ -97,7 +100,10 @@ for (const t of targets) {
     await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });
     for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url }, regen: false });
     ok++; console.log(`✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
-  } catch (e) { const m = String(e.message).split('\n')[0]; failed.push(`#${t.product_no} ${m}`); console.log(`\n✗ #${t.product_no}: ${m}`); }   // 이유는 claude.mjs가 한국어로 정리
+  } catch (e) {
+    const m = String(e.message).split('\n')[0]; failed.push(`#${t.product_no} ${m}`); console.log(`\n✗ #${t.product_no}: ${m}`);
+    if (flagged && !dry) for (const cr of t.creatives) if (cr.regen) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, regen: false }).catch(() => {});   // 요청 풀기 — 1분마다 같은 실패 반복 방지
+  }   // 이유는 claude.mjs가 한국어로 정리
 }
 const fail = targets.length - ok;
 console.log(fail ? `\n❌ ${fail}개 실패 · ${ok}개 완료 — 위의 ✗ 줄이 이유예요. 다시 실행하면 실패한 것만 다시 만들어요` : `\n✅ 완료 — 상품 ${ok}개 문구를 만들어 저장했어요`);
