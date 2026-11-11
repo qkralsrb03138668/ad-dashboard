@@ -406,7 +406,7 @@ function admgrAdjRows() {
   return admgrAdjCalc(admgrRows().sets, M(A.h7), M(A.h3), A.adjHist, todayStr(0), dow, admgrProductOf, Object.fromEntries(Object.entries(items).filter(([, v]) => v.day >= cut)), admgr.preset === 'today' ? admgrKstHour() : null);   // 오늘 기간일 때만 오늘 구매로 보류(①)
 }
 function admgrCheckAdj() {
-  if (!dnrbCan('budget')) return [];
+  if (!dnrbCan('budget') || admgr.lab) return [];   // 테스트 탭은 일일 증감 후보만
   const R = admgrAdjRows(); if (!R) return [];
   const n = k => R.filter(x => x.act === k && !admgrDraft[x.s.id] && !admgrSDraft[x.s.id]).length, off = n('off'), half = n('half'), up = n('up');
   if (!off && !half && !up) return [];
@@ -423,7 +423,7 @@ function admgrTodoCount(sets, adjIds, drafts, upOf, backOf) {   // 순수 계산
 }
 function admgrCheckTodo() {
   const out = [], R = admgrRows();
-  if (dnrbCan('budget')) {
+  if (dnrbCan('budget') && !admgr.lab) {
     if (admgr.data && !admgr.demo) setTimeout(() => admgrFastEnsure(), 0);   // 되돌리기에 쓰는 3일 성적·증액 기록 (30분 캐시)
     const adj = new Set((admgrAdjRows() || []).filter(x => x.act === 'off' || x.act === 'half').map(x => x.s.id));
     const { up, back, pend } = admgrTodoCount(R.sets, adj, admgrDraft, r => admgrTodayUpOf(r), r => admgr.fast.days ? admgrFastRevertOf(r) : null);
@@ -434,6 +434,71 @@ function admgrCheckTodo() {
   return out;
 }
 admgrAlert.checks.push(admgrCheckTodo);
+/* ═══ 일일 증감 후보 — '광고관리자 테스트' 탭 전용 (2026-11-11 사용자 요청: 화면은 광고관리자 그대로, 하루하루 증감액하며 운영해 보기) ═══
+   대상 = 계정의 켜진 세트 전부(따로 그룹 없음). 어제 하루 성적만 본다: ROAS 900%↑·3건↑ +30% · 550~900% 유지 · 338~550% −30% · 338% 미만(구매 0은 2만↑ 썼을 때) 절반. 하한 1.5만 · 상한 = 세트 예산 상한.
+   오늘 이미 예산이 바뀐 세트는 뺀다(게시 뒤 같은 세트가 또 뜨지 않게) → Meta 예산 이력을 받기 전엔 후보를 안 냄.
+   주의(사용자에게 알림) — .insight-tmp/daily-rule.mjs(2026-06~09, 6,845 세트-일): 어제 하루 ROAS는 다음날을 거의 못 맞춤(구매 0 → 다음날 496% · 1500%↑ → 646%, 7일 기준은 435 → 771%). 그래서 폭을 30%로 작게.
+   원래 탭 규칙은 그대로 — 되돌릴 기준점은 git 태그 admgr-settings-20261111 */
+const ADMGR_DAILY = { up: 9, upPur: 3, keep: 5.5, be: 3.38, step: 0.3, zeroSpend: 20000, minSpend: 10000, floor: 15000 };
+function admgrDailyCalc(sets, yday, moved = new Set(), max = 300000) {   // 순수 계산 — 테스트용. yday: Map(id → {sp, p, v}) 어제 하루 · moved: 오늘 예산이 바뀐 세트 id
+  const D = ADMGR_DAILY, out = [], rd = v => Math.round(v / 1000) * 1000;
+  for (const s of sets) {
+    if (s._cbo || s.status !== 'ACTIVE' || !(s.budget > 0) || moved.has(s.id)) continue;
+    const y = yday.get(s.id); if (!y || !(y.sp > 0)) continue;
+    const r1 = y.v / y.sp; let act = null, to = s.budget;
+    if (r1 >= D.up && y.p >= D.upPur) { act = 'up'; to = Math.min(max, rd(s.budget * (1 + D.step))); }
+    else if (y.sp >= D.minSpend && r1 < D.be) { if (!y.p && y.sp < D.zeroSpend) continue; act = 'half'; to = Math.max(D.floor, rd(s.budget / 2)); }   // 구매 0은 2만↑ 썼을 때만
+    else if (y.sp >= D.minSpend && r1 < D.keep) { act = 'down'; to = Math.max(D.floor, rd(s.budget * (1 - D.step))); }
+    if (!act || (act === 'up' ? to <= s.budget : to >= s.budget)) continue;   // 상한·하한에 걸려 바뀌는 게 없으면 뺌
+    out.push({ s, act, from: s.budget, to, r1, sp1: y.sp, p1: y.p });
+  }
+  return out;
+}
+function admgrDailyRows() {   // 아직 못 받았으면 null
+  const A = admgrAlert, F = admgr.fast; if (!admgr.data || admgr.demo) return null;
+  if (!F.days) { setTimeout(() => admgrFastEnsure(), 0); return null; }
+  if (!A.adjHist) { setTimeout(() => admgrAdjEnsure(), 0); return null; }
+  const t = todayStr(0), moved = new Set(A.adjHist.filter(e => e.level === 'adset' && admgrKstDay(e.time) === t).map(e => e.object_id));
+  return admgrDailyCalc(admgrRows().sets, F.days[2], moved, (admgr.write.st && admgr.write.st.max_budget) || 300000);
+}
+function admgrCheckDaily() {
+  if (!admgr.lab || !dnrbCan('budget')) return [];
+  const R = admgrDailyRows(); if (!R) return [];
+  const n = k => R.filter(x => x.act === k).length, pend = R.filter(x => admgrDraft[x.s.id] != null || admgrSDraft[x.s.id]).length;
+  if (!R.length) return [{ key: 'daily0:' + todayStr(0), lvl: 'blue', text: '<b>일일 증감 후보</b> 없음 <small>어제 하루 성적 기준 · 오늘 이미 바꾼 세트는 빠져요</small>' }];
+  return [{ key: 'daily:' + todayStr(0), lvl: n('half') || pend ? 'yellow' : 'blue', text: `<b>일일 증감 후보</b> 증액 ${n('up')} · 감액 ${n('down')} · 절반 ${n('half')}${pend ? ` · <b style="color:#b45309;">임시 저장만 하고 게시 전 ${pend}</b>` : ''} <small>어제 하루 ROAS · 테스트 탭 규칙</small>`, act: { label: '보기', onclick: 'admgrDailyModal()' } }];
+}
+admgrAlert.checks.push(admgrCheckDaily);
+function admgrDailyModal() {
+  const R = admgrDailyRows(); if (!R) { toast('어제 성적을 불러오는 중이에요 — 잠시 뒤 다시 눌러 주세요'); return; }
+  const man = v => admgrW(Math.round(v || 0)), P = r => Math.round(r * 100).toLocaleString() + '%', D = ADMGR_DAILY, pct = Math.round(D.step * 100);
+  const canOff = admgr.write.st && admgr.write.st.allowed && !admgr.demo && dnrbCan('toggle');
+  const res = x => x.act === 'up' ? `<b style="color:#15803d;">+${pct}% → ${man(x.to)}</b>` : x.act === 'down' ? `<b style="color:#b45309;">−${pct}% → ${man(x.to)}</b>` : `<b style="color:#b91c1c;">절반 → ${man(x.to)}</b>`;
+  const row = x => { const id = x.s.id, off = admgrSDraft[id] && admgrSDraft[id].status === 'PAUSED', pend = off || admgrDraft[id] != null, h7 = admgrHistOf(x.s, 'h7'), r7 = h7 && h7.spend > 0 ? admgrVJ(h7) / h7.spend : null;
+    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${off ? '' : `<input type="checkbox" class="daily-ck" data-id="${esc(id)}" data-to="${x.to}" ${pend ? '' : 'checked'} />`}</td>
+      <td class="name-cell" style="text-align:left;white-space:normal;min-width:240px;">${admgrIsTest(x.s) ? '<span class="status-badge badge-gray" style="font-size:.58rem;">테스트</span>' : '<span class="status-badge badge-blue" style="font-size:.58rem;">운영</span>'} ${esc(admgrBase(x.s.name))}${pend ? `<div style="font-size:.64rem;color:#b45309;font-weight:700;">${off ? 'OFF ' : ''}임시 저장됨 · 아직 게시 전</div>` : ''}</td>
+      <td style="white-space:nowrap;"><b>${P(x.r1)}</b><div style="font-size:.7rem;color:#374151;line-height:1.5;">지출 <b>${man(x.sp1)}</b> · ${x.p1}건${x.p1 ? `<br>구매당 ${comma(Math.round(x.sp1 / x.p1))}` : ''}</div></td>
+      <td style="white-space:nowrap;color:#6b7280;">${r7 == null ? '—' : P(r7)}${h7 && h7.spend > 0 ? `<div style="font-size:.7rem;line-height:1.5;">지출 ${man(h7.spend)} · ${admgrPJ(h7)}건</div>` : ''}</td>
+      <td style="white-space:nowrap;">${man(x.from)}</td><td style="white-space:nowrap;">${off ? '<b style="color:#b91c1c;">OFF</b>' : res(x)}</td>
+      <td>${canOff ? `<button class="btn-ghost" style="padding:3px 8px;font-size:.66rem;white-space:nowrap;${off ? '' : 'color:#b91c1c;border-color:#fca5a5;'}" onclick="admgrFastOff('${esc(id)}',2)">${off ? 'OFF 취소' : 'OFF'}</button>` : ''}</td></tr>`; };
+  const sec = (k, t, c) => { const L = R.filter(x => x.act === k).sort((a, b) => k === 'up' ? b.r1 - a.r1 : a.r1 - b.r1); return L.length ? `<tr><td colspan="7" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L.length}</td></tr>${L.map(row).join('')}` : ''; };
+  const a = R.reduce((s, x) => s + x.from, 0), b = R.reduce((s, x) => s + x.to, 0), B = admgrBudgetTotal(false);
+  $('abm-title').textContent = `일일 증감 후보 (테스트) — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;"><b>테스트 탭 규칙</b> — 어제(${fmtMD(todayStr(-1))}) 하루 <b>ROAS</b>만 봐요 (${admgrAttrTxt()}). ${P(D.up)}↑·구매 ${D.upPur}건↑ <b>+${pct}%</b> · ${P(D.keep)}~${P(D.up)} 유지 · ${P(D.be)}~${P(D.keep)} <b>−${pct}%</b> · ${P(D.be)} 미만 <b>절반</b>(구매 0은 ${man(D.zeroSpend)}↑ 썼을 때). 어제 지출 ${man(D.minSpend)} 미만이면 감액 판단 안 함 · 하한 ${man(D.floor)} · 오늘 이미 예산을 바꾼 세트는 빠져요. 7일 열은 참고용이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영.
+      <div>대상 세트 일예산 ${admgrW(a)} → ${admgrW(b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - a + b)}</div></div>
+    ${R.length ? `<div class="table-wrap" style="max-height:62vh;overflow:auto;"><table style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>어제 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>7일 ROAS<br><small style="font-weight:600;color:#9ca3af;">참고</small></th><th>일예산</th><th>결과</th><th></th></tr></thead>
+      <tbody>${sec('up', '증액', '#15803d')}${sec('down', '감액', '#b45309')}${sec('half', '절반으로', '#b91c1c')}</tbody></table></div>` : '<div class="empty-state" style="padding:20px;"><p>오늘은 일일 증감 후보가 없어요.</p></div>'}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${R.length && admgr.write.st && dnrbCan('budget') ? '<button class="btn-analyze" onclick="admgrDailyApply()">체크한 것 임시 저장에 넣기</button>' : ''}</div>`;
+  admgrAbmWide();
+  $('admgr-budget-modal').classList.add('show');
+}
+function admgrDailyApply() {
+  let n = 0; document.querySelectorAll('.daily-ck:checked').forEach(el => { admgrDraft[el.dataset.id] = Number(el.dataset.to); n++; });
+  if (!n) { toast('체크한 세트가 없어요'); return; }
+  lsSet('adc_admgr_draft', admgrDraft);
+  closeModal('admgr-budget-modal'); toast(`${n}개를 임시 저장했어요 — 표에서 확인한 뒤 상단 [게시]를 누르세요`);
+  admgrSetView('set'); renderAdmgr();
+}
 function admgrAdjModal() {
   const R = admgrAdjRows() || [], man = v => admgrW(Math.round(v || 0));
   const line = (k, r, sp, p, bold) => `${k} ${bold ? '<b>' : ''}ROAS ${r == null ? '—' : Math.round(r * 100) + '%'}${bold ? '</b>' : ''} · 구매 ${p || 0}건 · 지출 ${man(sp)}`;

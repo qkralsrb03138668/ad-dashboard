@@ -143,14 +143,17 @@ async function admgrFetch() {
 /* 단독 화면(소재 메뉴의 테스트 소재·베스트소재): 같은 섹션·같은 코드, 탭 스트립만 숨기고 제목을 바꾼다. 광고관리자로 돌아오면 이전 탭 복원 */
 function admgrSolo(view) {
   if (!admgr.solo) admgr.prevView = admgr.view;
-  admgr.solo = view;
+  admgr.solo = view; admgr.lab = false;
   $('admgr-title').innerHTML = view === 'test' ? '<i class="fa-solid fa-flask" style="color:#4f46e5;font-size:.9em;"></i> 테스트 소재' : '<i class="fa-solid fa-star" style="color:#4f46e5;font-size:.9em;"></i> 베스트소재';
   $('admgr-note').style.display = 'none';
   admgrSetView(view);
 }
 function admgrOpen() {
   admgr.role = 'ops'; admgr.judgeFilter = 'all';   // 메뉴로 들어오면 늘 운영 역할부터 (2026-10-01 '항상 운영중으로 열리게')
-  if (admgr.solo) { admgr.view = admgr.prevView || 'camp'; admgr.solo = null; $('admgr-note').style.display = ''; $('admgr-title').innerHTML = '<i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)'; }
+  const lab = typeof curMenu !== 'undefined' && curMenu === 'admgrlab';   // 광고관리자 테스트 — 화면·기능 그대로, 후보만 '일일 증감'(어제 하루 성적)으로 (2026-11-11 사용자 요청)
+  if (lab !== !!admgr.lab && !admgr.solo) $('admgr-title').innerHTML = lab ? '<i class="fa-solid fa-flask-vial" style="color:#b45309;font-size:.9em;"></i> 광고관리자 테스트 (Meta) <span class="status-badge badge-yellow" style="font-size:.62rem;vertical-align:middle;">일일 증감 규칙</span>' : '<i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)';
+  admgr.lab = lab;
+  if (admgr.solo) { admgr.view = admgr.prevView || 'camp'; admgr.solo = null; $('admgr-note').style.display = ''; $('admgr-title').innerHTML = admgr.lab ? '<i class="fa-solid fa-flask-vial" style="color:#b45309;font-size:.9em;"></i> 광고관리자 테스트 (Meta) <span class="status-badge badge-yellow" style="font-size:.62rem;vertical-align:middle;">일일 증감 규칙</span>' : '<i class="fa-brands fa-meta" style="color:#4f46e5;font-size:.9em;"></i> 광고관리자 (Meta)'; }
   if (!admgr.data && !admgr.demo && admgrCfg()) {
     const c = lsGet('adc_admgr_last', null);
     if (c && c.data) { admgr.data = c.data; admgr.preset = c.preset || admgr.preset; if (c.range) admgr.customRange = c.range; admgrWriteInit(); }   // 예산 편집 버튼용 상태만 (우리 서버, Meta 호출 아님)
@@ -433,7 +436,7 @@ function renderAdmgr(keepScroll) {
   document.body.classList.toggle('admgr-selecting', admgr.mSelect && admgrMobile());
   document.body.classList.toggle('admgr-pending', admgrMobile() && !admgr.mSelect && nd > 0);
   const toolbar = `<div class="ag-bar">
-      <b class="ag-mtitle">${admgr.solo === 'test' ? '테스트 소재' : admgr.solo === 'best' ? '베스트소재' : '광고관리자'}</b>
+      <b class="ag-mtitle">${admgr.solo === 'test' ? '테스트 소재' : admgr.solo === 'best' ? '베스트소재' : admgr.lab ? '광고관리자 테스트' : '광고관리자'}</b>
       ${status}
       <span style="flex:1;"></span>
       ${nd ? `<button class="btn-analyze ag-btn ag-btn-publish" style="background:#0a7c3f;" onclick="admgrPublishDrafts()" title="임시 저장해둔 예산·켜기/끄기를 한 번에 Meta에 게시"><i class="fa-solid fa-paper-plane"></i> 게시 ${nd}</button>` : ''}
@@ -545,6 +548,10 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       const cboAds = R.ads.filter(x => x._cbo && x.status === 'ACTIVE');
       const zero = cboAds.filter(x => !(x.spend > 0)).length;   // 독식(광고 하나 60%↑) 칩은 2026-10-28 사용자 요청으로 뺌
       todo.push(['zero', `지출 0 광고 ${zero} <small class="ag-muted">광고 탭 →</small>`, null, "admgrAdFilter('zero')"]);
+    } else if (admgr.lab) {   // 테스트 탭: 당일 증액·되돌리기 칩 대신 일일 증감
+      const D = admgrDailyRows(), ids = new Set((D || []).map(x => x.s.id));
+      if (D) todo.push(['daily', '<span class="ag-dot green"></span>일일 증감 <small class="ag-muted">어제 하루 ROAS · 900%↑·3건↑ +30% · 338~550% −30% · 338% 미만 절반</small>', r => ids.has(r.id), 'admgrDailyModal()']);
+      if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     } else {
       admgrFastEnsure();
       if (admgr.fast.days) {
@@ -1512,7 +1519,7 @@ function admgrFastOff(id, adj) {   // adj = 예산 조정 후보 창에서 누�
   else { admgrSDraft[id] = { level: 'adset', name: r.name, status: 'PAUSED' }; delete admgrDraft[id]; toast("OFF 임시 저장 — 상단 '게시'로 반영"); }
   lsSet('adc_admgr_sdraft', admgrSDraft); lsSet('adc_admgr_draft', admgrDraft);
   const w = document.querySelector('#abm-body .table-wrap'), top = w ? w.scrollTop : 0;
-  renderAdmgr(true); (adj ? admgrAdjModal : admgrFastModal)();
+  renderAdmgr(true); (adj === 2 ? admgrDailyModal : adj ? admgrAdjModal : admgrFastModal)();   // 2 = 일일 증감 창(테스트 탭)
   const w2 = document.querySelector('#abm-body .table-wrap'); if (w2) w2.scrollTop = top;
 }
 function admgrFastApply() {

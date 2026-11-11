@@ -512,6 +512,15 @@ test('admgrWeeklyCalc (11/2 7일 점검표): 공헌이익 = 매출×36% − 광�
   assert.equal(g('admgrWeeklyCalc')({ campaigns: [] }), null);
 });
 
+test('admgrDailyCalc (11/11 광고관리자 테스트 탭): 어제 하루 ROAS로 +30% · −30% · 절반 — 상한·하한·오늘 바꾼 세트·소액 표본은 뺌', () => {
+  const f = g('admgrDailyCalc'), S = (id, budget, x = {}) => ({ id, status: 'ACTIVE', budget, ...x }), Y = (sp, p, v) => ({ sp, p, v });
+  const sets = [S('up', 100000), S('up2', 100000), S('keep', 50000), S('down', 50000), S('half', 60000), S('zero', 40000), S('zeroS', 40000), S('tiny', 40000), S('floor', 15000), S('cap', 300000), S('moved', 50000), S('cbo', 50000, { _cbo: true }), S('off', 50000, { status: 'PAUSED' }), S('none', 50000)];
+  const y = new Map([['up', Y(90000, 5, 900000)], ['up2', Y(30000, 2, 600000)], ['keep', Y(40000, 3, 280000)], ['down', Y(40000, 2, 180000)], ['half', Y(50000, 1, 100000)], ['zero', Y(25000, 0, 0)], ['zeroS', Y(15000, 0, 0)], ['tiny', Y(8000, 1, 20000)],
+    ['floor', Y(14000, 0, 0)], ['cap', Y(250000, 30, 3000000)], ['moved', Y(40000, 5, 800000)], ['cbo', Y(40000, 5, 800000)], ['off', Y(40000, 5, 800000)]]);
+  const r = f(sets, y, new Set(['moved']), 300000), m = Object.fromEntries(r.map(x => [x.s.id, x.act + ':' + x.to]));
+  assert.deepEqual(m, { up: 'up:130000', down: 'down:35000', half: 'half:30000', zero: 'half:20000' });   // up2 = 구매 2건이라 유지 · zeroS = 구매 0인데 2만 미만 · tiny = 지출 1만 미만 · floor = 하한 · cap = 상한
+});
+
 console.log('주간 리포트');
 test('admgrReportBuild: 기간 내 판정·추가소재·새 테스트·종료를 상품별로 묶는다', () => {
   const st = (id, m) => ({ id, adset_id: 's' + id, adset_name: `${m.p || '니트'}_R1_28_260901_test`, name: 'ad' + id, reg_date: m.reg || '2026-09-09',
