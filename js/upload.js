@@ -154,7 +154,12 @@ function uplIgAdd() {
 }
 function uplDelFile(id) { upl.files = upl.files.filter(f => f.id !== id); uplRenderFiles(); }
 const fmtMB = n => (n / 1048576).toFixed(1) + ' MB';
+/* 마진 구간별 세트 예산 자동 기입 (2026-11-11 사용자 요청) — 세트명의 마진 숫자(천 원 단위, 상품명_…_마진_YYMMDD_test) 기준:
+   2.5만 미만 15,000 · 4만 미만 20,000 · 6만 미만 30,000 · 그 이상 40,000. 직접 고친 칸(budgetSet)은 그대로, 마진 숫자가 없으면 기본 일예산 */
+const uplMarginOf = name => { const m = String(name || '').match(/_(\d{1,3})_\d{6}(?:_test)?$/); return m ? Number(m[1]) : null; };
+const uplMarginBudget = name => { const k = uplMarginOf(name); return k == null ? null : k < 25 ? 15000 : k < 40 ? 20000 : k < 60 ? 30000 : 40000; };
 function uplRenderFiles() {
+  for (const f of upl.files) if (!f.budgetSet && !f.result) f.budget = uplMarginBudget(f.name);
   const box = $('upl-files');
   setTimeout(() => mediaRefresh(upl.files.filter(f => !f.file), uplRenderFiles), 0);   // 등록 소재에서 온 파일의 만료된 썸네일 주소 새로 받기
   if (!upl.files.length) { box.innerHTML = ''; $('upl-run').textContent = ' 광고 생성'; uplSelBtn(); return; }
@@ -164,7 +169,7 @@ function uplRenderFiles() {
       <td><input type="checkbox" ${f.sel ? 'checked' : ''} onchange="upl.files[${i}].sel=this.checked;uplSelBtn()" /></td>
       <td style="font-size:.78rem;"><div style="display:flex;gap:8px;align-items:flex-start;">${mediaThumbPv(f.file ? (f.thumbUrl || (f.thumbUrl = (() => { try { return URL.createObjectURL(f.file); } catch (e) { return ''; } })())) : mediaThumbSrc(f.media), f.kind, 40, { title: f.file ? f.file.name : f.name, kind: f.kind, local: f.file ? f.thumbUrl : null, media: f.media })}<div>${esc(f.file ? f.file.name : f.name)}<div style="color:#9ca3af;font-size:.7rem;">${f.file ? fmtMB(f.file.size) : f.media && f.media.type === 'ig_post' ? `<i class="fa-brands fa-instagram" style="color:#be185d;"></i> 인스타 게시물${f.product_name ? ' · ' + esc(f.product_name) : ' · <span style="color:#b45309;">상품을 골라 주세요</span>'}` : `<i class="fa-solid fa-cloud" style="color:#4f46e5;"></i> 등록 소재${f.product_name ? ' · ' + esc(f.product_name) : ''}${f.registered_at ? ' · ' + f.registered_at.slice(5, 10) : ''}`}</div></div></div></td>
       <td>${f.media && f.media.type === 'ig_post' && !f.result ? `<div style="position:relative;margin-bottom:4px;"><input class="inp" value="${esc(f.product ? f.product.name : '')}" placeholder="상품 검색 — 두 글자 이상 치면 목록이 떠요" style="min-width:260px;background:#fff;font-size:.76rem;" oninput="uplIgSearch(${i}, this.value, this)" onfocus="uplIgSearch(${i}, this.value, this)" ${upl.running?'disabled':''} /><div id="upl-ig-hits-${i}" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:20;background:#fff;border:1px solid #c7d2fe;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:220px;overflow:auto;"></div></div>` : ''}<input class="inp" value="${esc(f.name)}" style="min-width:260px;background:#fff;font-size:.8rem;" oninput="upl.files[${i}].name=this.value" ${upl.running?'disabled':''} /></td>
-      <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null" ${upl.running||f.result?'disabled':''} title="비우면 기본 일예산" />`}</td>
+      <td style="text-align:center;">${upl.model && upl.model.cbo ? '<span style="color:#9ca3af;font-size:.72rem;">CBO</span>' : `<input class="inp" type="number" min="1000" step="1000" value="${f.budget || ''}" placeholder="${$('upl-budget').value || '기본'}" style="width:96px;background:#fff;font-size:.78rem;text-align:right;" oninput="upl.files[${i}].budget=Number(this.value)||null;upl.files[${i}].budgetSet=true" ${upl.running||f.result?'disabled':''} title="${!f.budgetSet && uplMarginOf(f.name) != null ? `마진 ${uplMarginOf(f.name)}천 원 → 자동 ${f.budget.toLocaleString()}원 (고치면 그 값 유지)` : '비우면 기본 일예산'}" />`}</td>
       <td style="text-align:center;">${f.media && f.media.type === 'ig_post' ? `<input class="inp" value="${esc((f.text || {}).link || '')}" placeholder="랜딩 링크 https://…" style="min-width:220px;background:#fff;font-size:.76rem;" oninput="upl.files[${i}].text.link=this.value.trim()" ${upl.running ? 'disabled' : ''} title="문구·소재는 게시물 그대로 — 버튼 링크만 입력" />` : `<button class="btn-ghost" style="padding:3px 10px;font-size:.72rem;" onclick="uplTextOpen(${i})" title="${f.creative_id && f.text ? '소재 등록 때 저장된 문구 (상품 고정본)' : ''}">${f.regen ? '<i class="fa-solid fa-rotate" style="color:#b45309;"></i> 재생성 대기' : copyHasNote(f.text || upl.commonText) ? '<b style="color:#dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> AI 안내문 섞임</b>' : f.text ? `<i class="fa-solid fa-check" style="color:#15803d;"></i> ${f.creative_id ? '저장 문구' : '기입됨'}` : upl.commonText ? '<i class="fa-solid fa-check" style="color:#6b7280;"></i> 일괄' : '<i class="fa-solid fa-pen"></i> 기입'}</button>`}</td>
       <td style="font-size:.78rem;${/실패/.test(f.status)?'color:#dc2626;':/완료/.test(f.status)?'color:#15803d;font-weight:700;':''}">${esc(f.status)}${f.result ? ` <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${(upl.model&&upl.model.account||'').replace('act_','')}&selected_ad_ids=${f.result.ad_id}" target="_blank" style="font-size:.7rem;">열기</a>` : ''}</td>
       <td>${upl.running ? '' : `<button class="btn-ghost btn-danger-ghost" style="padding:3px 9px;font-size:.7rem;" onclick="uplDelFile('${f.id}')"><i class="fa-solid fa-xmark"></i></button>`}</td>
@@ -221,12 +226,12 @@ async function uplRegenSel() {   // 체크한 등록 소재에 '문구 다시 �
 }
 function uplBudgetSel() {   // 체크한 파일들의 세트 예산을 한 번에 지정
   const rows = upl.files.filter(f => f.sel && !f.result); if (!rows.length) { toast('파일을 먼저 체크하세요'); return; }
-  const v = prompt(`선택한 ${rows.length}개 파일의 세트당 일예산 (원)\n비우면 기본 일예산으로 되돌려요`, $('upl-budget').value || '');
+  const v = prompt(`선택한 ${rows.length}개 파일의 세트당 일예산 (원)\n비우면 마진 기준 자동 예산으로 되돌려요`, $('upl-budget').value || '');
   if (v === null) return;
   const n = Number(String(v).replace(/[^\d]/g, '')) || null;
   if (n && (n < 1000 || n > 300000)) { toast('1,000~300,000원 사이로 입력하세요'); return; }
-  for (const f of rows) { f.budget = n; }   // 체크는 유지 — 이어서 '체크한 것만 광고 생성'에 쓰인다 (2026-09-28)
-  uplRenderFiles(); toast(n ? `${rows.length}개 파일 예산을 ${n.toLocaleString()}원으로 지정했어요` : `${rows.length}개 파일을 기본 예산으로 되돌렸어요`);
+  for (const f of rows) { f.budget = n; f.budgetSet = !!n; }   // 비우면 마진 자동 예산으로 (없으면 기본)   // 체크는 유지 — 이어서 '체크한 것만 광고 생성'에 쓰인다 (2026-09-28)
+  uplRenderFiles(); toast(n ? `${rows.length}개 파일 예산을 ${n.toLocaleString()}원으로 지정했어요` : `${rows.length}개 파일을 자동 예산(마진 기준·없으면 기본)으로 되돌렸어요`);
 }
 
 /* ── 문구 모달: idx=-1 → 전체 일괄, 아니면 해당 행 ── */
