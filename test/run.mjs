@@ -920,6 +920,28 @@ test('admgrRestoreCalc: 기준 시각 뒤 첫 변경의 옛 예산으로 — 켜
   assert.equal(R.map(r => `${r.id}:${r.level}:${r.from}>${r.to}`).join(' '), 'a:adset:5000>90000 c2:campaign:80000>100000 e:adset:100000>15000');
 });
 
+test('판정에서 빼는 날: 깨끗한 날 n개·이어진 범위 묶기·창에 걸리는지', () => {
+  const skip = ['2026-11-11', '2026-11-12'];
+  assert.equal(ctx.admgrCleanDays(7, '2026-11-13', skip).join(' '), '2026-11-04 2026-11-05 2026-11-06 2026-11-07 2026-11-08 2026-11-09 2026-11-10');
+  assert.equal(ctx.admgrCleanDays(3, '2026-11-15', skip).join(' '), '2026-11-10 2026-11-13 2026-11-14');
+  assert.equal(ctx.admgrDayRanges(ctx.admgrCleanDays(7, '2026-11-16', skip)).map(r => r.since.slice(8) + '-' + r.until.slice(8)).join(' '), '07-10 13-15');
+  assert.equal(ctx.admgrCleanDays(7, '2026-11-20', skip).join(' '), ctx.admgrCleanDays(7, '2026-11-20', []).join(' '));
+  assert.equal([ctx.admgrSkipHit(7, '2026-11-19', skip), ctx.admgrSkipHit(7, '2026-11-20', skip), ctx.admgrSkipHit(3, '2026-11-15', skip), ctx.admgrSkipHit(3, '2026-11-16', skip)].join(' '), 'true false true false');
+});
+test('admgrHierMerge: 지표는 더하고 상태·예산은 나중 기간 것, 한쪽에만 있는 세트·광고도 남김', () => {
+  const a = { preset: 'custom', campaigns: [{ id: 'c1', name: 'C', status: 'ACTIVE', budget: 0, spend: 100, value: 500, purchases: 2, adsets: [
+    { id: 's1', name: 'S1', status: 'ACTIVE', budget: 10000, spend: 60, value: 300, purchases: 1, purchases_7d: 1, ads: [{ id: 'a1', spend: 60, value: 300, purchases: 1, roas: 5 }] },
+    { id: 's2', name: 'S2', status: 'ACTIVE', budget: 5000, spend: 40, value: 200, purchases: 1 }] }] };
+  const b = { preset: 'custom', campaigns: [{ id: 'c1', name: 'C', status: 'ACTIVE', budget: 0, spend: 50, value: 100, purchases: 1, adsets: [
+    { id: 's1', name: 'S1 새이름', status: 'PAUSED', budget: 20000, spend: 40, value: 100, purchases: 1, ads: [{ id: 'a1', spend: 30, value: 60, purchases: 1, roas: 2 }, { id: 'a2', spend: 10, value: 40, purchases: 0, roas: 4 }] },
+    { id: 's3', name: 'S3', status: 'ACTIVE', budget: 7000, spend: 10, value: 0, purchases: 0 }] }] };
+  const m = ctx.admgrHierMerge([a, b]), c = m.campaigns[0], S = Object.fromEntries(c.adsets.map(s => [s.id, s]));
+  assert.equal([c.spend, c.value, c.purchases, c.adsets.length].join(' '), '150 600 3 3');
+  assert.equal([S.s1.spend, S.s1.value, S.s1.purchases, S.s1.purchases_7d, S.s1.status, S.s1.budget, S.s1.name].join(' '), '100 400 2 1 PAUSED 20000 S1 새이름');
+  assert.equal(S.s1.ads.map(x => `${x.id}:${x.spend}:${x.roas}`).join(' '), 'a1:90:4 a2:10:4');
+  assert.equal([S.s2.spend, S.s3.spend, a.campaigns[0].adsets[0].spend].join(' '), '40 10 60');   // 원본은 안 건드림
+});
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {

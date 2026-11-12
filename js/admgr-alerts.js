@@ -74,7 +74,7 @@ const ADMGR_PROMO = { on: false, pur: 30, roas: 5, goodPur: 10, goodMul: 2.5, pr
 async function admgrPromoEnsure() {
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.h7Loading || (A.h7 && Date.now() - A.h7At < 30 * 60000) || Date.now() - (A.h7FailAt || 0) < 5 * 60000) return;
   A.h7Loading = true;
-  try { const [h7, h3] = await Promise.all([metaGet({ action: 'hierarchy', preset: 'last_7d' }), metaGet({ action: 'hierarchy', preset: 'custom', since: todayStr(-3), until: todayStr(-1) }).catch(() => null)]);   // h3 = 어제까지 3일 — 상품 CBO 추세 확인용
+  try { const [h7, h3] = await Promise.all([admgrSkipHit(7) ? admgrHierClean(7) : metaGet({ action: 'hierarchy', preset: 'last_7d' }), (admgrSkipHit(3) ? admgrHierClean(3) : metaGet({ action: 'hierarchy', preset: 'custom', since: todayStr(-3), until: todayStr(-1) })).catch(() => null)]);   // 판정에서 빼는 날(ADMGR_SKIP_DAYS)이 창에 걸리면 깨끗한 날만   // h3 = 어제까지 3일 — 상품 CBO 추세 확인용
     A.h7 = h7; A.h3 = h3; A.h7At = Date.now(); A.h7FailAt = 0; renderAdmgr(true); } catch (e) { A.h7 = A.h7 || null; A.h7FailAt = Date.now(); }   // 실패하면 5분 쉼 — 렌더마다 재시도하던 것 (2026-10-26 점검)
   /* CBO 캠페인에서 이미 돌아가는 소재(영상·이미지·이름) — 세트 이름의 [→] 표시가 없어도(메타에서 직접 복사, 표시 정리 뒤) 후보에서 빼기 위해 (2026-10-26 사용자 지적) */
   if (ADMGR_PROMO.on) try {
@@ -413,6 +413,10 @@ function admgrCheckAdj() {
   return [{ key: 'adj:' + todayStr(0), lvl: off ? 'red' : 'yellow', text: `<b>예산 조정 후보</b> OFF ${off} · 절반 ${half}${up ? ` · 증액 ${up}` : ''} <small>최근 7일 ROAS · ${admgrAttrTxt()} · 유지 ${R.filter(x => x.act === 'watch').length} · 감액 뒤 대기 ${R.filter(x => x.act === 'cool').length}${R.some(x => x.act === 'hold') ? ` · 오늘 구매로 보류 ${R.filter(x => x.act === 'hold').length}` : ''}</small>`, act: { label: '보기', onclick: 'admgrAdjModal()' } }];
 }
 admgrAlert.checks.push(admgrCheckAdj);
+/* 판정 기간에서 빼는 날 안내 (2026-11-12) — 7일 창에 걸려 있는 동안만 */
+admgrAlert.checks.push(() => { if (admgr.demo || !dnrbCan('budget') || !admgrSkipHit(7)) return [];
+  const md = d => +d.slice(5, 7) + '/' + +d.slice(8), R = n => admgrDayRanges(admgrCleanDays(n)).map(r => r.since === r.until ? md(r.since) : `${md(r.since)}~${md(r.until)}`).join(' + ');
+  return [{ key: 'skipdays:' + todayStr(0), lvl: 'blue', text: `<b>판정 기간</b> ${ADMGR_SKIP_DAYS.map(md).join('·')} 제외 <small>손으로 운영한 날 — 7일 = ${R(7)} · 3일 = ${R(3)}</small>` }]; });
 /* '오늘 할 일' 칩을 알림판에도 (2026-11-05 사용자 요청) — 칩은 운영·CBO 역할에서만 보여서 다른 화면에 있으면 놓친다. 칩은 그대로 두고 같은 계산으로 건수만 알림.
    당일 증액(11~17시) · 증액 되돌리기 → 증액 후보 창 / CBO 지출 0 광고 → CBO 역할 광고 탭. 승격 후보는 이미 위 admgrCheckPromo. 예산 조정 후보(OFF·절반)와 겹친 세트는 건수에서 뺌.
    임시 저장한 세트도 건수에 넣고 '게시 전 n'으로 따로 알림 (2026-11-06 사용자 요청) — 빼면 임시 저장만 하고 게시를 잊었을 때 알림이 9 → 1로 줄어 다 끝난 것처럼 보였다 */

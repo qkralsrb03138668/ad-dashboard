@@ -1378,13 +1378,41 @@ function admgrMarginEdit(id) {   // 브라우저 prompt() 대신 모달 (2026-09
 /* 증액 기록·되돌리기 — shared_state 'fast_boost' {items:{adset_id:{from,to,day,name}}}: 당일 증액(아래)이 올린 세트를 적고, 3일 쉼(admgrFastRecent)과 올린 뒤 이틀 ROAS 550% 미만 '되돌리기'(admgrFastRevertOf)에 쓴다.
    3일 규칙 빠른 증액(5만↓ · 3일 6건↑ · ROAS 1000%↑)은 2026-11-02 당일 증액으로 대체해 뺌. 게시 안 했거나 그 뒤 손으로 바꾼 세트는 지금 예산≠to라 되돌리기에서 제외 */
 const ADMGR_FAST = { revertRoas: ADMGR_ROAS.keep };   // 올린 뒤 이틀 ROAS 이 선 미만이면 되돌리기
+/* 판정에서 빼는 날 (2026-11-12 사용자 요청): 11/11~12는 규칙 밖으로 손 운영한 날(Meta에서 직접 3~10배 증액·일괄 감액).
+   최근 7일·3일(예산 조정 후보·당일 증액 표본·되돌리기·7일/3일 열)을 이 날을 건너뛴 '깨끗한 날' 7개·3개로 센다. 창에서 벗어나면(11/20~) 저절로 영향 없음 */
+const ADMGR_SKIP_DAYS = ['2026-11-11', '2026-11-12'];
+function admgrSkipHit(n, today = todayStr(0), skip = ADMGR_SKIP_DAYS) { return skip.some(d => d >= admgrShiftDay(today, -n) && d <= admgrShiftDay(today, -1)); }   // 어제까지 n일 창에 뺄 날이 걸리나
+function admgrCleanDays(n, today = todayStr(0), skip = ADMGR_SKIP_DAYS) {   // 어제부터 거꾸로 깨끗한 날 n개 (오름차순)
+  const out = []; for (let d = admgrShiftDay(today, -1); out.length < n; d = admgrShiftDay(d, -1)) if (!skip.includes(d)) out.push(d);
+  return out.reverse();
+}
+function admgrDayRanges(days) {   // 이어진 날끼리 묶어 [{since, until}]
+  const R = []; for (const d of days) { const L = R[R.length - 1]; if (L && admgrShiftDay(L.until, 1) === d) L.until = d; else R.push({ since: d, until: d }); }
+  return R;
+}
+const ADMGR_SUM_KEYS = ['spend', 'value', 'clicks', 'value_1d', 'value_7d', 'purchases', 'purchases_1d', 'purchases_7d', 'purchases_1dv'];
+function admgrHierMerge(list) {   // 기간 여러 개의 계층을 하나로 — 지표는 더하고 나머지 칸(상태·예산·이름)은 나중 기간 것
+  const merge = (arrs, kid) => { const by = new Map();
+    for (const arr of arrs) for (const n of arr || []) { const t = by.get(n.id);
+      if (!t) { by.set(n.id, { ...n, _parts: [n] }); continue; }
+      const sums = {}; for (const k of ADMGR_SUM_KEYS) if (t[k] != null || n[k] != null) sums[k] = (t[k] || 0) + (n[k] || 0);
+      t._parts.push(n); Object.assign(t, n, sums); }
+    return [...by.values()].map(t => { const parts = t._parts; delete t._parts; if ('roas' in t) t.roas = t.spend > 0 ? (t.value || 0) / t.spend : 0;
+      if (kid && parts.some(q => q[kid])) t[kid] = merge(parts.map(q => q[kid]), kid === 'adsets' ? 'ads' : null);
+      return t; }); };
+  return { ...list[list.length - 1], campaigns: merge(list.map(h => h.campaigns), 'adsets') };
+}
+async function admgrHierClean(n) {   // 깨끗한 최근 n일 계층 — 이어진 범위마다 한 번씩 받아 합침
+  const hs = await Promise.all(admgrDayRanges(admgrCleanDays(n)).map(r => metaGet({ action: 'hierarchy', preset: 'custom', since: r.since, until: r.until })));
+  return hs.length === 1 ? hs[0] : admgrHierMerge(hs);
+}
 admgr.fast = { days: null, at: 0, loading: false, failAt: 0, boost: null, ver: null };
 async function admgrFastEnsure() {
   const F = admgr.fast;
   if (admgr.demo || !admgrCfg() || F.loading || (F.days && Date.now() - F.at < 30 * 60000) || Date.now() - F.failAt < 5 * 60000) return;
   F.loading = true;
   try {
-    const ds = [-3, -2, -1].map(n => todayStr(n));   // 어제까지 꽉 찬 3일 — 날짜별로 받아 이틀(되돌리기)도 같이 쓴다 (서버 캐시)
+    const ds = admgrCleanDays(3);   // 어제까지 꽉 찬 3일(판정에서 빼는 날은 건너뜀) — 날짜별로 받아 이틀(되돌리기)도 같이 쓴다 (서버 캐시)
     const [hs, st] = await Promise.all([Promise.all(ds.map(d => metaGet({ action: 'hierarchy', preset: 'custom', since: d, until: d }))),
       sbCall('client-log', { action: 'state_get', key: 'fast_boost' }).catch(() => null)]);
     F.days = hs.map(h => { const m = new Map(); for (const c of h.campaigns || []) for (const s of c.adsets || []) m.set(s.id, { sp: s.spend || 0, p: admgrPJ(s), v: admgrVJ(s) }); return m; });   // 세트 단위 (광고 목록은 500행에서 잘림)
