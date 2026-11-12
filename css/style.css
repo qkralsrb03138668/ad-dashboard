@@ -354,14 +354,6 @@ textarea.inp { resize: vertical; min-height: 64px; }
 #sec-admgr .ag-hist { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.35; white-space: nowrap; }   /* 7일·3일 칸: 구매 → 구매당 → 지출 → ROAS 네 줄 (2026-11-01) */
 #sec-admgr .ag-hist b { font-size: .86rem; }
 #sec-admgr .ag-hist small { font-size: .66rem; color: #6b7280; }
-/* 3시간 구매 열 (테스트 탭, 2026-11-11): 8칸 — 위 작은 숫자 = 시작 시각, 아래 = 구매 수. 구매 많을수록 진한 초록 · 지금 칸 테두리 · 아직 안 온 칸 점선 */
-#sec-admgr .ag-h3 { display: inline-flex; gap: 2px; vertical-align: middle; }
-#sec-admgr .ag-h3 span { display: flex; flex-direction: column; align-items: center; width: 22px; padding: 2px 0; border-radius: 5px; background: #f3f4f6; line-height: 1.15; box-sizing: border-box; }
-#sec-admgr .ag-h3 i { font-style: normal; font-size: .56rem; color: #9ca3af; }
-#sec-admgr .ag-h3 b { font-size: .78rem; color: #b0b5bd; font-weight: 600; }
-#sec-admgr .ag-h3 .p1 { background: #dcfce7; } #sec-admgr .ag-h3 .p2 { background: #86efac; } #sec-admgr .ag-h3 .p3 { background: #16a34a; }
-#sec-admgr .ag-h3 .p1 b, #sec-admgr .ag-h3 .p2 b { color: #14532d; font-weight: 800; } #sec-admgr .ag-h3 .p3 b { color: #fff; font-weight: 800; } #sec-admgr .ag-h3 .p3 i { color: #dcfce7; } #sec-admgr .ag-h3 .p2 i { color: #166534; }
-#sec-admgr .ag-h3 .fut { background: transparent; border: 1px dashed #e5e7eb; } #sec-admgr .ag-h3 .cur { outline: 1.5px solid #4f46e5; outline-offset: -1px; }
 #sec-admgr tfoot td { background: #f5f6f7; color: #1c1e21; border-top: 2px solid #dadde1; text-align: right; }
 #sec-admgr tfoot td:first-child { text-align: left; }
 #sec-admgr .status-badge { border-radius: 4px; padding: 2px 7px; font-size: 11px; }

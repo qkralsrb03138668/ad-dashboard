@@ -163,11 +163,11 @@ function menuDrawer(open) {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('menu-open')) menuDrawer(false); });
 function showMenu(key) {
-  if (key !== 'mycre' && key !== 'bydate' && key !== 'brief' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key === 'admgrlab' ? 'admgr' : key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
+  if (key !== 'mycre' && key !== 'bydate' && key !== 'brief' && typeof dnrbPerms === 'function' && dnrbPerms() && !(dnrbPerms().menus || []).includes(key)) { toast('이 메뉴는 권한이 없어요'); return; }   // 내 소재 성과는 로그인한 누구나 (돈이 안 보이는 화면)
   menuDrawer(false);
   curMenu = key;
   if ((key === 'home' || key === 'compare') && $('mg-analysis').style.display === 'none') menuGroupToggle('analysis', true);   // 접힌 묶음 안 메뉴로 가면 펼쳐서 활성 표시가 보이게
-  const sec = ADMGR_SOLO[key] || key === 'admgrlab' ? 'admgr' : key;   // admgrlab = 광고관리자 테스트 (같은 섹션·같은 코드, 후보 규칙만 다름 — 2026-11-11)
+  const sec = ADMGR_SOLO[key] ? 'admgr' : key;
   document.querySelectorAll('.page-sec').forEach(el => el.style.display = 'none');
   $('sec-' + sec).style.display = 'block';
   if (sec !== 'admgr') {   // 광고관리자 폰 선택 모드·게시 대기 표시가 다른 메뉴로 새지 않게 (2026-09-18)
@@ -185,7 +185,7 @@ function rerender() {
   if (curMenu === 'home') renderHome(p);
   else if (curMenu === 'ptest') renderPTest();
   else if (curMenu === 'compare') renderCompare(p);
-  else if (curMenu === 'admgr' || curMenu === 'admgrlab') admgrOpen();
+  else if (curMenu === 'admgr') admgrOpen();
   else if (ADMGR_SOLO[curMenu]) admgrSolo(ADMGR_SOLO[curMenu]);
   else if (curMenu === 'mycre') renderMycre();
   else if (curMenu === 'bydate') renderBydate();
