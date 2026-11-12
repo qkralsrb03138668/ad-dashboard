@@ -99,6 +99,7 @@ function admgrMoreMenu(ev) {
     ${admgrMobile() && !ADMGR_OWN.includes(admgr.view) ? `${agItem(admgr.activeOnly ? 'fa-square-check' : 'fa-square', '활성만 보기', 'admgrToggleActive()', admgr.activeOnly ? '켜져 있거나 오늘 지출이 있는 것만' : '꺼진 것도 전부 보기')}` : ''}
     ${admgrMobile() && admgr.view === 'set' && admgrCfg() && !admgr.demo ? `<div class="ag-menu-sep">만든 사람</div>${admgrMakerMenuItems()}` : ''}
     ${admgrMobile() ? `<div class="ag-menu-sep">다른 탭</div>${agItem('fa-flask', '테스트 소재', "admgrSetView('test')")}${agItem('fa-power-off', 'OFF 광고', "admgrSetView('offad')")}${agItem('fa-star', '베스트', "admgrSetView('best')")}${agItem('fa-ranking-star', '상품 보드', "admgrSetView('board')")}` : ''}
+    ${admgrCfg() && !admgr.demo && w.st && w.st.allowed && dnrbCan('budget') && admgrRestoreOn() ? agItem('fa-rotate-left', '예산 되돌리기 예약', 'admgrRestoreModal()', `${ADMGR_RESTORE.label} 예산으로 · 오늘 ${ADMGR_RESTORE.at.slice(11)} 자동 반영 (PIN)`) : ''}
     ${npend ? agItem('fa-list', `예약 목록 (${npend})`, 'admgrMidList()', '걸어 둔 시각 예약') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') && admgrCopySets().length ? agItem('fa-arrow-up-from-bracket', `끌올 사본 정리 (${admgrCopySets().length})`, 'admgrRepostModal()', '" - 사본" 붙은 세트·광고 이름을 소재 업로드 규칙으로') : ''}
     ${admgrCfg() && !admgr.demo && dnrbCan('upload') ? agItem('fa-clock-rotate-left', '지난 소재 찾기', 'admgrPastModal()', '상품명으로 작년부터 돈 소재 중 효율 좋은 것 → 새 세트로 켜서 다시 테스트 (PIN)') : ''}
@@ -238,8 +239,78 @@ function admgrMidList() {   // 예약 목록 — 시각 예약 + 남아 있는 �
         <td><button class="btn-ghost btn-danger-ghost" style="padding:2px 10px;font-size:.7rem;" onclick="admgrMidCancel(${p.id})">취소</button></td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty-state" style="padding:20px;"><p>걸어 둔 예약이 없어요.</p></div>')
     + `<div style="display:flex;gap:6px;margin-top:10px;">
+      ${rows.length > 1 ? `<button class="btn-ghost btn-danger-ghost" style="flex:1;justify-content:center;" onclick="admgrMidCancelAll()">예약 전부 취소</button>` : ''}
       <button class="btn-ghost" style="flex:1;justify-content:center;" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
   $('admgr-budget-modal').classList.add('show');
+}
+async function admgrMidCancelAll() {   // 서버 목록이 100개씩이라 빌 때까지 되풀이 (2026-11-12)
+  const w = admgr.write; if (!w.pin) { admgrPinPrompt(admgrMidCancelAll); return; }
+  $('abm-body').innerHTML = '<div style="font-size:.85rem;padding:8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> 예약을 취소하는 중…</div>';
+  for (let round = 0; round < 5; round++) {
+    const rows = ((w.lastPending && w.lastPending.pending) || []).filter(p => p.mode === 'timed'); if (!rows.length) break;
+    for (const p of rows) await metaBudgetCall({ action: 'cancel' }, { id: p.id, pin: w.pin }).catch(() => {});
+    await admgrWritePending();
+  }
+  toast('예약을 전부 취소했어요'); admgrMidList(); renderAdmgr(true);
+}
+
+/* 예산 되돌리기 예약 (2026-11-12 사용자 요청): 11/9(월)부터 손으로 바꾼 예산을 일요일 밤 값으로, 오늘 23:40에 자동 반영.
+   서버의 시각 예약(meta-budget schedule + at, 5분 cron)에 얹는다 — 반영 직전 예산이 '지금'과 다르면 그 세트는 건너뜀.
+   ponytail: 날짜 고정 일회용 — 다른 날 또 쓰게 되면 since·at을 입력 칸으로 */
+const ADMGR_RESTORE = { since: '2026-11-09T00:00:00+09:00', at: '2026-11-12T23:40', label: '일요일(11/8) 밤' };
+const admgrRestoreOn = () => Date.now() < Date.parse(ADMGR_RESTORE.at + ':00+09:00') + 6 * 3600e3;
+function admgrRestoreCalc(camps, hist, since) {   // 순수 — since 이후 예산이 바뀐 켜진 세트·CBO 캠페인 → 그 직전 예산
+  const t0 = new Date(since).getTime(), first = new Map();
+  for (const e of [...hist].sort((a, b) => new Date(a.time) - new Date(b.time))) if (new Date(e.time).getTime() >= t0 && e.old_value > 0 && !first.has(e.object_id)) first.set(e.object_id, Math.round(e.old_value));
+  const out = [], add = (o, level) => { const to = first.get(o.id); if (to && o.budget > 0 && to !== o.budget) out.push({ id: o.id, name: o.name, level, from: o.budget, to }); };
+  for (const c of camps) { if (c.status !== 'ACTIVE') continue; if (c.budget > 0) add(c, 'campaign'); else for (const s of (c.adsets || [])) if (s.status === 'ACTIVE') add(s, 'adset'); }
+  return out.sort((a, b) => (b.to - b.from) - (a.to - a.from));
+}
+let admgrRestoreRows = [];
+function admgrRestoreModal() {
+  const H = typeof admgrAlert !== 'undefined' && admgrAlert.adjHist;
+  if (!H) { toast('예산 변경 기록을 받는 중이에요 — 잠시 뒤 다시 눌러주세요'); if (typeof admgrAdjEnsure === 'function') admgrAdjEnsure(); return; }
+  const w = admgr.write, max = (w.st && w.st.max_budget) || 300000, R = admgrRestoreRows = admgrRestoreCalc(admgrRows().camps, H, ADMGR_RESTORE.since);
+  const hm = ADMGR_RESTORE.at.slice(11), booked = r => { const p = w.timedByObj && w.timedByObj.get(r.id); return p && Math.round(p.new_budget) === r.to; };
+  const row = r => { const over = r.to > max, done = booked(r), d = r.to - r.from;
+    return `<tr><td><input type="checkbox" class="restore-ck" data-id="${esc(r.id)}" ${over || done ? 'disabled' : 'checked'} onchange="admgrRestoreSum()" /></td>
+      <td class="name-cell" style="text-align:left;">${esc(r.name)}${r.level === 'campaign' ? ' <span class="status-badge badge-blue" style="font-size:.6rem;">캠페인 예산</span>' : ''}${done ? ` <span class="status-badge badge-yellow" style="font-size:.6rem;">${hm} 예약됨</span>` : ''}${over ? ` <span class="status-badge badge-red" style="font-size:.6rem;">상한 ${comma(max)}원 초과 — 직접 변경</span>` : ''}</td>
+      <td style="white-space:nowrap;">${comma(r.from)}</td><td style="white-space:nowrap;font-weight:800;">${comma(r.to)}</td>
+      <td style="white-space:nowrap;font-weight:700;color:${d > 0 ? '#15803d' : '#b91c1c'};">${d > 0 ? '+' : ''}${comma(d)}</td></tr>`; };
+  $('abm-title').textContent = `예산 되돌리기 — ${ADMGR_RESTORE.label} 예산으로`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = R.length ? `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;margin-bottom:8px;">11/9(월) 0시 이후 예산이 바뀐 <b>켜진</b> 세트를 그 직전 예산으로 되돌려요. 그 뒤에 새로 만든 세트는 처음 예산으로 가요. 꺼진 세트는 건드리지 않아요.<br/>예약만 걸어 두면 <b>오늘 ${hm}</b>에 자동으로 바뀌어요(5분 안). 그 전에 예산을 손으로 바꾼 세트는 건너뛰어요.</div>
+    <div id="restore-sum" style="font-size:.78rem;font-weight:700;color:#1e1b4b;background:#f5f6ff;border-radius:8px;padding:8px 10px;margin-bottom:8px;"></div>
+    <div class="table-wrap" style="max-height:48vh;overflow:auto;"><table style="font-size:.76rem;">
+      <thead><tr><th></th><th style="text-align:left;">세트</th><th>지금</th><th>돌아갈 예산</th><th>차이</th></tr></thead><tbody>${R.map(row).join('')}</tbody></table></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>
+      <button class="btn-analyze" onclick="admgrRestoreSchedule()"><i class="fa-regular fa-clock"></i> 오늘 ${hm}에 바꾸기 예약</button></div>`
+    : `<div class="empty-state" style="padding:20px;"><p>되돌릴 세트가 없어요 — 11/9 이후 바뀐 켜진 세트의 예산이 이미 ${ADMGR_RESTORE.label} 값이에요.</p></div>`;
+  $('admgr-budget-modal').classList.add('show'); if (R.length) admgrRestoreSum();
+}
+function admgrRestoreSum() {
+  const ids = new Set([...document.querySelectorAll('.restore-ck:checked')].map(el => el.dataset.id)), T = admgrRestoreRows.filter(r => ids.has(r.id));
+  const d = T.reduce((a, r) => a + r.to - r.from, 0), B = typeof admgrBudgetTotal === 'function' ? admgrBudgetTotal(false).total : 0, el = $('restore-sum');
+  if (el) el.innerHTML = `체크 ${T.length}개 · 올림 ${T.filter(r => r.to > r.from).length} · 내림 ${T.filter(r => r.to < r.from).length} · 켜진 일예산 합계 ${comma(B)} → <b>${comma(B + d)}원</b> (${d >= 0 ? '+' : ''}${comma(d)})`;
+}
+async function admgrRestoreSchedule() {
+  const w = admgr.write; if (!w.pin) { admgrPinPrompt(admgrRestoreSchedule); return; }
+  const ids = new Set([...document.querySelectorAll('.restore-ck:checked')].map(el => el.dataset.id)), T = admgrRestoreRows.filter(r => ids.has(r.id));
+  if (!T.length) { toast('체크한 세트가 없어요'); return; }
+  let ok = 0, stopped = false; const fails = [], hm = ADMGR_RESTORE.at.slice(11);
+  const prog = () => { $('abm-body').innerHTML = `<div style="font-size:.85rem;padding:8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> 예약 거는 중… <b>${ok + fails.length}/${T.length}</b><div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">창을 닫지 말고 기다려 주세요 (개당 1~2초)</div></div>`; };
+  $('abm-title').textContent = '예산 되돌리기 예약 중'; prog();
+  for (const r of T) {   // ponytail: 순차 실행 (Meta 호출 한도 배려) — 100개면 2~3분
+    try { await metaBudgetCall({ action: 'schedule' }, { object_id: r.id, object_name: r.name, level: r.level, new_budget: r.to, at: ADMGR_RESTORE.at, expect: r.from, pin: w.pin }); ok++; }
+    catch (e) { fails.push(`${esc(r.name)}: ${esc(e.message)}`); if (String(e.message).includes('PIN')) { admgrPinInvalidate(); stopped = true; break; } }
+    prog();
+  }
+  await admgrWritePending().catch(() => {});
+  $('abm-title').textContent = '예산 되돌리기 예약 결과';
+  $('abm-body').innerHTML = `<div style="font-size:.85rem;line-height:1.7;"><b style="color:#15803d;">${ok}개 예약 완료</b> — 오늘 ${hm}에 자동으로 바뀌어요.${fails.length ? `<br/><b style="color:#b91c1c;">실패 ${fails.length}개</b>${stopped ? ' (PIN 오류로 멈춤)' : ''}<div style="font-size:.72rem;color:#6b7280;max-height:30vh;overflow:auto;">${fails.join('<br/>')}</div>` : ''}
+      <div style="font-size:.72rem;color:#9ca3af;margin-top:6px;">취소는 ⋯ 메뉴 › 예약 목록에서 (전부 취소 가능)</div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="admgrMidList()">예약 목록 보기</button><button class="btn-analyze" onclick="closeModal('admgr-budget-modal')">닫기</button></div>`;
+  renderAdmgr(true);
 }
 async function admgrMidCancel(pid) {
   if (!admgr.write.pin) { toast('먼저 PIN 인증을 해주세요'); return; }

@@ -903,6 +903,23 @@ test('admgrBoardCalc: 핵심명 같은 상품 — 세트명 ver 단어로 고르
   assert.equal(noAd.length, 0);
 });
 
+test('admgrRestoreCalc: 기준 시각 뒤 첫 변경의 옛 예산으로 — 켜진 세트·CBO 캠페인만, 이미 같은 값·꺼진 세트 제외', () => {
+  const ev = (time, id, o, n, level = 'adset') => ({ time, level, object_id: id, old_value: o, new_value: n });
+  const camps = [
+    { id: 'c1', status: 'ACTIVE', budget: 0, adsets: [
+      { id: 'a', name: 'A', status: 'ACTIVE', budget: 5000 },      // 9만 → 15만 → 5천: 9만으로
+      { id: 'b', name: 'B', status: 'ACTIVE', budget: 40000 },     // 기준 전에만 바뀜: 제외
+      { id: 'c', name: 'C', status: 'PAUSED', budget: 5000 },      // 꺼짐: 제외
+      { id: 'd', name: 'D', status: 'ACTIVE', budget: 30000 },     // 3만 → 6만 → 3만: 이미 같음, 제외
+      { id: 'e', name: 'E', status: 'ACTIVE', budget: 100000 } ] },// 1.5만 → 10만: 1.5만으로(내림)
+    { id: 'c2', status: 'ACTIVE', budget: 80000, adsets: [{ id: 'f', name: 'F', status: 'ACTIVE', budget: 0 }] },   // CBO 10만 → 8만
+    { id: 'c3', status: 'PAUSED', budget: 0, adsets: [{ id: 'g', name: 'G', status: 'ACTIVE', budget: 5000 }] } ];  // 캠페인 꺼짐: 제외
+  const hist = [ev('2026-11-11T12:45:00Z', 'a', 150000, 5000), ev('2026-11-08T14:00:00Z', 'b', 20000, 40000), ev('2026-11-10T15:16:00Z', 'a', 90000, 150000), ev('2026-11-09T01:00:00Z', 'c', 30000, 5000),
+    ev('2026-11-09T02:00:00Z', 'd', 30000, 60000), ev('2026-11-10T02:00:00Z', 'd', 60000, 30000), ev('2026-11-10T03:00:00Z', 'e', 15000, 100000), ev('2026-11-11T12:45:00Z', 'c2', 100000, 80000, 'campaign'), ev('2026-11-10T03:00:00Z', 'g', 40000, 5000)];
+  const R = ctx.admgrRestoreCalc(camps, hist, '2026-11-09T00:00:00+09:00');
+  assert.equal(R.map(r => `${r.id}:${r.level}:${r.from}>${r.to}`).join(' '), 'a:adset:5000>90000 c2:campaign:80000>100000 e:adset:100000>15000');
+});
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {
