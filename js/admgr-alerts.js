@@ -442,7 +442,7 @@ admgrAlert.checks.push(admgrCheckTodo);
 admgrAlert.checks.push(() => {
   if (!admgrRestoreOn() || !dnrbCan('budget') || !admgrAlert.adjHist || admgr.demo) return [];
   const w = admgr.write, R = admgrRestoreAdj(admgrRestoreCalc(admgrRows().camps, admgrAlert.adjHist, ADMGR_RESTORE.since)).filter(r => !r.off), booked = R.filter(r => w.timedByObj && w.timedByObj.has(r.id)).length, hm = ADMGR_RESTORE.at.slice(11);
-  return R.length ? [{ key: 'restore:' + ADMGR_RESTORE.at + ':' + booked, lvl: booked ? 'yellow' : 'blue', text: `<b>예산 되돌리기</b> ${ADMGR_RESTORE.label} 예산으로 ${R.length}개${booked ? ` · <b>${booked}개 ${hm} 예약됨</b>` : ` <small>아직 예약 전 — 오늘 ${hm} 자동 반영으로 걸 수 있어요</small>`}`, act: { label: '보기', onclick: 'admgrRestoreModal()' } }] : [];
+  return R.length ? [{ key: 'restore:' + ADMGR_RESTORE.at + ':' + booked, lvl: booked ? 'yellow' : 'blue', text: `<b>예산 되돌리기</b> ${ADMGR_RESTORE.label} 예산으로 ${R.length}개${booked ? ` · <b>${booked}개 ${hm} 예약됨</b>` : ` <small>${admgrRestorePast() ? '아직 반영 전 — [보기]에서 임시 저장에 넣고 상단 [게시]' : `아직 예약 전 — 오늘 ${hm} 자동 반영으로 걸 수 있어요`}</small>`}`, act: { label: '보기', onclick: 'admgrRestoreModal()' } }] : [];
 });
 function admgrAdjModal() {
   const R = admgrAdjRows() || [], man = v => admgrW(Math.round(v || 0));

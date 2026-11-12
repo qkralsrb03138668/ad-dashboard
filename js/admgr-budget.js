@@ -265,6 +265,7 @@ ADMGR_RESTORE.adj = { '120249338670370775': 0,                                  
 function admgrRestoreAdj(rows, adj = ADMGR_RESTORE.adj) {   // 순수 — 조정 반영: 0이면 off 표시(예약 안 함), 값이 있으면 to를 바꾸고 base에 원래 되돌릴 값
   return rows.map(r => { const a = adj[r.id]; return a == null ? r : a === 0 ? { ...r, off: true } : { ...r, base: r.to, to: a }; }).filter(r => r.off || r.to !== r.from);
 }
+const admgrRestorePast = () => Date.now() > Date.parse(ADMGR_RESTORE.at + ':00+09:00');   // 예약 시각이 지났나 — 지나면 예약 대신 임시 저장 → 게시(즉시)
 const admgrRestoreOn = () => Date.now() < Date.parse(ADMGR_RESTORE.at + ':00+09:00') + 6 * 3600e3;
 function admgrRestoreCalc(camps, hist, since) {   // 순수 — since 이후 예산이 바뀐 켜진 세트·CBO 캠페인 → 그 직전 예산
   const t0 = new Date(since).getTime(), first = new Map();
@@ -290,13 +291,14 @@ function admgrRestoreModal() {
       <td style="white-space:nowrap;">${comma(r.from)}</td><td style="white-space:nowrap;font-weight:800;">${comma(r.to)}</td>
       <td style="white-space:nowrap;font-weight:700;color:${d > 0 ? '#15803d' : '#b91c1c'};">${d > 0 ? '+' : ''}${comma(d)}</td></tr>`; };
   $('abm-title').textContent = `예산 되돌리기 — ${ADMGR_RESTORE.label} 예산으로`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = R.length ? `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;margin-bottom:8px;">${ADMGR_RESTORE.from} 이후 예산이 바뀐 <b>켜진</b> 세트를 그 직전 예산으로 되돌려요. 그 뒤에 새로 만든 세트는 처음 예산으로 가요. 꺼진 세트는 건드리지 않아요.<br/>${R.some(r => r.off || r.base) ? `고르신 조정 ${R.filter(r => r.off || r.base).length}개도 넣었어요 — 절반·+20%는 조정된 예산으로 예약하고, 끄기로 정한 세트는 되돌리지 않아요.<br/>` : ''}예약만 걸어 두면 <b>오늘 ${hm}</b>에 자동으로 바뀌어요(5분 안). 그 전에 예산을 손으로 바꾼 세트는 건너뛰어요.</div>
+  $('abm-body').innerHTML = R.length ? `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;margin-bottom:8px;">${ADMGR_RESTORE.from} 이후 예산이 바뀐 <b>켜진</b> 세트를 그 직전 예산으로 되돌려요. 그 뒤에 새로 만든 세트는 처음 예산으로 가요. 꺼진 세트는 건드리지 않아요.<br/>${R.some(r => r.off || r.base) ? `고르신 조정 ${R.filter(r => r.off || r.base).length}개도 넣었어요 — 절반·+20%는 조정된 예산으로 예약하고, 끄기로 정한 세트는 되돌리지 않아요.<br/>` : ''}${admgrRestorePast() ? `예약 시각(${hm})이 지났어요 — <b>임시 저장에 넣은 뒤 상단 [게시]</b>를 누르면 바로 바뀌어요.` : `예약만 걸어 두면 <b>오늘 ${hm}</b>에 자동으로 바뀌어요(5분 안). 그 전에 예산을 손으로 바꾼 세트는 건너뛰어요. 바로 바꾸려면 임시 저장에 넣고 상단 [게시].`}</div>
     <div id="restore-sum" style="font-size:.78rem;font-weight:700;color:#1e1b4b;background:#f5f6ff;border-radius:8px;padding:8px 10px;margin-bottom:8px;"></div>
     <div class="table-wrap" style="max-height:48vh;overflow:auto;"><table style="font-size:.76rem;">
       <thead><tr><th></th><th style="text-align:left;">세트</th><th>지금</th><th>돌아갈 예산</th><th>차이</th></tr></thead><tbody>${R.map(row).join('')}</tbody></table></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>
-      <button class="btn-analyze" onclick="admgrRestoreSchedule()"><i class="fa-regular fa-clock"></i> 오늘 ${hm}에 바꾸기 예약</button></div>`
+      ${admgrRestorePast() ? '' : `<button class="btn-ghost" onclick="admgrRestoreSchedule()"><i class="fa-regular fa-clock"></i> 오늘 ${hm}에 바꾸기 예약</button>`}
+      <button class="btn-analyze" onclick="admgrRestoreDraft()"><i class="fa-solid fa-floppy-disk"></i> 임시 저장에 넣기 (게시하면 바로 반영)</button></div>`
     : `<div class="empty-state" style="padding:20px;"><p>되돌릴 세트가 없어요 — ${ADMGR_RESTORE.from} 이후 바뀐 켜진 세트의 예산이 이미 ${ADMGR_RESTORE.label} 값이에요.</p></div>`;
   $('admgr-budget-modal').classList.add('show'); if (R.length) admgrRestoreSum();
 }
@@ -313,6 +315,13 @@ function admgrRestoreSum() {
   const d = T.reduce((a, r) => a + r.to - r.from, 0), B = typeof admgrBudgetTotal === 'function' ? admgrBudgetTotal(false).total : 0, el = $('restore-sum');
   if (el) el.innerHTML = `체크 ${T.length}개 · 올림 ${T.filter(r => r.to > r.from).length} · 내림 ${T.filter(r => r.to < r.from).length} · 켜진 일예산 합계 ${comma(B)} → <b>${comma(B + d)}원</b> (${d >= 0 ? '+' : ''}${comma(d)})`;
 }
+function admgrRestoreDraft() {   // 예약 대신 지금 바로 — 체크분을 임시 저장에 넣는다. 상단 [게시] = 평소 쓰는 즉시 반영 경로 (2026-11-13: 11/12 밤 예약이 서버에 한 건도 안 들어가 추가)
+  const ids = new Set([...document.querySelectorAll('.restore-ck:checked')].map(el => el.dataset.id)), T = admgrRestoreRows.filter(r => ids.has(r.id));
+  if (!T.length) { toast('체크한 세트가 없어요'); return; }
+  for (const r of T) admgrDraft[r.id] = r.to;
+  lsSet('adc_admgr_draft', admgrDraft); closeModal('admgr-budget-modal');
+  toast(`${T.length}개를 임시 저장에 넣었어요 — 상단 '게시'를 누르면 바로 바뀌어요`); renderAdmgr(true);
+}
 async function admgrRestoreSchedule() {
   const w = admgr.write; if (!w.pin) { admgrPinPrompt(admgrRestoreSchedule); return; }
   const ids = new Set([...document.querySelectorAll('.restore-ck:checked')].map(el => el.dataset.id)), T = admgrRestoreRows.filter(r => ids.has(r.id));
@@ -325,6 +334,7 @@ async function admgrRestoreSchedule() {
     catch (e) { fails.push(`${esc(r.name)}: ${esc(e.message)}`); if (String(e.message).includes('PIN')) { admgrPinInvalidate(); stopped = true; break; } }
     prog();
   }
+  if (fails.length && typeof logError === 'function') logError(`예산 되돌리기 예약 실패 ${fails.length}/${T.length}: ${fails[0]}`);   // 원인 추적용
   await admgrWritePending().catch(() => {});
   $('abm-title').textContent = '예산 되돌리기 예약 결과';
   $('abm-body').innerHTML = `<div style="font-size:.85rem;line-height:1.7;"><b style="color:#15803d;">${ok}개 예약 완료</b> — 오늘 ${hm}에 자동으로 바뀌어요.${fails.length ? `<br/><b style="color:#b91c1c;">실패 ${fails.length}개</b>${stopped ? ' (PIN 오류로 멈춤)' : ''}<div style="font-size:.72rem;color:#6b7280;max-height:30vh;overflow:auto;">${fails.join('<br/>')}</div>` : ''}
