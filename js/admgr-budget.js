@@ -254,10 +254,10 @@ async function admgrMidCancelAll() {   // 서버 목록이 100개씩이라 빌 �
   toast('예약을 전부 취소했어요'); admgrMidList(); renderAdmgr(true);
 }
 
-/* 예산 되돌리기 예약 (2026-11-12 사용자 요청): 11/9(월)부터 손으로 바꾼 예산을 일요일 밤 값으로, 오늘 23:40에 자동 반영.
+/* 예산 되돌리기 예약 (2026-11-12 사용자 요청): 11/11(수) 0시부터 손으로 바꾼 예산을 11/10 밤 값으로, 오늘 23:40에 자동 반영 (처음엔 11/8 밤 기준 → 같은 날 11/10 밤으로 정정).
    서버의 시각 예약(meta-budget schedule + at, 5분 cron)에 얹는다 — 반영 직전 예산이 '지금'과 다르면 그 세트는 건너뜀.
    ponytail: 날짜 고정 일회용 — 다른 날 또 쓰게 되면 since·at을 입력 칸으로 */
-const ADMGR_RESTORE = { since: '2026-11-09T00:00:00+09:00', at: '2026-11-12T23:40', label: '일요일(11/8) 밤' };
+const ADMGR_RESTORE = { since: '2026-11-11T00:00:00+09:00', at: '2026-11-12T23:40', label: '11/10(화) 밤', from: '11/11(수) 0시' };   // 대시보드 기록상 손 변경은 11/11 00:16부터(마지막 대시보드 변경 11/10 20:03) — 11/9·10의 규칙 조정은 살린다
 const admgrRestoreOn = () => Date.now() < Date.parse(ADMGR_RESTORE.at + ':00+09:00') + 6 * 3600e3;
 function admgrRestoreCalc(camps, hist, since) {   // 순수 — since 이후 예산이 바뀐 켜진 세트·CBO 캠페인 → 그 직전 예산
   const t0 = new Date(since).getTime(), first = new Map();
@@ -278,14 +278,14 @@ function admgrRestoreModal() {
       <td style="white-space:nowrap;">${comma(r.from)}</td><td style="white-space:nowrap;font-weight:800;">${comma(r.to)}</td>
       <td style="white-space:nowrap;font-weight:700;color:${d > 0 ? '#15803d' : '#b91c1c'};">${d > 0 ? '+' : ''}${comma(d)}</td></tr>`; };
   $('abm-title').textContent = `예산 되돌리기 — ${ADMGR_RESTORE.label} 예산으로`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = R.length ? `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;margin-bottom:8px;">11/9(월) 0시 이후 예산이 바뀐 <b>켜진</b> 세트를 그 직전 예산으로 되돌려요. 그 뒤에 새로 만든 세트는 처음 예산으로 가요. 꺼진 세트는 건드리지 않아요.<br/>예약만 걸어 두면 <b>오늘 ${hm}</b>에 자동으로 바뀌어요(5분 안). 그 전에 예산을 손으로 바꾼 세트는 건너뛰어요.</div>
+  $('abm-body').innerHTML = R.length ? `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;margin-bottom:8px;">${ADMGR_RESTORE.from} 이후 예산이 바뀐 <b>켜진</b> 세트를 그 직전 예산으로 되돌려요. 그 뒤에 새로 만든 세트는 처음 예산으로 가요. 꺼진 세트는 건드리지 않아요.<br/>예약만 걸어 두면 <b>오늘 ${hm}</b>에 자동으로 바뀌어요(5분 안). 그 전에 예산을 손으로 바꾼 세트는 건너뛰어요.</div>
     <div id="restore-sum" style="font-size:.78rem;font-weight:700;color:#1e1b4b;background:#f5f6ff;border-radius:8px;padding:8px 10px;margin-bottom:8px;"></div>
     <div class="table-wrap" style="max-height:48vh;overflow:auto;"><table style="font-size:.76rem;">
       <thead><tr><th></th><th style="text-align:left;">세트</th><th>지금</th><th>돌아갈 예산</th><th>차이</th></tr></thead><tbody>${R.map(row).join('')}</tbody></table></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
       <button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>
       <button class="btn-analyze" onclick="admgrRestoreSchedule()"><i class="fa-regular fa-clock"></i> 오늘 ${hm}에 바꾸기 예약</button></div>`
-    : `<div class="empty-state" style="padding:20px;"><p>되돌릴 세트가 없어요 — 11/9 이후 바뀐 켜진 세트의 예산이 이미 ${ADMGR_RESTORE.label} 값이에요.</p></div>`;
+    : `<div class="empty-state" style="padding:20px;"><p>되돌릴 세트가 없어요 — ${ADMGR_RESTORE.from} 이후 바뀐 켜진 세트의 예산이 이미 ${ADMGR_RESTORE.label} 값이에요.</p></div>`;
   $('admgr-budget-modal').classList.add('show'); if (R.length) admgrRestoreSum();
 }
 function admgrRestoreSum() {
