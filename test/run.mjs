@@ -918,6 +918,8 @@ test('admgrRestoreCalc: 기준 시각 뒤 첫 변경의 옛 예산으로 — 켜
     ev('2026-11-09T02:00:00Z', 'd', 30000, 60000), ev('2026-11-10T02:00:00Z', 'd', 60000, 30000), ev('2026-11-10T03:00:00Z', 'e', 15000, 100000), ev('2026-11-11T12:45:00Z', 'c2', 100000, 80000, 'campaign'), ev('2026-11-10T03:00:00Z', 'g', 40000, 5000)];
   const R = ctx.admgrRestoreCalc(camps, hist, '2026-11-09T00:00:00+09:00');
   assert.equal(R.map(r => `${r.id}:${r.level}:${r.from}>${r.to}`).join(' '), 'a:adset:5000>90000 c2:campaign:80000>100000 e:adset:100000>15000');
+  const J = ctx.admgrRestoreAdj(R, { a: 108000, e: 0, c2: 80000, zz: 5000 });   // +20% · 끄기 · 조정값이 지금 예산과 같으면 빠짐 · 목록에 없는 id는 무시
+  assert.equal(J.map(r => `${r.id}:${r.to}:${r.base || ''}:${r.off ? 'off' : ''}`).join(' '), 'a:108000:90000: e:15000::off');
 });
 
 test('판정에서 빼는 날: 깨끗한 날 n개·이어진 범위 묶기·창에 걸리는지', () => {

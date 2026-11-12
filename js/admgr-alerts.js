@@ -441,7 +441,7 @@ admgrAlert.checks.push(admgrCheckTodo);
 /* 예산 되돌리기 예약 알림 (2026-11-12, 일회용 — admgr-budget.js ADMGR_RESTORE): 예약 전 = 대상 수, 예약 뒤 = 걸린 수 */
 admgrAlert.checks.push(() => {
   if (!admgrRestoreOn() || !dnrbCan('budget') || !admgrAlert.adjHist || admgr.demo) return [];
-  const w = admgr.write, R = admgrRestoreCalc(admgrRows().camps, admgrAlert.adjHist, ADMGR_RESTORE.since), booked = R.filter(r => w.timedByObj && w.timedByObj.has(r.id)).length, hm = ADMGR_RESTORE.at.slice(11);
+  const w = admgr.write, R = admgrRestoreAdj(admgrRestoreCalc(admgrRows().camps, admgrAlert.adjHist, ADMGR_RESTORE.since)).filter(r => !r.off), booked = R.filter(r => w.timedByObj && w.timedByObj.has(r.id)).length, hm = ADMGR_RESTORE.at.slice(11);
   return R.length ? [{ key: 'restore:' + ADMGR_RESTORE.at + ':' + booked, lvl: booked ? 'yellow' : 'blue', text: `<b>예산 되돌리기</b> ${ADMGR_RESTORE.label} 예산으로 ${R.length}개${booked ? ` · <b>${booked}개 ${hm} 예약됨</b>` : ` <small>아직 예약 전 — 오늘 ${hm} 자동 반영으로 걸 수 있어요</small>`}`, act: { label: '보기', onclick: 'admgrRestoreModal()' } }] : [];
 });
 function admgrAdjModal() {
