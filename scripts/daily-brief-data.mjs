@@ -113,7 +113,7 @@ try {
 } catch (e) { out.hygiene_error = String(e.message || e).slice(0, 200); }
 
 // 예산 조정 후보 (2026-10-28) — 대시보드 알림판 '예산 조정 후보'와 같은 함수(js/admgr-alerts.js admgrAdjCalc)·같은 선(js/admgr.js ADMGR_ROAS)을 그대로 불러 같은 기준으로 센다
-//   7일(어제까지) ROAS(메타 기본값 창, 2주 시험): 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액. 상품 마진은 안 씀
+//   7일(어제까지) ROAS(메타 기본값 창, 2주 시험): 450% 미만 OFF · 450~900% 유지(11/13부터 450~550%도 유지) · 900%↑ 증액. 상품 마진은 안 씀
 try {
   const vm = await import('node:vm'), src = fs.readFileSync(path.join(root, 'js/admgr-alerts.js'), 'utf8'), base = fs.readFileSync(path.join(root, 'js/admgr.js'), 'utf8'), tabs = fs.readFileSync(path.join(root, 'js/admgr-tabs.js'), 'utf8');
   const grab = (re, t = src) => (t.match(re) || [])[0] || '';
