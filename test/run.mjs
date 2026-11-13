@@ -955,6 +955,9 @@ test('판정에서 빼는 날: 깨끗한 날 n개·이어진 범위 묶기·창�
   assert.equal(ctx.admgrCleanDays(7, '2026-11-20', skip).join(' '), ctx.admgrCleanDays(7, '2026-11-20', []).join(' '));
   assert.equal([ctx.admgrSkipHit(7, '2026-11-19', skip), ctx.admgrSkipHit(7, '2026-11-20', skip), ctx.admgrSkipHit(3, '2026-11-15', skip), ctx.admgrSkipHit(3, '2026-11-16', skip)].join(' '), 'true false true false');
 });
+test('admgrAlertBrief: 알림 문구에서 태그·작은 설명을 뺀 한 줄 (폰 접힌 알림판)', () => {
+  assert.equal(ctx.admgrAlertBrief('<b>예산 조정 후보</b> OFF 2 · 절반 2 <small>최근 7일 ROAS · <b>기본값</b></small>'), '예산 조정 후보 OFF 2 · 절반 2');
+});
 test('admgrHierMerge: 지표는 더하고 상태·예산은 나중 기간 것, 한쪽에만 있는 세트·광고도 남김', () => {
   const a = { preset: 'custom', campaigns: [{ id: 'c1', name: 'C', status: 'ACTIVE', budget: 0, spend: 100, value: 500, purchases: 2, adsets: [
     { id: 's1', name: 'S1', status: 'ACTIVE', budget: 10000, spend: 60, value: 300, purchases: 1, purchases_7d: 1, ads: [{ id: 'a1', spend: 60, value: 300, purchases: 1, roas: 5 }] },

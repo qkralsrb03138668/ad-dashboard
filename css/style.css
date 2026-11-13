@@ -978,3 +978,39 @@ summary::-webkit-details-marker { display: none; }
 
 /* 메뉴 숨김 (2026-10-27 사용자: 날짜별 소재로 정리 — 내 소재 성과·테스트 소재·베스트소재는 일단 가림. 기능은 그대로, 이 규칙만 지우면 다시 보임) */
 .menu-item[data-menu="mycre"], .menu-item[data-menu="atest"], .menu-item[data-menu="abest"] { display: none !important; }
+/* ── 폰 광고관리자 손질 (2026-11-13 사용자 요청 6가지 — 전부 ≤768px에서만, 맥북 화면은 그대로) ── */
+.ag-alfold, .ag-alfold-up { display: none; }
+@media (max-width: 768px) {
+  /* ⑥ 양옆 여백: 카드 폭 301 → 약 345px (화면 390 기준) */
+  #sec-admgr { margin-left: -12px; margin-right: -12px; }
+  #sec-admgr .section-body { padding: 10px 8px; }
+  /* ① 알림판 한 줄 접기 */
+  #sec-admgr .ag-alfold { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 10px; padding: 9px 12px; border-radius: 10px; background: #f5f3ff; border: 1px solid #ddd6fe; font-family: inherit; font-size: 13px; color: #374151; text-align: left; }
+  #sec-admgr .ag-alfold .ag-al-dot { background: #7c3aed; }
+  #sec-admgr .ag-alfold.red { background: #fef2f2; border-color: #fecaca; } #sec-admgr .ag-alfold.red .ag-al-dot { background: #dc2626; }
+  #sec-admgr .ag-alfold-t { flex: 1; min-width: 0; line-height: 1.45; }
+  #sec-admgr .ag-alfold-t small { display: block; color: #6b7280; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sec-admgr .ag-alfold > i { flex: none; color: #9ca3af; }
+  #sec-admgr .ag-alfold-up { display: block; width: 100%; border: 0; background: none; color: #6b7280; font-family: inherit; font-size: 12px; font-weight: 700; }
+  /* ⑤ 역할 칩: 개수만 (예산·지출 합은 JS에서 뺌) — 네 개가 한 줄에 */
+  #sec-admgr .ag-role { gap: 6px; }
+  #sec-admgr .ag-role .filter-tab { padding-left: 11px; padding-right: 11px; }
+  /* ② 후보 창(예산 조정 후보 · 증액 후보): 7열 표 → 세트마다 3줄 (체크 | 이름 / 숫자 2칸 / 숫자 2칸 + OFF) */
+  .m-rule { margin-bottom: 6px; } .m-rule summary { cursor: pointer; font-weight: 700; color: #4338ca; padding: 6px 0; }
+  .m-rows-wrap { max-height: none !important; overflow: visible !important; border: 0 !important; box-shadow: none !important; }
+  .m-rows, .m-rows tbody { display: block; width: 100%; }
+  .m-rows thead { display: none; }
+  .m-rows tr { display: grid; grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "ck nm nm nm" "ck a b b" "ck c d off"; gap: 6px 8px; padding: 12px 0; border-bottom: 1px solid #eef0f3; align-items: start; }
+  .m-rows tr.m-sec { display: block; padding: 0; border: 0; }
+  .m-rows td { display: block; padding: 0 !important; border: 0 !important; text-align: left !important; min-width: 0 !important; white-space: normal !important; background: none !important; font-size: 13px; }
+  .m-rows tr.m-sec td { padding: 14px 0 2px !important; font-size: 14px !important; }
+  .m-rows td:nth-child(1) { grid-area: ck; } .m-rows td:nth-child(2) { grid-area: nm; font-weight: 700; } .m-rows td:nth-child(3) { grid-area: a; } .m-rows td:nth-child(4) { grid-area: b; }
+  .m-rows td:nth-child(5) { grid-area: c; align-self: center; } .m-rows td:nth-child(6) { grid-area: d; align-self: center; } .m-rows td:nth-child(7) { grid-area: off; align-self: center; }
+  .m-rows td[data-l]::before { content: attr(data-l) ' '; color: #9ca3af; font-size: 11.5px; font-weight: 600; }
+  .m-rows td:nth-child(2) > div { font-weight: 400; font-size: 12px !important; margin-top: 2px; }
+  .m-rows input[type="checkbox"] { width: 24px; height: 24px; margin: 2px 0 0; }
+  .m-rows td:nth-child(7) button { min-height: 36px; padding: 6px 12px !important; font-size: 12px !important; }
+  #admgr-budget-modal .modal-box { max-height: calc(100dvh - 16px); }
+  .m-foot { position: sticky; bottom: -16px; margin-bottom: -16px; padding: 10px 0 16px; background: #fff; border-top: 1px solid #eef0f3; z-index: 2; }
+  .m-foot .btn-analyze { flex: 1; }
+}

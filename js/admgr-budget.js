@@ -732,7 +732,7 @@ function admgrBudgetSheet(id, level) {
   const cur = Math.round(node.budget || 0), draft = admgrDraft[id];
   const pend = admgrPendOf(id), max = (w.st && w.st.max_budget) || 300000;
   const r100 = v => Math.max(1000, Math.round(v / 100) * 100);
-  const quick = [['÷10', Math.max(1000, Math.round(cur / 10)), 'cut'], ['−50%', r100(cur * 0.5)], ['+20%', r100(cur * 1.2)], ['+50%', r100(cur * 1.5)]];
+  const quick = [['−50%', r100(cur * 0.5), 'cut'], ['+20%', r100(cur * 1.2)], ['+30%', r100(cur * 1.3)], ['+50%', r100(cur * 1.5)], ['2배', r100(cur * 2)]];   // 지금 규칙 폭과 맞춤: 절반 · 900%↑ +20% · 1100%↑ +30% · 당일 증액 2배(10만↑ +50%). ÷10은 11/2에 규칙에서 빠져 뺌 (2026-11-13)
   let sh = $('admgr-sheet');
   if (!sh) { sh = document.createElement('div'); sh.id = 'admgr-sheet'; document.body.appendChild(sh); }
   sh.innerHTML = `<div class="ags-dim" onclick="admgrSheetClose()"></div>

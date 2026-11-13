@@ -523,7 +523,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   const roleSum = L => { const sp = L.reduce((t, r) => t + (r.spend || 0), 0); return `예산 ${wan(roleBudget(L))} · 지출 ${wan(sp)}`; };
   const ROLES = isCamp ? [['all', '전체'], ['ops', '세트 예산'], ['cbo', 'CBO']] : [['all', '전체'], ['test', '테스트'], ['ops', '운영'], ['cbo', 'CBO']];
   const roleCur = isCamp && admgr.role === 'test' ? 'ops' : admgr.role;
-  const roleRow = `<div class="filter-tabs ag-role" style="margin-bottom:10px;"><span class="ag-lbl">역할</span>${ROLES.map(([k, l]) => { const L = vis.filter(r => admgrRolePass(r, k)); return `<button class="filter-tab ${roleCur === k ? 'active' : ''}" onclick="admgrRoleSet('${k}')" title="${k === 'test' ? '테스트 캠페인 안 _test 세트' : k === 'ops' ? (isCamp ? '캠페인 예산이 없는 캠페인' : '테스트 캠페인 안 test 없는 세트') : k === 'cbo' ? '캠페인 예산이 있는 캠페인 (리타겟팅 포함)' : '모든 역할'} · 예산 = 켜진 세트·CBO 일예산 합, 지출 = 선택한 기간에 쓴 금액">${l} <small class="ag-muted">${L.length} · ${roleSum(L)}</small></button>`; }).join('')}</div>`;
+  const roleRow = `<div class="filter-tabs ag-role" style="margin-bottom:10px;"><span class="ag-lbl">역할</span>${ROLES.map(([k, l]) => { const L = vis.filter(r => admgrRolePass(r, k)); return `<button class="filter-tab ${roleCur === k ? 'active' : ''}" onclick="admgrRoleSet('${k}')" title="${k === 'test' ? '테스트 캠페인 안 _test 세트' : k === 'ops' ? (isCamp ? '캠페인 예산이 없는 캠페인' : '테스트 캠페인 안 test 없는 세트') : k === 'cbo' ? '캠페인 예산이 있는 캠페인 (리타겟팅 포함)' : '모든 역할'} · 예산 = 켜진 세트·CBO 일예산 합, 지출 = 선택한 기간에 쓴 금액">${l} <small class="ag-muted">${L.length}${admgrMobile() ? '' : ' · ' + roleSum(L)}</small></button>`; }).join('')}</div>`;
   if (admgr.role !== 'all') vis = vis.filter(r => admgrRolePass(r, admgr.role));
 
   /* '최근 변경' 열(오늘·캠페인/세트 탭) · '판정' 열 표시 여부 (원본 규칙) — '23:45 세팅' 열은 2026-10-29에 뺌 */
@@ -661,6 +661,8 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   if (admgrMobile() && vis.length && (isCamp || isSet || admgr.view === 'ad')) {
     const level = isCamp ? 'campaign' : isSet ? 'adset' : 'ad';
     const roas = r => r.spend ? (r.value / r.spend).toFixed(2) : '—';
+    const r7cell = r => { const w = admgrHistOf(r, 'h7'), v = w && w.spend ? (w.value || 0) / w.spend : null;   // 카드 앞면 7일 ROAS — 판정 기준이라 펼치지 않아도 보이게 (오늘 클릭7일 ROAS는 펼친 안으로 · 2026-11-13). 색은 7일 칸과 같은 판정선(550%↑ 초록 · 450% 미만 빨강)
+      return `<span class="mc-kv"><i>7일</i><b style="color:${v == null ? '#9ca3af' : v >= ADMGR_ROAS.keep ? '#15803d' : v < ADMGR_ROAS.off ? '#dc2626' : '#1c1e21'};">${!w ? '…' : v == null ? '—' : Math.round(v * 100).toLocaleString() + '%'}</b></span>`; };
     const roasColor = r => !r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : '#1c1e21';
     const sel = isCamp ? admgr.selCamps : isSet ? admgr.selSets : admgr.selAds;
     const kind = isCamp ? 'camp' : isSet ? 'set' : 'ad';
@@ -685,6 +687,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         <div class="row"><span>7일 <small style="color:#9ca3af;">어제까지</small></span><span class="ag-hist-m">${admgrHistTd(r, 'h7')}</span></div>
         <div class="row"><span>3일 <small style="color:#9ca3af;">어제까지</small></span><span class="ag-hist-m">${admgrHistTd(r, 'h3')}</span></div>
         <div class="row"><span>구매당 비용</span><span>${admgrCpa(r)}</span></div>
+        <div class="row"><span>ROAS <small style="color:#9ca3af;">클릭 7일 기준</small></span><span>${r.spend ? (admgrV7(r) / r.spend).toFixed(2) : '—'}</span></div>
         <div class="row"><span>전환값</span><span>${admgrMoney(r.value)}</span></div>
         <div class="row"><span>CPC</span><span>${cpcTd(r)}</span></div>
         ${showChg ? `<div class="row"><span>최근 변경</span><span>${admgrChgCell(r)}</span></div>` : ''}
@@ -698,7 +701,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
         <div class="mc-top"><span class="mc-check">${sel.has(r.id) ? '<i class="fa-solid fa-check"></i>' : ''}</span><div class="mc-name"><b>${esc(prod)}</b></div>
           <div class="mc-tg" onclick="event.stopPropagation()">${admgrOnOff(r, level)}</div></div>
         ${tail || r.status !== 'ACTIVE' || admgrMarkBadges(r.name) || admgrViewDep(r) || admgrFastBadge(r) ? `<div class="mc-r2">${admgrViewBadge(r)}${admgrFastBadge(r)}${r.status !== 'ACTIVE' ? `<span class="mc-st">${admgrStBadge(r.status)}</span>` : ''}${tail ? `<span class="mc-tail">${esc(tail)}</span>` : ''}${admgrMarkBadges(r.name)}</div>` : ''}
-        <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span><span class="mc-kv"><i>클릭7일</i><b style="color:${!r.spend ? '#9ca3af' : admgrV7(r) / r.spend < 1 ? '#dc2626' : admgrV7(r) / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${r.spend ? (admgrV7(r) / r.spend).toFixed(2) : '—'}</b></span></div>
+        <div class="mc-r3"><span class="mc-kv"><i>지출</i><b>${admgrMoney(r.spend)}</b></span><span class="mc-kv"><i>구매</i><b>${comma(r.purchases || 0)}</b></span><span class="mc-kv"><i>ROAS</i><b style="color:${!r.spend ? '#9ca3af' : r.value / r.spend < 1 ? '#dc2626' : r.value / r.spend >= 3 ? '#15803d' : '#1c1e21'};">${roas(r)}</b></span>${r7cell(r)}</div>
         <div class="mc-foot">
           ${admgr.view === 'ad' ? '<div class="mc-budget"><small>탭하면 소재 미리보기</small></div>'
             : canBudget && r.budget > 0 ? `<button class="mc-budget" onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${level}')">${budget}</button>` : `<div class="mc-budget">${budget}</div>`}
@@ -1246,6 +1249,7 @@ const admgrMarkName = (name, camps) => admgrMarkParse(name).base + camps.map(c =
 const admgrMarkBadges = name => admgrMarkParse(name).camps.map(c => `<span class="ag-mark" title="이 소재가 들어간 캠페인 — 그 캠페인에서 꺼지면 표시도 사라져요">⧉ ${esc(c)}</span>`).join('');
 const admgrBase = name => admgrMarkParse(name).base || '(이름 없음)';
 const admgrMobile = () => window.innerWidth <= 768;
+function admgrRuleFold(html) { return admgrMobile() ? `<details class="m-rule"><summary>규칙 보기</summary>${html}</details>` : html; }   // 폰: 후보 창의 긴 규칙 설명은 접어 둔다 (화면 절반을 차지했음 · 2026-11-13)
 let admgrMobileWas = null;
 window.addEventListener('resize', () => {   // 폰↔데스크톱 경계를 넘을 때만 다시 그림 (데스크톱 표는 이 이벤트로 안 건드림)
   const now = admgrMobile();
@@ -1519,18 +1523,18 @@ function admgrFastModal() {
   const row = (x, k) => { const r = x.r, off = admgrSDraft[r.id] && admgrSDraft[r.id].status === 'PAUSED', pend = off || admgrDraft[r.id] != null;
     return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${off ? '' : `<input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${!pend ? 'checked' : ''} />`}</td>
       <td class="name-cell" style="text-align:left;white-space:normal;min-width:220px;">${esc(admgrBase(r.name))}${x.t && x.t.test ? ' <span class="status-badge badge-green" style="font-size:.58rem;">승격 후보</span>' : ''}${x.t && x.t.multi ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">소액 · 7일 성적</span>' : ''}${x.t && x.t.streak ? ' <span class="status-badge badge-green" style="font-size:.58rem;">연속 우수 · 쉼 없음</span>' : ''}${pend ? `<div style="font-size:.64rem;color:#b45309;font-weight:700;">${off ? 'OFF ' : ''}임시 저장됨 · 아직 게시 전</div>` : ''}</td>
-      <td style="white-space:nowrap;">${man(r.budget)}</td>
+      <td data-l="일예산" style="white-space:nowrap;">${man(r.budget)}</td>
       <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.b.sp)} · ${x.b.p}건${cpa(x.b.sp, x.b.p)}</div>` : `${x.t.h7.d3 ? '3일 매일 900%↑' : x.t.h7.today ? '오늘까지' : '7일'} <b>${P(x.t.h7.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.t.h7.spend)} · ${x.t.h7.p}건${cpa(x.t.h7.spend, x.t.h7.p)}${x.t.h7.today ? '<br>7일 표본 부족 → 오늘 합산' : ''}</div>`}</td>
-      <td style="white-space:nowrap;">${today(r)}${x.t ? `<div style="font-size:.64rem;color:#6b7280;">${x.t.multi || x.t.streak ? '오늘 건수 안 봄' : `기준 ${x.t.need}건`}</div>` : ''}</td><td style="min-width:92px;">${off ? '<b style="color:#b91c1c;">OFF</b>' : res(x, k)}</td>
+      <td data-l="오늘" style="white-space:nowrap;">${today(r)}${x.t ? `<div style="font-size:.64rem;color:#6b7280;">${x.t.multi || x.t.streak ? '오늘 건수 안 봄' : `기준 ${x.t.need}건`}</div>` : ''}</td><td style="min-width:92px;">${off ? '<b style="color:#b91c1c;">OFF</b>' : res(x, k)}</td>
       <td>${canOff ? `<button class="btn-ghost" style="padding:3px 8px;font-size:.66rem;white-space:nowrap;${off ? '' : 'color:#b91c1c;border-color:#fca5a5;'}" onclick="admgrFastOff('${esc(r.id)}')">${off ? 'OFF 취소' : 'OFF'}</button>` : ''}</td></tr>`; };
-  const sec = (k, t, c, note) => L[k].length ? `<tr><td colspan="7" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L[k].length}${note ? ` <small style="font-weight:600;color:#9ca3af;">${note}</small>` : ''}</td></tr>${L[k].sort((a, b) => (b.t ? b.t.h7.roas : 0) - (a.t ? a.t.h7.roas : 0)).map(x => row(x, k)).join('')}` : '';
+  const sec = (k, t, c, note) => L[k].length ? `<tr class="m-sec"><td colspan="7" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L[k].length}${note ? ` <small style="font-weight:600;color:#9ca3af;">${note}</small>` : ''}</td></tr>${L[k].sort((a, b) => (b.t ? b.t.h7.roas : 0) - (a.t ? a.t.h7.roas : 0)).map(x => row(x, k)).join('')}` : '';
   const n = L.today.length + L.clash.length + L.back.length;
   $('abm-title').textContent = `증액 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;"><b>당일 증액</b>(11~17시): 오늘 구매가 기준 건수(일예산 2만당 1건 · 최소 2건 · 14시부터 +1건) 이상이고 7일 ROAS 450%↑인 운영 세트 → 2배(10만↑ +50% · 30만↑ 안 올림). 테스트 종료로 막 넘어와 7일 표본(5건 또는 5만)이 모자라면 오늘까지 합쳐서 봐요. 아직 _test인 세트도 우수(승격 후보)면 같은 기준으로 들어가요. 올린 세트는 3일 쉬고, 이틀 ROAS 550% 미만이면 되돌리기. 일예산 2.5만 이하 소액 세트는 오늘 구매가 모자라도 7일 구매 5건↑·ROAS 900%↑면 후보예요. 줄인 세트도 3일 동안은 후보에서 빠져요. <b>연속 우수</b>(어제까지 3일 매일 ROAS 900%↑ · 3일 구매 6건↑)는 올린 뒤에도 쉬지 않고 오늘 건수와 무관하게 매일 후보예요 — 하루라도 900% 밑이면 다시 3일 쉼. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영. 줄 끝 <b>[OFF]</b>는 그 세트를 끄기로 임시 저장(광고세트 탭 토글과 같음).</div>
-    ${n ? `<div class="table-wrap" style="max-height:62vh;overflow:auto;"><table style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 성적</th><th>오늘</th><th>결과</th><th></th></tr></thead>
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">${admgrRuleFold(`<b>당일 증액</b>(11~17시): 오늘 구매가 기준 건수(일예산 2만당 1건 · 최소 2건 · 14시부터 +1건) 이상이고 7일 ROAS 450%↑인 운영 세트 → 2배(10만↑ +50% · 30만↑ 안 올림). 테스트 종료로 막 넘어와 7일 표본(5건 또는 5만)이 모자라면 오늘까지 합쳐서 봐요. 아직 _test인 세트도 우수(승격 후보)면 같은 기준으로 들어가요. 올린 세트는 3일 쉬고, 이틀 ROAS 550% 미만이면 되돌리기. 일예산 2.5만 이하 소액 세트는 오늘 구매가 모자라도 7일 구매 5건↑·ROAS 900%↑면 후보예요. 줄인 세트도 3일 동안은 후보에서 빠져요. <b>연속 우수</b>(어제까지 3일 매일 ROAS 900%↑ · 3일 구매 6건↑)는 올린 뒤에도 쉬지 않고 오늘 건수와 무관하게 매일 후보예요 — 하루라도 900% 밑이면 다시 3일 쉼. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영. 줄 끝 <b>[OFF]</b>는 그 세트를 끄기로 임시 저장(광고세트 탭 토글과 같음).`)}</div>
+    ${n ? `<div class="table-wrap m-rows-wrap" style="max-height:62vh;overflow:auto;"><table class="m-rows" style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 성적</th><th>오늘</th><th>결과</th><th></th></tr></thead>
       <tbody>${sec('today', '당일 증액 후보', '#15803d', '오늘 구매 기준 건수↑ · 7일 450%↑ (소액은 7일 5건↑·900%↑)')}${sec('clash', '겹침 — 그대로', '#b45309', '오늘은 좋지만 7일은 예산 조정 후보')}${sec('back', '되돌리기', '#b45309', '2배 올린 뒤 이틀 ROAS 550% 미만')}</tbody></table></div>`
       : '<div class="empty-state" style="padding:20px;"><p>오늘은 증액 후보가 없어요.</p></div>'}
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${n && admgr.write.st && dnrbCan('budget') ? '<button class="btn-analyze" onclick="admgrFastApply()">체크한 것 임시 저장에 넣기</button>' : ''}</div>`;
+    <div class="m-foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${n && admgr.write.st && dnrbCan('budget') ? '<button class="btn-analyze" onclick="admgrFastApply()">체크한 것 임시 저장에 넣기</button>' : ''}</div>`;
   admgrAbmWide();
   $('admgr-budget-modal').classList.add('show');
 }
