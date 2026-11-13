@@ -374,7 +374,11 @@ test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표
   assert.equal(H([], [{ page_id: 'A', name: 'x' }], '2026-10-23').length, 0);
 });
 
-test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액 · 대기 (기본값 창 · 오늘 10/28 수)', () => {
+test('admgrAdjCalc(예전 규칙 keepFrom 5.5): 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액 · 대기 (기본값 창 · 오늘 10/28 수)', () => {
+  vm.runInContext('ADMGR_ADJ.keepFrom = 5.5', ctx);   // 11/13부터 기본은 4.5(450~550% 유지) — 이 검사는 5.5로 되돌렸을 때 예전 규칙이 그대로인지
+  try { adjOld(); } finally { vm.runInContext('ADMGR_ADJ.keepFrom = 4.5', ctx); }
+});
+function adjOld() {
   const f = g('admgrAdjCalc');
   const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });
   const W = (spend, purchases, roas) => ({ spend, purchases, value: spend * roas, purchases_7d: 0, value_7d: 0 });   // 클릭 7일 값이 0이어도 기본값 창으로 판정해야 함
@@ -430,6 +434,27 @@ test('admgrAdjCalc: ROAS 550% 기준 — 450% 미만 OFF · 450~550% 절반 · 5
   const hot3 = new Map([['m1', { ...W(60000, 12, 10), name: ps[0].name }], ['m2', { ...W(40000, 9, 9), name: ps[1].name }], ['m3', { ...W(60000, 8, 3.5), name: ps[2].name }]]);   // 슬리즈 3일 합 960%·21건
   const hot = f(ps, p7, hot3, [], '2026-10-28', 3); assert.equal(hot.map(x => x.s.id + ':' + x.act + (x.prodUp ? ':prod:' + x.to : '')).join(), 'm1:up:prod:48000,m2:up:prod:48000,m3:watch');
   assert.equal(f(ps, p7, hot3, [], '2026-10-30', 5).filter(x => x.prodUp).length, 0);
+}
+test('admgrAdjCalc(11/13 규칙): 7일 450~550%는 절반 없이 유지 — 감액 이력·하루 5만↑·3일 꺾임이어도, 450% 미만·상품 규칙은 그대로', () => {
+  const f = g('admgrAdjCalc');
+  const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });
+  const W = (spend, purchases, roas) => ({ spend, purchases, value: spend * roas, purchases_7d: 0, value_7d: 0 });
+  const one = (w7, w3, hist = [], budget = 40000) => { const x = f([S('q', budget)], new Map([['q', w7]]), new Map([['q', w3]]), hist, '2026-10-28', 3)[0]; return x.act + (x.rescue ? ':rescue' : '') + (x.act === 'half' ? ':' + x.to : ''); };
+  const cut = [{ level: 'adset', object_id: 'q', time: '2026-10-23T03:00:00Z', old_value: 80000, new_value: 40000 }];
+  assert.equal([one(W(140000, 10, 5), W(30000, 1, 1)),            // 500% → 유지 (예전: 절반)
+    one(W(130000, 10, 5.2), W(30000, 1, 1), cut),                 // 감액 뒤 520% → 유지 (예전: OFF)
+    one(W(350000, 20, 5), W(60000, 9, 3.9), [], 60000),           // 하루 5만↑·3일 390% → 유지 (예전: 바로 OFF)
+    one(W(140000, 10, 4.5), W(30000, 1, 1)),                      // 딱 450% → 유지
+    one(W(140000, 10, 4.4), W(30000, 1, 1)),                      // 440% → OFF
+    one(W(130000, 10, 3.5), W(50000, 3, 6)),                      // 350%·3일 회복(하루 2만 미만) → 절반
+    one(W(350000, 20, 3.5), W(60000, 5, 6), [], 60000),           // 하루 5만↑·350%·3일 회복 → 절반
+    one(W(130000, 10, 4), W(50000, 5, 6), cut),                   // 감액 뒤 400% → 회복해도 OFF
+    one(W(110000, 10, 7), W(30000, 1, 1)), one(W(70000, 10, 9.5), W(30000, 1, 1))].join(),
+    'watch,watch,watch,watch,off,half:rescue:20000,half:rescue:30000,off,watch,up');
+  // 상품이 식는 중: 이제 450~550% 세트도 유지 구간이라 같은 규칙(상품 3일 450% 미만·10건↑ & 자기 3일 550% 미만 → 절반)
+  const N = (id, name) => S(id, 40000, { name }), ps = [N('m1', '슬리즈 원피스_R1_44_261020'), N('m2', '슬리즈 원피스_P4_44_261020')];
+  const p7 = new Map([['m1', W(140000, 10, 5)], ['m2', W(140000, 10, 5)]]), p3 = new Map([['m1', { ...W(60000, 8, 3.5), name: ps[0].name }], ['m2', { ...W(20000, 4, 6), name: ps[1].name }]]);
+  assert.equal(f(ps, p7, p3, [], '2026-10-28', 3).map(x => x.s.id + ':' + x.act + (x.prodDrop ? ':prod' : '')).join(), 'm1:half:prod,m2:watch');
 });
 
 test('admgrFastRevertOf·admgrFastRecent (11/2): 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기, 이틀 지출 없으면 판단 안 함, 3일 안 올린 세트는 쉼', () => {
