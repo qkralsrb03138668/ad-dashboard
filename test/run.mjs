@@ -955,6 +955,9 @@ test('판정에서 빼는 날: 깨끗한 날 n개·이어진 범위 묶기·창�
   assert.equal(ctx.admgrCleanDays(7, '2026-11-20', skip).join(' '), ctx.admgrCleanDays(7, '2026-11-20', []).join(' '));
   assert.equal([ctx.admgrSkipHit(7, '2026-11-19', skip), ctx.admgrSkipHit(7, '2026-11-20', skip), ctx.admgrSkipHit(3, '2026-11-15', skip), ctx.admgrSkipHit(3, '2026-11-16', skip)].join(' '), 'true false true false');
 });
+test('admgrAdjCutting (11/16): 증액 후보와 겹치는 예산 조정 후보 = OFF·절반·보류 — 유지·증액·대기는 아님', () => {
+  assert.equal(['off', 'half', 'hold', 'watch', 'up', 'cool', 'back'].filter(a => ctx.admgrAdjCutting({ act: a })).join(' '), 'off half hold');
+});
 test('admgrAlertBrief: 알림 문구에서 태그·작은 설명을 뺀 한 줄 (폰 접힌 알림판)', () => {
   assert.equal(ctx.admgrAlertBrief('<b>예산 조정 후보</b> OFF 2 · 절반 2 <small>최근 7일 ROAS · <b>기본값</b></small>'), '예산 조정 후보 OFF 2 · 절반 2');
 });

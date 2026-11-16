@@ -405,6 +405,9 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, d
   }
   return out;
 }
+/* 증액 후보와 겹치는 예산 조정 후보 = OFF·절반 + 보류(hold: 오늘 구매가 기준 건수↑라 OFF·절반을 내일로 미룬 것).
+   보류를 안 넣었더니 오늘 구매가 기준을 넘는 세트는 전부 보류로 바뀌어 '겹침'에 하나도 안 잡히고 2배 후보로 떴다 — 11/16 펄 윈터 P1(상품 3일 꺾임으로 절반 보류인데 증액 후보) (2026-11-16 사용자 확정) */
+function admgrAdjCutting(x) { return x.act === 'off' || x.act === 'half' || x.act === 'hold'; }
 function admgrAdjRows() {
   const A = admgrAlert; if (!A.h7 || !A.h3) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPromoEnsure(), 0); return null; }
   if (!A.adjHist) { if (admgr.data && !admgr.demo) setTimeout(() => admgrAdjEnsure(), 0); return null; }
@@ -437,7 +440,7 @@ function admgrCheckTodo() {
   const out = [], R = admgrRows();
   if (dnrbCan('budget')) {
     if (admgr.data && !admgr.demo) setTimeout(() => admgrFastEnsure(), 0);   // 되돌리기에 쓰는 3일 성적·증액 기록 (30분 캐시)
-    const adj = new Set((admgrAdjRows() || []).filter(x => x.act === 'off' || x.act === 'half').map(x => x.s.id));
+    const adj = new Set((admgrAdjRows() || []).filter(admgrAdjCutting).map(x => x.s.id));
     const { up, back, pend } = admgrTodoCount(R.sets, adj, admgrDraft, r => admgrTodayUpOf(r), r => admgr.fast.days ? admgrFastRevertOf(r) : null);
     if (up || back) out.push({ key: 'todo:' + todayStr(0), lvl: back || pend ? 'yellow' : 'blue', text: `<b>증액 후보</b> 당일 증액 ${up} · 되돌리기 ${back}${pend ? ` · <b style="color:#b45309;">임시 저장만 하고 게시 전 ${pend}</b>` : ''} <small>당일 증액은 11~17시 · 되돌리기는 올린 뒤 이틀 ROAS 550%↓</small>`, act: { label: '보기', onclick: 'admgrFastModal()' } });
   }

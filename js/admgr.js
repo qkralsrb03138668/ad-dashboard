@@ -1509,7 +1509,7 @@ function admgrFastModal() {
   admgrFastEnsure();
   if (!admgr.fast.days) { toast('3일 성적을 불러오는 중이에요 — 잠시 뒤 다시 눌러 주세요'); return; }
   const max = (admgr.write.st && admgr.write.st.max_budget) || 300000, man = v => admgrW(Math.round(v || 0)), P = r => Math.round(r * 100).toLocaleString() + '%';
-  const adj = new Map(((typeof admgrAdjRows === 'function' && admgrAdjRows()) || []).filter(x => x.act === 'off' || x.act === 'half').map(x => [x.s.id, x]));
+  const adj = new Map(((typeof admgrAdjRows === 'function' && admgrAdjRows()) || []).filter(admgrAdjCutting).map(x => [x.s.id, x]));
   const L = { today: [], clash: [], back: [] };
   for (const r of admgrRows().sets) {
     const t = admgrTodayUpOf(r); if (t) { const a = adj.get(r.id); (a ? L.clash : L.today).push({ r, t, a, to: Math.min(max, t.to) }); continue; }   // 당일 증액 (2026-11-02) — 예산 조정 후보 OFF·절반과 겹치면 그대로
@@ -1518,10 +1518,10 @@ function admgrFastModal() {
   const cpa = (sp, p) => p ? `<br>구매당 ${comma(sp / p)}` : '';   // 구매당 비용 — 예산 조정 후보 표와 같은 줄 구성
   const today = r => { const p = admgrPJ(r); return `${p}건<div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(r.spend)}${cpa(r.spend || 0, p)}</div>`; };
   const res = (x, k) => k === 'today' ? `<b style="color:#15803d;white-space:nowrap;">${x.r.budget >= ADMGR_TODAY_UP.bigBudget ? '+50%' : '2배'} → ${man(x.to)}</b>`
-    : k === 'clash' ? `<b style="color:#b45309;">그대로</b><div style="font-size:.64rem;color:#9ca3af;">7일 ${P(x.a.r7)}<br>예산 조정 ${x.a.act === 'off' ? 'OFF' : '절반'} 후보</div>` : `<b style="color:#b45309;white-space:nowrap;">되돌리기 → ${man(x.to)}</b>`;
+    : k === 'clash' ? `<b style="color:#b45309;">그대로</b><div style="font-size:.64rem;color:#9ca3af;">7일 ${P(x.a.r7)}<br>예산 조정 ${(x.a.would || x.a.act) === 'off' ? 'OFF' : '절반'} 후보${x.a.act === 'hold' ? ' (오늘 구매로 보류)' : ''}</div>` : `<b style="color:#b45309;white-space:nowrap;">되돌리기 → ${man(x.to)}</b>`;
   const canOff = admgr.write.st && admgr.write.st.allowed && !admgr.demo && dnrbCan('toggle');   // 끄기는 토글과 같은 권한
   const row = (x, k) => { const r = x.r, off = admgrSDraft[r.id] && admgrSDraft[r.id].status === 'PAUSED', pend = off || admgrDraft[r.id] != null;
-    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${off ? '' : `<input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${!pend ? 'checked' : ''} />`}</td>
+    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${off ? '' : `<input type="checkbox" class="fast-ck" data-id="${esc(r.id)}" data-k="${k}" data-to="${x.to}" ${!pend && k !== 'clash' ? 'checked' : ''} />`}</td>
       <td class="name-cell" style="text-align:left;white-space:normal;min-width:220px;">${esc(admgrBase(r.name))}${x.t && x.t.test ? ' <span class="status-badge badge-green" style="font-size:.58rem;">승격 후보</span>' : ''}${x.t && x.t.multi ? ' <span class="status-badge badge-blue" style="font-size:.58rem;">소액 · 7일 성적</span>' : ''}${x.t && x.t.streak ? ' <span class="status-badge badge-green" style="font-size:.58rem;">연속 우수 · 쉼 없음</span>' : ''}${pend ? `<div style="font-size:.64rem;color:#b45309;font-weight:700;">${off ? 'OFF ' : ''}임시 저장됨 · 아직 게시 전</div>` : ''}</td>
       <td data-l="일예산" style="white-space:nowrap;">${man(r.budget)}</td>
       <td style="white-space:nowrap;">${k === 'back' ? `올린 뒤 이틀 <b>${P(x.b.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.b.sp)} · ${x.b.p}건${cpa(x.b.sp, x.b.p)}</div>` : `${x.t.h7.d3 ? '3일 매일 900%↑' : x.t.h7.today ? '오늘까지' : '7일'} <b>${P(x.t.h7.roas)}</b><div style="font-size:.64rem;color:#9ca3af;line-height:1.5;">지출 ${man(x.t.h7.spend)} · ${x.t.h7.p}건${cpa(x.t.h7.spend, x.t.h7.p)}${x.t.h7.today ? '<br>7일 표본 부족 → 오늘 합산' : ''}</div>`}</td>
