@@ -134,6 +134,10 @@ function admgrDraftTargets() {
   }
   return out;
 }
+function admgrPublishDropRepeats() {   // 경고에 뜬 세트만 임시 저장에서 빼고 게시 확인창을 다시 연다
+  for (const id of (admgrPublishDrafts.repeat || [])) delete admgrDraft[id];
+  lsSet('adc_admgr_draft', admgrDraft); closeModal('admgr-budget-modal'); renderAdmgr(true); admgrPublishDrafts();
+}
 async function admgrPublishDrafts() {
   const w = admgr.write;
   if (!w.pin) { admgrPinPrompt(admgrPublishDrafts); return; }
@@ -144,9 +148,24 @@ async function admgrPublishDrafts() {
   const lines = targets.map(t => t.kind === 'status'
     ? `· ${esc(t.name)}: <b style="color:${t.status === 'ACTIVE' ? '#1e7b34' : '#c9372c'};">${t.status === 'ACTIVE' ? '켜기' : '끄기'}</b>`
     : `· ${esc(t.name)}: ${comma(t.from)} → <b>${comma(t.to)}</b>`).join('<br/>');
+  /* 게시 직전: 최신 예산 이력을 캐시 없이 다시 받아 '3일 안에 이미 올린(줄인) 세트'가 섞였는지 본다 — 화면이 모르는 변경(다른 기기·다른 사람·오래 열어 둔 화면)까지 마지막에 한 번 더 거름 (2026-11-16) */
+  if (admgrPublishDrafts.busy) return; admgrPublishDrafts.busy = true;
+  let hits = [], histOk = true;
+  if (targets.some(t => t.kind === 'budget') && typeof admgrRepeatHits === 'function') {
+    toast('최신 예산 이력 확인 중…');
+    try { const r = await metaGet({ action: 'budgethistory', start_date: todayStr(-ADMGR_ADJ.back), end_date: todayStr(0), nocache: 1 }); admgrAlert.adjHist = [...(r.events || []), ...(admgrAlert.adjLocal || [])]; admgrAlert.adjHistAt = Date.now(); }
+    catch (e) { histOk = false; }   // 못 받으면 화면에 있는 이력으로라도 확인
+    hits = admgrRepeatHits(targets, admgrAlert.adjHist, todayStr(0));
+  }
+  admgrPublishDrafts.busy = false; admgrPublishDrafts.repeat = hits.map(h => h.t.id);
+  const kt = t => { const k = admgrKst(t); return k ? `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, '0')}:${String(k.getUTCMinutes()).padStart(2, '0')}` : ''; };
+  const repWarn = (hits.length ? `<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;"><b>⚠ 3일 안에 이미 같은 방향으로 바꾼 세트 ${hits.length}개가 들어 있어요</b>
+      ${hits.map(h => `<div style="font-size:.74rem;">· ${esc(admgrBase(h.t.name))}: ${kt(h.e.time)}에 ${comma(h.e.old_value)} → ${comma(h.e.new_value)} ${h.dir > 0 ? '올림' : '줄임'} · 이번에 ${comma(h.t.from)} → <b>${comma(h.t.to)}</b></div>`).join('')}
+      <div style="margin-top:6px;"><button class="btn-ghost" style="padding:4px 10px;font-size:.74rem;" onclick="admgrPublishDropRepeats()">이 ${hits.length}개 빼고 게시</button> <span style="font-size:.7rem;">그대로 두면 아래 [게시]에 같이 들어가요</span></div></div>` : '')
+    + (histOk ? '' : '<div style="font-size:.72rem;color:#b45309;margin-bottom:6px;">최신 예산 이력을 못 받아서 화면에 있던 이력으로만 확인했어요</div>');
   const capCfg = typeof admgrAlertCfg === 'function' ? admgrAlertCfg() : { cap: 0 }, B = typeof admgrBudgetTotal === 'function' ? admgrBudgetTotal(true) : null;
   const capWarn = B && capCfg.cap > 0 && B.after > capCfg.cap ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-weight:700;">⚠ 게시하면 켜진 일예산 합계가 ${comma(B.after)}원 — 상한 ${comma(capCfg.cap)}원을 ${comma(B.after - capCfg.cap)}원 넘어요</div>` : '';
-  admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${capWarn}${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
+  admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${repWarn}${capWarn}${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
     /* 진행 중 → 결과 알림창 (2026-09-07 사용자 요청: 적용됐는지 안 됐는지 창으로) */
     const results = [];
     const prog = () => { const el = $('abm-body'); if (el) el.innerHTML = `<div style="font-size:.85rem;padding:8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> Meta에 게시 중… <b>${results.length}/${targets.length}</b><div style="font-size:.72rem;color:#9ca3af;margin-top:6px;">창을 닫지 말고 잠시 기다려 주세요</div></div>`; };

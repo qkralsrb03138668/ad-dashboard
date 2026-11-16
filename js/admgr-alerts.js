@@ -365,6 +365,15 @@ function admgrAdjNote(p) {
   const e = { time: new Date().toISOString(), level: p.level, object_id: p.object_id, object_name: p.object_name || (n && n.name) || '', old_value: old, new_value: to, note: '방금 게시' };
   (A.adjLocal = A.adjLocal || []).push(e); if (A.adjHist) A.adjHist.push(e);
 }
+/* 게시 직전 안전장치 (2026-11-16 사용자 확정): 게시할 예산 변경 중 '3일 안에 같은 방향으로 이미 바꾼 것'을 고른다 — 순수 계산.
+   올림 뒤 또 올림 · 줄임 뒤 또 줄임만 잡는다(줄였다 되올리는 원복, 올렸다 되돌리기는 정상). 같은 변경이 이력에 두 번 있어도 결과는 같다 */
+function admgrRepeatHits(targets, hist, today, days = ADMGR_ADJ.cool) {
+  const from = admgrShiftDay(today, -(days - 1)), out = [];
+  for (const t of targets) { if (t.kind !== 'budget' || !(t.from > 0) || t.to === t.from) continue; const dir = Math.sign(t.to - t.from);
+    const L = (hist || []).filter(e => e.object_id === t.id && e.old_value > 0 && e.new_value > 0 && Math.sign(e.new_value - e.old_value) === dir && admgrKstDay(e.time) >= from).sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    if (L.length) out.push({ t, e: L[L.length - 1], dir }); }
+  return out;
+}
 const admgrKstDay = t => { const k = new Date(new Date(t).getTime() + 9 * 3600e3); return k.toISOString().slice(0, 10); };
 function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, dropLog = {}, hour = null) {   // hour: KST 시각(오늘 기간일 때만) — 오늘 구매로 보류 판단, null이면 안 봄   // dropLog: 상품 규칙으로 절반 한 세트 {id: {from, to, day, prod}}   // 순수 계산 — 테스트용으로 인자 전부 받음 (prodOf: 세트명 → 상품, admgr-tabs.js)
   const C = ADMGR_ADJ, R = ADMGR_ROAS, KB = C.keepFrom ?? R.keep, pc = v => Math.round(v * 100) + '%', last = new Map();   // KB = 유지 구간 시작(이 밑으로만 절반·감액 뒤 OFF) — 3일 회복 기준은 그대로 R.keep   // 세트 id → { cut: 가장 최근 감액일, up: 가장 최근 증액일 }

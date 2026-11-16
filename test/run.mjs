@@ -968,6 +968,13 @@ test('admgrAdjNote (11/16): 방금 게시한 증액이 이력에 바로 들어�
     admgr.data = keep.d; admgr.demo = keep.demo; admgrAlert.adjHist = keep.h; admgrAlert.adjLocal = keep.l; return r; })()`, ctx);
   assert.equal(out, 'up |  | 1 | 1 | 20000 | 26000');
 });
+test('admgrRepeatHits (11/16 게시 직전 경고): 3일 안에 같은 방향으로 이미 바꾼 것만 — 원복·되돌리기·4일 전·켜기끄기는 아님', () => {
+  const T = '2026-11-16', ev = (id, time, o, n) => ({ time, level: 'adset', object_id: id, old_value: o, new_value: n });
+  const hist = [ev('a', '2026-11-16T02:06:00+0000', 22000, 26000), ev('a', '2026-11-15T16:24:00+0000', 18000, 22000), ev('b', '2026-11-15T03:00:00+0000', 60000, 30000), ev('c', '2026-11-12T03:00:00+0000', 20000, 24000), ev('d', '2026-11-15T03:00:00+0000', 40000, 20000), ev('e', '2026-11-15T03:00:00+0000', 20000, 40000)];
+  const tg = (id, from, to, kind = 'budget') => ({ id, kind, level: 'adset', name: id, from, to });
+  const r = ctx.admgrRepeatHits([tg('a', 26000, 31000), tg('b', 30000, 60000), tg('c', 24000, 29000), tg('d', 20000, 10000), tg('e', 40000, 20000), tg('a', 0, 0, 'status'), tg('z', 20000, 24000)], hist, T);
+  assert.equal(r.map(h => `${h.t.id}${h.dir > 0 ? '+' : '-'}${h.e.new_value}`).join(' '), 'a+26000 d-20000');   // a: 최근 것(11:06 KST)을 보여줌 · b: 줄였다 되올림 · c: 4일 전 · e: 올렸다 되돌림
+});
 test('admgrAdjCutting (11/16): 증액 후보와 겹치는 예산 조정 후보 = OFF·절반·보류 — 유지·증액·대기는 아님', () => {
   assert.equal(['off', 'half', 'hold', 'watch', 'up', 'cool', 'back'].filter(a => ctx.admgrAdjCutting({ act: a })).join(' '), 'off half hold');
 });
