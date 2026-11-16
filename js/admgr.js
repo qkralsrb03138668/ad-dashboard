@@ -119,7 +119,11 @@ const SB_HTTP_MSG = { 401: '로그인이 필요해요 (세션 만료 — 새로�
 function metaGet(params) { return sbCall('meta-ads', params); }
 function metaPost(params, payload) { return sbCall('meta-ads', params, payload); }
 /* meta-budget 함수 (예산 쓰기) — 읽기 함수와 분리된 별도 엔드포인트 */
-function metaBudgetCall(params, payload) { return sbCall('meta-budget', params, payload); }
+function metaBudgetCall(params, payload) {
+  const p = sbCall('meta-budget', params, payload);
+  if (params && params.action === 'apply' && payload) p.then(() => { if (typeof admgrAdjNote === 'function') admgrAdjNote(payload); }).catch(() => {});   // 방금 바꾼 예산을 화면의 예산 이력에 바로 얹는다 — 예산을 쓰는 모든 길이 여기를 지난다 (2026-11-16)
+  return p;
+}
 
 async function admgrFetch() {
   if (!admgrCfg()) { toast('config.js에 Supabase 연동 정보를 먼저 채워주세요 (SETUP 문서 참고)'); return; }

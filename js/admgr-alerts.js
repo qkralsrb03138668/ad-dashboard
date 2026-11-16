@@ -351,9 +351,19 @@ async function admgrAdjEnsure() {   // 최근 10일 예산 변경 이력 (감액
   const A = admgrAlert; if (admgr.demo || !admgrCfg() || A.adjLoading || (A.adjHist && Date.now() - A.adjHistAt < 30 * 60000) || Date.now() - (A.adjFailAt || 0) < 5 * 60000) return;
   A.adjLoading = true;
   try { const [r, L] = await Promise.all([metaGet({ action: 'budgethistory', start_date: todayStr(-ADMGR_ADJ.back), end_date: todayStr(0) }), sbCall('client-log', { action: 'state_get', key: 'prod_drop_log' }).catch(() => null)]);
-    A.adjHist = r.events || []; A.adjHistAt = Date.now(); A.adjFailAt = 0; A.dropLog = (L && L.data) || { items: {} }; A.dropLogVer = (L && L.ver) || null; renderAdmgr(true); }
+    A.adjHist = [...(r.events || []), ...(A.adjLocal || [])]; A.adjHistAt = Date.now(); A.adjFailAt = 0; A.dropLog = (L && L.data) || { items: {} }; A.dropLogVer = (L && L.ver) || null; renderAdmgr(true); }
   catch (e) { A.adjFailAt = Date.now(); }
   A.adjLoading = false;
+}
+/* 이 화면에서 방금 게시한 예산 변경을 이력에 바로 넣는다 (2026-11-16 사용자 제보).
+   예산 이력을 화면을 열 때 한 번만 받고 다시 안 받아서, 증액을 게시한 뒤에도 '올린 뒤 3일 쉼'이 안 걸리고 같은 세트가 새 예산 기준으로 또 증액 후보에 떴다
+   — 11/16 오브레·레이브·밍크 트임·트위드·파울로 P2가 01:24 · 11:06 · 12:35 세 번 올라감(1.5만 → 3.4만 등). 절반도 같은 이유로 또 절반 후보가 될 수 있었다.
+   서버 이력은 5분 캐시라 다시 받아도 바로는 안 보이므로 여기서 직접 얹고(adjLocal — 다시 받은 이력에도 붙임), 이력 자체도 30분마다 다시 받는다(admgrAdjRows). 같은 변경이 두 번 들어가도 판정은 같다 */
+function admgrAdjNote(p) {
+  const A = admgrAlert, R = admgrRows(), n = (p.level === 'campaign' ? R.camps : R.sets).find(x => x.id === p.object_id), old = n ? Math.round(n.budget || 0) : 0, to = Number(p.new_budget);
+  if (!(old > 0) || !(to > 0) || old === to) return;
+  const e = { time: new Date().toISOString(), level: p.level, object_id: p.object_id, object_name: p.object_name || (n && n.name) || '', old_value: old, new_value: to, note: '방금 게시' };
+  (A.adjLocal = A.adjLocal || []).push(e); if (A.adjHist) A.adjHist.push(e);
 }
 const admgrKstDay = t => { const k = new Date(new Date(t).getTime() + 9 * 3600e3); return k.toISOString().slice(0, 10); };
 function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, dropLog = {}, hour = null) {   // hour: KST 시각(오늘 기간일 때만) — 오늘 구매로 보류 판단, null이면 안 봄   // dropLog: 상품 규칙으로 절반 한 세트 {id: {from, to, day, prod}}   // 순수 계산 — 테스트용으로 인자 전부 받음 (prodOf: 세트명 → 상품, admgr-tabs.js)
@@ -410,7 +420,8 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, d
 function admgrAdjCutting(x) { return x.act === 'off' || x.act === 'half' || x.act === 'hold'; }
 function admgrAdjRows() {
   const A = admgrAlert; if (!A.h7 || !A.h3) { if (admgr.data && !admgr.demo) setTimeout(() => admgrPromoEnsure(), 0); return null; }
-  if (!A.adjHist) { if (admgr.data && !admgr.demo) setTimeout(() => admgrAdjEnsure(), 0); return null; }
+  if (admgr.data && !admgr.demo) setTimeout(() => admgrAdjEnsure(), 0);   // 받은 지 30분 넘었으면 다시 (안에서 걸러냄) — 화면을 오래 열어 둬도 다른 사람·자정 예약이 바꾼 예산이 반영되게
+  if (!A.adjHist) return null;
   const M = h => new Map(((h && h.campaigns) || []).flatMap(c => (c.adsets || []).map(s => [s.id, s])));
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : new Date().getDay();
   const cut = todayStr(-14), items = (A.dropLog && A.dropLog.items) || {};   // 14일 지난 기록은 안 봄

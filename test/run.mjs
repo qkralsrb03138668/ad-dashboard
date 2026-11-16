@@ -955,6 +955,19 @@ test('판정에서 빼는 날: 깨끗한 날 n개·이어진 범위 묶기·창�
   assert.equal(ctx.admgrCleanDays(7, '2026-11-20', skip).join(' '), ctx.admgrCleanDays(7, '2026-11-20', []).join(' '));
   assert.equal([ctx.admgrSkipHit(7, '2026-11-19', skip), ctx.admgrSkipHit(7, '2026-11-20', skip), ctx.admgrSkipHit(3, '2026-11-15', skip), ctx.admgrSkipHit(3, '2026-11-16', skip)].join(' '), 'true false true false');
 });
+test('admgrAdjNote (11/16): 방금 게시한 증액이 이력에 바로 들어가 같은 세트가 다시 증액 후보로 안 뜬다', () => {
+  const out = vm.runInContext(`(() => { const keep = { d: admgr.data, demo: admgr.demo, h: admgrAlert.adjHist, l: admgrAlert.adjLocal };
+    admgr.demo = false; admgr.data = { campaigns: [{ id: 'c1', name: '테스트3', status: 'ACTIVE', budget: 0, adsets: [{ id: 'sx', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 20000 }] }] };
+    admgrAlert.adjHist = []; admgrAlert.adjLocal = [];
+    const sets = [{ id: 'sx', name: '니트_R1_28_261001', status: 'ACTIVE', budget: 20000 }], s7 = new Map([['sx', { name: '니트_R1_28_261001', spend: 70000, value: 840000, purchases: 15 }]]), s3 = new Map([['sx', { name: '니트_R1_28_261001', spend: 30000, value: 360000, purchases: 6 }]]);
+    const before = admgrAdjCalc(sets, s7, s3, admgrAlert.adjHist, todayStr(0), 1).map(x => x.act).join(',');
+    admgrAdjNote({ level: 'adset', object_id: 'sx', object_name: 'S', new_budget: 26000 }); admgrAdjNote({ level: 'adset', object_id: 'sx', new_budget: 20000 });   // 같은 값은 기록 안 함
+    sets[0].budget = 26000;
+    const after = admgrAdjCalc(sets, s7, s3, admgrAlert.adjHist, todayStr(0), 1).map(x => x.act).join(',');
+    const r = [before, after, admgrAlert.adjHist.length, admgrAlert.adjLocal.length, admgrAlert.adjHist[0].old_value, admgrAlert.adjHist[0].new_value].join(' | ');
+    admgr.data = keep.d; admgr.demo = keep.demo; admgrAlert.adjHist = keep.h; admgrAlert.adjLocal = keep.l; return r; })()`, ctx);
+  assert.equal(out, 'up |  | 1 | 1 | 20000 | 26000');
+});
 test('admgrAdjCutting (11/16): 증액 후보와 겹치는 예산 조정 후보 = OFF·절반·보류 — 유지·증액·대기는 아님', () => {
   assert.equal(['off', 'half', 'hold', 'watch', 'up', 'cool', 'back'].filter(a => ctx.admgrAdjCutting({ act: a })).join(' '), 'off half hold');
 });
