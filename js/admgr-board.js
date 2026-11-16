@@ -126,21 +126,21 @@ function renderAdmgrBoard() {
   const sub = r => {   // 펼친 세트 목록
     const L = r.setList.map(x => `<tr><td>${x.on ? '<span class="status-badge badge-green" style="font-size:.6rem;">켜짐</span>' : '<span class="status-badge badge-gray" style="font-size:.6rem;">꺼짐</span>'}</td>
       <td style="text-align:left;white-space:normal;"><a href="#" style="color:#4338ca;" onclick="event.preventDefault();event.stopPropagation();admgrBoardGoSet(this.dataset.n, ${x.on})" data-n="${esc(x.name)}" title="광고세트 탭에서 이 세트 보기 — 예산은 거기서">${esc(admgrBase(x.name))}</a></td>
-      <td style="white-space:nowrap;">${x.budget ? admgrW(x.budget) : x.cboBudget ? `<span class="ag-muted" title="캠페인 예산(CBO)">CBO ${admgrW(x.cboBudget)}</span>` : '—'}</td>
-      <td style="white-space:nowrap;">${admgrW(Math.round(x.sp))} · ${comma(x.p)}건</td><td style="white-space:nowrap;"><b>${pct(x.r7)}</b></td>
-      <td style="white-space:nowrap;">${pct(x.r3)}<span class="ag-muted" style="font-size:.66rem;"> · ${admgrW(Math.round(x.sp3))} · ${comma(x.p3)}건</span></td></tr>`).join('');
-    return `<tr><td></td><td colspan="7" style="text-align:left;background:#f8fafc;padding:8px 10px;">
+      <td data-l="일예산" style="white-space:nowrap;">${x.budget ? admgrW(x.budget) : x.cboBudget ? `<span class="ag-muted" title="캠페인 예산(CBO)">CBO ${admgrW(x.cboBudget)}</span>` : '—'}</td>
+      <td data-l="7일" style="white-space:nowrap;">${admgrW(Math.round(x.sp))} · ${comma(x.p)}건</td><td data-l="7일 ROAS" style="white-space:nowrap;"><b>${pct(x.r7)}</b></td>
+      <td data-l="3일 ROAS" style="white-space:nowrap;">${pct(x.r3)}<span class="ag-muted" style="font-size:.66rem;"> · ${admgrW(Math.round(x.sp3))} · ${comma(x.p3)}건</span></td></tr>`).join('');
+    return `<tr class="m-bsubrow"><td></td><td colspan="7" style="text-align:left;background:#f8fafc;padding:8px 10px;">
       <div class="ag-muted" style="font-size:.66rem;margin-bottom:4px;">세트 ${r.setList.length}개 · 켜짐/꺼짐·예산은 Meta 받은 시각 기준 (${hAge == null ? '—' : hAge < 1 ? '방금' : hAge + '분 전'})${hAge > 30 ? ' — <b style="color:#b45309;">30분 넘게 지났어요. 알림판이 곧 다시 받아요</b>' : ''}</div>
-      <table style="font-size:.72rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>7일 지출·구매</th><th>7일 ROAS</th><th>3일 ROAS · 지출 · 구매</th></tr></thead><tbody>${L}</tbody></table></td></tr>`;
+      <table class="m-bsub" style="font-size:.72rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>7일 지출·구매</th><th>7일 ROAS</th><th>3일 ROAS · 지출 · 구매</th></tr></thead><tbody>${L}</tbody></table></td></tr>`;
   };
-  const tr = r => `<tr style="cursor:pointer;" onclick="admgrBoardToggle(${r.no})" title="눌러서 세트 목록 ${b.open.has(r.no) ? '접기' : '펼치기'}"><td style="white-space:nowrap;">${rankCell(r)}</td>
+  const tr = r => `<tr style="cursor:pointer;" onclick="admgrBoardToggle(${r.no})" title="눌러서 세트 목록 ${b.open.has(r.no) ? '접기' : '펼치기'}"><td data-l="판매 순위" style="white-space:nowrap;">${rankCell(r)}</td>
     <td class="name-cell" style="text-align:left;white-space:normal;min-width:180px;"><i class="fa-solid fa-chevron-${b.open.has(r.no) ? 'down' : 'right'}" style="font-size:.6rem;color:#9ca3af;margin-right:4px;"></i><b>${pName(r.name)}</b><div class="ag-muted" style="font-size:.66rem;">켜진 세트 <b style="color:${r.liveSets ? '#15803d' : '#9ca3af'};">${r.liveSets}</b> / 7일 지출 세트 ${r.sets} · 광고 이름: ${esc(r.metaNames.join(' · '))}</div></td>
-    <td style="white-space:nowrap;">${comma(r.qty)}개${arrow(r.qty, r.prevQty)}<div class="ag-muted" style="font-size:.66rem;">직전 ${comma(r.prevQty)}개</div></td>
-    <td style="white-space:nowrap;">${cur ? admgrW(r.amt) : '—'}</td>
-    <td style="white-space:nowrap;">${admgrW(Math.round(r.sp7))}<div class="ag-muted" style="font-size:.66rem;">구매 ${comma(r.p7)}건</div></td>
-    <td style="white-space:nowrap;"><b>${pct(r.r7)}</b> → <b style="color:${r.eT > 0 ? '#dc2626' : r.eT < 0 ? '#2563eb' : '#374151'};">${pct(r.r3)}</b><div class="ag-muted" style="font-size:.66rem;">3일 지출 ${admgrW(Math.round(r.sp3))} · ${comma(r.p3)}건</div></td>
-    <td style="white-space:nowrap;">${pct(r.mer)}</td><td>${badge(r.v)}</td></tr>${b.open.has(r.no) ? sub(r) : ''}`;
-  const table = rows.length ? `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table style="font-size:.76rem;"><thead><tr>
+    <td data-l="판매 7일" style="white-space:nowrap;">${comma(r.qty)}개${arrow(r.qty, r.prevQty)}<div class="ag-muted" style="font-size:.66rem;">직전 ${comma(r.prevQty)}개</div></td>
+    <td data-l="카페24 매출" style="white-space:nowrap;">${cur ? admgrW(r.amt) : '—'}</td>
+    <td data-l="광고 지출 7일" style="white-space:nowrap;">${admgrW(Math.round(r.sp7))}<div class="ag-muted" style="font-size:.66rem;">구매 ${comma(r.p7)}건</div></td>
+    <td data-l="ROAS 7일 → 3일" style="white-space:nowrap;"><b>${pct(r.r7)}</b> → <b style="color:${r.eT > 0 ? '#dc2626' : r.eT < 0 ? '#2563eb' : '#374151'};">${pct(r.r3)}</b><div class="ag-muted" style="font-size:.66rem;">3일 지출 ${admgrW(Math.round(r.sp3))} · ${comma(r.p3)}건</div></td>
+    <td data-l="매출÷광고비" style="white-space:nowrap;">${pct(r.mer)}</td><td>${badge(r.v)}</td></tr>${b.open.has(r.no) ? sub(r) : ''}`;
+  const table = rows.length ? `<div class="table-wrap m-rows-wrap m-board-wrap" style="max-height:640px;overflow:auto;"><table class="m-board" style="font-size:.76rem;"><thead><tr>
     <th>판매 순위</th><th style="text-align:left;">상품</th><th>판매 7일</th><th>카페24 매출</th><th>광고 지출 7일</th><th>ROAS 7일 → 3일</th>
     <th title="카페24 7일 매출 ÷ Meta 7일 광고비 — Meta ROAS보다 훨씬 높으면 광고 밖(검색·재구매 등)에서도 팔리는 상품">매출÷광고비 <span style="color:#c4c9d4;">?</span></th><th>판정</th></tr></thead>
     <tbody>${rows.map(tr).join('')}</tbody></table></div>` : `<div class="empty-state"><p>${all.length ? '이 조건에 맞는 상품이 없어요.' : '최근 7일 광고 지출이 있는 상품이 없어요.'}</p></div>`;

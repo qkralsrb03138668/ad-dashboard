@@ -1010,6 +1010,31 @@ summary::-webkit-details-marker { display: none; }
   .m-rows td:nth-child(2) > div { font-weight: 400; font-size: 12px !important; margin-top: 2px; }
   .m-rows input[type="checkbox"] { width: 24px; height: 24px; margin: 2px 0 0; }
   .m-rows td:nth-child(7) button { min-height: 36px; padding: 6px 12px !important; font-size: 12px !important; }
+  /* 예약 목록: 5열 표 → 예약마다 2줄 (이름 / 현재 · 반영값 · 적용 시각 + 취소) — 2026-11-16 */
+  .m-pend, .m-pend tbody { display: block; width: 100%; } .m-pend thead { display: none; }
+  .m-pend tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "nm nm nm btn" "a b c btn"; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid #eef0f3; align-items: center; }
+  .m-pend td { display: block; padding: 0 !important; border: 0 !important; text-align: left !important; min-width: 0 !important; background: none !important; font-size: 13px; }
+  .m-pend td:nth-child(1) { grid-area: nm; font-weight: 700; white-space: normal !important; } .m-pend td:nth-child(2) { grid-area: a; } .m-pend td:nth-child(3) { grid-area: b; } .m-pend td:nth-child(4) { grid-area: c; } .m-pend td:nth-child(5) { grid-area: btn; }
+  .m-pend td[data-l]::before { content: attr(data-l) ' '; color: #9ca3af; font-size: 11.5px; font-weight: 600; }
+  .m-pend td:nth-child(5) button { min-height: 36px; padding: 6px 12px !important; font-size: 12px !important; }
+  /* 테스트 소재 줄: 구매당비용 옆 ROAS %가 오른쪽에서 잘리던 것 — 칸 폭을 내용에 맞게 (지출·구매는 좁게, 구매당비용은 넓게) — 2026-11-16 */
+  .tt-row { grid-template-columns: 24px minmax(0, 1fr) minmax(0, .7fr) minmax(0, 1.9fr); }
+  /* 상품 보드: 폰에선 표(.table-wrap)가 통째로 숨겨져 상품 목록이 안 보이던 것 → 상품마다 3줄 카드 (이름·판정 / 순위·판매·매출 / 광고비·ROAS·매출÷광고비), 누르면 세트 목록 — 2026-11-16 */
+  #sec-admgr .table-wrap.m-board-wrap { display: block; }
+  .m-board, .m-board > tbody { display: block; width: 100%; } .m-board > thead { display: none; }
+  .m-board > tbody > tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "nm nm bd" "rk q a" "sp ro me"; gap: 8px 10px; padding: 12px 2px; border-bottom: 1px solid #eef0f3; align-items: start; }
+  .m-board > tbody > tr > td { display: block; padding: 0 !important; border: 0 !important; text-align: left !important; min-width: 0 !important; white-space: normal !important; background: none !important; font-size: 13px; }
+  .m-board > tbody > tr > td:nth-child(1) { grid-area: rk; } .m-board > tbody > tr > td:nth-child(2) { grid-area: nm; font-size: 14px; } .m-board > tbody > tr > td:nth-child(3) { grid-area: q; } .m-board > tbody > tr > td:nth-child(4) { grid-area: a; }
+  .m-board > tbody > tr > td:nth-child(5) { grid-area: sp; } .m-board > tbody > tr > td:nth-child(6) { grid-area: ro; } .m-board > tbody > tr > td:nth-child(7) { grid-area: me; } .m-board > tbody > tr > td:nth-child(8) { grid-area: bd; justify-self: end; }
+  .m-board > tbody > tr > td[data-l]::before { content: attr(data-l); display: block; color: #9ca3af; font-size: 11.5px; font-weight: 600; }
+  .m-board > tbody > tr.m-bsubrow { display: block; padding: 0 0 10px; }
+  .m-board > tbody > tr.m-bsubrow > td:first-child { display: none; }
+  .m-board > tbody > tr.m-bsubrow > td { background: #f8fafc !important; padding: 8px 10px !important; border-radius: 8px; }
+  .m-bsub, .m-bsub tbody { display: block; width: 100%; } .m-bsub thead { display: none; }
+  .m-bsub tr { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "st nm nm" "st bg sp" "st r7 r3"; gap: 3px 8px; padding: 8px 0; border-top: 1px solid #e5e7eb; }
+  .m-bsub td { display: block; padding: 0 !important; border: 0 !important; text-align: left !important; white-space: normal !important; background: none !important; font-size: 12px; }
+  .m-bsub td:nth-child(1) { grid-area: st; } .m-bsub td:nth-child(2) { grid-area: nm; font-size: 13px; } .m-bsub td:nth-child(3) { grid-area: bg; } .m-bsub td:nth-child(4) { grid-area: sp; } .m-bsub td:nth-child(5) { grid-area: r7; } .m-bsub td:nth-child(6) { grid-area: r3; }
+  .m-bsub td[data-l]::before { content: attr(data-l) ' '; color: #9ca3af; font-size: 11px; font-weight: 600; }
   #admgr-budget-modal .modal-box { max-height: calc(100dvh - 16px); }
   .m-foot { position: sticky; bottom: -16px; margin-bottom: -16px; padding: 10px 0 16px; background: #fff; border-top: 1px solid #eef0f3; z-index: 2; }
   .m-foot .btn-analyze { flex: 1; }

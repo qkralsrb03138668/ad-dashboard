@@ -59,14 +59,29 @@ function admgrConfirmModal(title, bodyHtml, okLabel, onOk) {
   $('abm-ok').onclick = () => { closeModal('admgr-budget-modal'); onOk(); };
   $('admgr-budget-modal').classList.add('show');
 }
-function admgrApplyNow(id, level, val) {
+/* 게시 직전 확인(상단 [게시]·세트 하나 바로 게시 공통): 최신 예산 이력을 캐시 없이 다시 받아 '3일 안에 이미 같은 방향으로 바꾼 것'을 찾는다 — 화면이 모르는 변경(다른 기기·다른 사람·오래 열어 둔 화면)까지 마지막에 한 번 더 거름 (2026-11-16) */
+async function admgrRepeatCheck(targets) {
+  if (!targets.some(t => t.kind === 'budget') || typeof admgrRepeatHits !== 'function') return { hits: [], histOk: true };
+  let histOk = true; toast('최신 예산 이력 확인 중…');
+  try { const r = await metaGet({ action: 'budgethistory', start_date: todayStr(-ADMGR_ADJ.back), end_date: todayStr(0), nocache: 1 }); admgrAlert.adjHist = [...(r.events || []), ...(admgrAlert.adjLocal || [])]; admgrAlert.adjHistAt = Date.now(); }
+  catch (e) { histOk = false; }   // 못 받으면 화면에 있는 이력으로라도 확인
+  $('toast').classList.remove('show');   // 확인창 금액 줄을 가리지 않게
+  return { hits: admgrRepeatHits(targets, admgrAlert.adjHist, todayStr(0)), histOk };
+}
+const admgrRepeatWhen = t => { const k = admgrKst(t); return k ? `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, '0')}:${String(k.getUTCMinutes()).padStart(2, '0')}` : ''; };
+const ADMGR_HIST_FAIL = '<div style="font-size:.72rem;color:#b45309;margin-bottom:6px;">최신 예산 이력을 못 받아서 화면에 있던 이력으로만 확인했어요</div>';
+async function admgrApplyNow(id, level, val) {
   const w = admgr.write;
   if (!w.pin) { admgrPinPrompt(() => admgrApplyNow(id, level, val)); return; }
   const node = (level === 'campaign' ? admgrRows().camps : admgrRows().sets).find(x => x.id === id); if (!node) return;
   const amount = Math.round(Number(String(val).replace(/[^0-9]/g, '')));
   if (!(amount >= 1000 && amount <= w.st.max_budget)) { toast(`1,000원 ~ ${comma(w.st.max_budget)}원 사이로 입력하세요`); return; }
   $('admgr-bpop').style.display = 'none';   // 편집창 닫기 (PIN 프롬프트가 같은 창을 쓰므로 여기서만)
-  admgrConfirmModal('예산 즉시 변경', `<b>${esc(node.name)}</b><br/>일예산 ${won(node.budget)} → <b style="color:#4f46e5;">${won(amount)}</b><br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영되는 실제 예산 변경이에요</span>`, '게시', async () => {
+  if (admgrApplyNow.busy) return; admgrApplyNow.busy = true;
+  const { hits, histOk } = await admgrRepeatCheck([{ id, kind: 'budget', level, name: node.name, from: Math.round(node.budget || 0), to: amount }]).finally(() => { admgrApplyNow.busy = false; });
+  const h = hits[0], repWarn = (h ? `<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;"><b>⚠ 3일 안에 이미 ${h.dir > 0 ? '올린' : '줄인'} ${level === 'campaign' ? '캠페인' : '세트'}예요</b>
+      <div style="font-size:.74rem;">${admgrRepeatWhen(h.e.time)}에 ${comma(h.e.old_value)} → ${comma(h.e.new_value)} ${h.dir > 0 ? '올림' : '줄임'} · 또 ${h.dir > 0 ? '올리는' : '줄이는'} 게 맞으면 [게시], 아니면 [취소]</div></div>` : '') + (histOk ? '' : ADMGR_HIST_FAIL);
+  admgrConfirmModal('예산 즉시 변경', `${repWarn}<b>${esc(node.name)}</b><br/>일예산 ${won(node.budget)} → <b style="color:#4f46e5;">${won(amount)}</b><br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영되는 실제 예산 변경이에요</span>`, '게시', async () => {
     try {
       await metaBudgetCall({ action: 'apply' }, { object_id: id, object_name: node.name, level, new_budget: amount, pin: w.pin });
       delete admgrDraft[id]; lsSet('adc_admgr_draft', admgrDraft);
@@ -148,21 +163,14 @@ async function admgrPublishDrafts() {
   const lines = targets.map(t => t.kind === 'status'
     ? `· ${esc(t.name)}: <b style="color:${t.status === 'ACTIVE' ? '#1e7b34' : '#c9372c'};">${t.status === 'ACTIVE' ? '켜기' : '끄기'}</b>`
     : `· ${esc(t.name)}: ${comma(t.from)} → <b>${comma(t.to)}</b>`).join('<br/>');
-  /* 게시 직전: 최신 예산 이력을 캐시 없이 다시 받아 '3일 안에 이미 올린(줄인) 세트'가 섞였는지 본다 — 화면이 모르는 변경(다른 기기·다른 사람·오래 열어 둔 화면)까지 마지막에 한 번 더 거름 (2026-11-16) */
   if (admgrPublishDrafts.busy) return; admgrPublishDrafts.busy = true;
-  let hits = [], histOk = true;
-  if (targets.some(t => t.kind === 'budget') && typeof admgrRepeatHits === 'function') {
-    toast('최신 예산 이력 확인 중…');
-    try { const r = await metaGet({ action: 'budgethistory', start_date: todayStr(-ADMGR_ADJ.back), end_date: todayStr(0), nocache: 1 }); admgrAlert.adjHist = [...(r.events || []), ...(admgrAlert.adjLocal || [])]; admgrAlert.adjHistAt = Date.now(); }
-    catch (e) { histOk = false; }   // 못 받으면 화면에 있는 이력으로라도 확인
-    hits = admgrRepeatHits(targets, admgrAlert.adjHist, todayStr(0));
-  }
-  admgrPublishDrafts.busy = false; admgrPublishDrafts.repeat = hits.map(h => h.t.id);
-  const kt = t => { const k = admgrKst(t); return k ? `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${String(k.getUTCHours()).padStart(2, '0')}:${String(k.getUTCMinutes()).padStart(2, '0')}` : ''; };
+  const { hits, histOk } = await admgrRepeatCheck(targets).finally(() => { admgrPublishDrafts.busy = false; });
+  admgrPublishDrafts.repeat = hits.map(h => h.t.id);
+  const kt = admgrRepeatWhen;
   const repWarn = (hits.length ? `<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;"><b>⚠ 3일 안에 이미 같은 방향으로 바꾼 세트 ${hits.length}개가 들어 있어요</b>
       ${hits.map(h => `<div style="font-size:.74rem;">· ${esc(admgrBase(h.t.name))}: ${kt(h.e.time)}에 ${comma(h.e.old_value)} → ${comma(h.e.new_value)} ${h.dir > 0 ? '올림' : '줄임'} · 이번에 ${comma(h.t.from)} → <b>${comma(h.t.to)}</b></div>`).join('')}
       <div style="margin-top:6px;"><button class="btn-ghost" style="padding:4px 10px;font-size:.74rem;" onclick="admgrPublishDropRepeats()">이 ${hits.length}개 빼고 게시</button> <span style="font-size:.7rem;">그대로 두면 아래 [게시]에 같이 들어가요</span></div></div>` : '')
-    + (histOk ? '' : '<div style="font-size:.72rem;color:#b45309;margin-bottom:6px;">최신 예산 이력을 못 받아서 화면에 있던 이력으로만 확인했어요</div>');
+    + (histOk ? '' : ADMGR_HIST_FAIL);
   const capCfg = typeof admgrAlertCfg === 'function' ? admgrAlertCfg() : { cap: 0 }, B = typeof admgrBudgetTotal === 'function' ? admgrBudgetTotal(true) : null;
   const capWarn = B && capCfg.cap > 0 && B.after > capCfg.cap ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-weight:700;">⚠ 게시하면 켜진 일예산 합계가 ${comma(B.after)}원 — 상한 ${comma(capCfg.cap)}원을 ${comma(B.after - capCfg.cap)}원 넘어요</div>` : '';
   admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${repWarn}${capWarn}${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
@@ -248,13 +256,13 @@ function admgrMidList() {   // 예약 목록 — 시각 예약 + 남아 있는 �
   const w = admgr.write;
   const rows = [...(w.pendingByObj ? w.pendingByObj.values() : []), ...((w.lastPending && w.lastPending.pending) || []).filter(p => p.mode === 'timed')];
   $('abm-title').textContent = '반영 예약 목록'; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = (rows.length ? `<div class="table-wrap"><table style="font-size:.78rem;">
+  $('abm-body').innerHTML = (rows.length ? `<div class="table-wrap m-rows-wrap"><table class="m-pend" style="font-size:.78rem;">
       <thead><tr><th style="text-align:left;">대상</th><th>현재</th><th>반영값</th><th>적용</th><th></th></tr></thead>
       <tbody>${rows.map(p => `<tr>
         <td class="name-cell" style="text-align:left;">${esc(p.object_name || p.object_id)}<div style="font-size:.64rem;color:#9ca3af;">${p.level === 'campaign' ? '캠페인' : '광고세트'}</div></td>
-        <td style="white-space:nowrap;">${p.old_budget ? won(Math.round(p.old_budget)) : '—'}</td>
-        <td style="white-space:nowrap;font-weight:800;color:#b45309;">${won(Math.round(p.new_budget))}</td>
-        <td style="white-space:nowrap;">${admgrPendWhen(p)}</td>
+        <td data-l="현재" style="white-space:nowrap;">${p.old_budget ? won(Math.round(p.old_budget)) : '—'}</td>
+        <td data-l="반영값" style="white-space:nowrap;font-weight:800;color:#b45309;">${won(Math.round(p.new_budget))}</td>
+        <td data-l="적용" style="white-space:nowrap;">${admgrPendWhen(p)}</td>
         <td><button class="btn-ghost btn-danger-ghost" style="padding:2px 10px;font-size:.7rem;" onclick="admgrMidCancel(${p.id})">취소</button></td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty-state" style="padding:20px;"><p>걸어 둔 예약이 없어요.</p></div>')
     + `<div style="display:flex;gap:6px;margin-top:10px;">
