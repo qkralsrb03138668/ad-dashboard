@@ -978,6 +978,10 @@ test('admgrRepeatHits (11/16 게시 직전 경고): 3일 안에 같은 방향으
 test('admgrAdjCutting (11/16): 증액 후보와 겹치는 예산 조정 후보 = OFF·절반·보류 — 유지·증액·대기는 아님', () => {
   assert.equal(['off', 'half', 'hold', 'watch', 'up', 'cool', 'back'].filter(a => ctx.admgrAdjCutting({ act: a })).join(' '), 'off half hold');
 });
+test('admgrHalfOf (11/17 OFF 후보 [절반]): 일예산 절반을 천 원 단위로 — 규칙의 절반과 같은 값, 세트 예산 없으면(CBO) 0', () => {
+  const h = vm.runInContext('admgrHalfOf', ctx);
+  assert.deepEqual([30000, 15000, 2000, 1500, 0, undefined].map(h), [15000, 8000, 1000, 0, 0, 0]);
+});
 test('admgrAlertBrief: 알림 문구에서 태그·작은 설명을 뺀 한 줄 (폰 접힌 알림판)', () => {
   assert.equal(ctx.admgrAlertBrief('<b>예산 조정 후보</b> OFF 2 · 절반 2 <small>최근 7일 ROAS · <b>기본값</b></small>'), '예산 조정 후보 OFF 2 · 절반 2');
 });
