@@ -485,7 +485,7 @@ function admgrAdjModal() {
   const canHalf = admgr.write.st && admgr.write.st.allowed && !admgr.demo && dnrbCan('budget');   // OFF 줄 끝 [절반] — 끄지 않고 일예산 절반으로 임시 저장 (2026-11-17 사용자 요청)
   const row = x => { const off = admgrSDraft[x.s.id] && admgrSDraft[x.s.id].status === 'PAUSED', pend = admgrDraft[x.s.id] || admgrSDraft[x.s.id], swap = off && x.act !== 'off';   // swap = 후보는 절반·증액인데 OFF로 임시 저장
     const hTo = admgrHalfOf(x.from), halved = x.act === 'off' && !off && admgrDraft[x.s.id] > 0;   // halved = 후보는 OFF인데 예산(절반)으로 임시 저장
-    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${swap || halved ? '' : `<input type="checkbox" class="adj-ck" data-id="${esc(x.s.id)}" data-act="${x.act}" data-to="${x.to}" data-from="${x.from}" data-pd="${x.prodDrop ? 1 : ''}" ${pend ? '' : 'checked'} />`}</td>
+    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${swap || halved ? '' : `<input type="checkbox" class="adj-ck" data-id="${esc(x.s.id)}" data-act="${x.act}" data-to="${x.to}" data-from="${x.from}" data-pd="${x.prodDrop ? 1 : ''}"${pend ? ' data-pend="1"' : ''} />`}</td>
       <td class="name-cell" style="text-align:left;white-space:normal;min-width:240px;">${role(x)} ${esc(admgrBase(x.s.name))}<div style="color:#6b7280;font-size:.66rem;white-space:normal;">${esc(x.why)}${pend ? ` · <b style="color:#b45309;">${off ? 'OFF ' : halved ? '절반 ' : ''}임시 저장됨 · 아직 게시 전</b>` : ''}</div></td>
       <td data-l="7일" style="white-space:nowrap;"><b>${P(x.r7)}</b><div style="font-size:.7rem;color:#374151;line-height:1.5;">지출 <b>${man(x.sp7)}</b> · ${x.p7 || 0}건${x.p7 ? `<br>구매당 ${comma(Math.round(x.sp7 / x.p7))}` : ''}</div></td>
       <td data-l="3일" style="white-space:nowrap;">${P(x.r3)}<div style="font-size:.7rem;color:#374151;line-height:1.5;">지출 <b>${man(x.sp3)}</b> · ${x.p3 || 0}건${x.p3 ? `<br>구매당 ${comma(Math.round(x.sp3 / x.p3))}` : ''}</div></td>
@@ -496,14 +496,29 @@ function admgrAdjModal() {
   const sum = () => { let a = 0, b = 0; R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)).forEach(x => { a += x.from; b += x.act === 'off' && !admgrSDraft[x.s.id] && admgrDraft[x.s.id] > 0 ? admgrDraft[x.s.id] : (x.to || 0); }); return { a, b }; }, S = sum(), B = admgrBudgetTotal(false);
   const k = admgrKst(new Date().toISOString()), dow = k ? k.getUTCDay() : 1;
   $('abm-title').textContent = `예산 조정 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">${admgrRuleFold(`어제까지 7일 <b>ROAS</b>로 골랐어요 (${admgrAttrTxt()}). 450% 미만 OFF · 450~900% 유지 · 900%↑ 증액(1100%↑ +30%). 450~550%는 11/13부터 절반 없이 유지해요. 7일 구매 5건 또는 지출 5만원부터 판단 · 7일 450% 미만이어도 3일 550%↑·3건↑면 OFF 대신 절반(하루 지출 2만 미만 · 감액 이력 없을 때) · 오늘 구매가 당일 증액 기준 건수(4만↓ 2건 · 5~6만 3건 · 7~8만 4건 …)를 넘으면 OFF·절반은 내일 다시 · 표본 전인 소액 세트도 7일 지출 3만↑에 구매 0이거나 450% 미만이면 테스트 기준으로 OFF(450% 미만은 금·토·일 보류) · 돌기 시작한 지 3일 안 된 세트는 안 봄 · 상품 전체 3일 450% 미만(10건↑)이면 그 상품 유지 세트도 절반, 상품이 550%↑로 살아나면 원복 · 상품 3일 900%↑(20건↑)면 유지 세트도 +20%. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요. 절반·원복·증액 줄 끝 <b>[OFF]</b>는 그 세트를 끄기로 임시 저장(다시 누르면 취소). OFF 줄 끝 <b>[절반]</b>은 끄지 않고 일예산을 절반으로 임시 저장(다시 누르면 취소).`)}
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">${admgrRuleFold(`어제까지 7일 <b>ROAS</b>로 골랐어요 (${admgrAttrTxt()}). 450% 미만 OFF · 450~900% 유지 · 900%↑ 증액(1100%↑ +30%). 450~550%는 11/13부터 절반 없이 유지해요. 7일 구매 5건 또는 지출 5만원부터 판단 · 7일 450% 미만이어도 3일 550%↑·3건↑면 OFF 대신 절반(하루 지출 2만 미만 · 감액 이력 없을 때) · 오늘 구매가 당일 증액 기준 건수(4만↓ 2건 · 5~6만 3건 · 7~8만 4건 …)를 넘으면 OFF·절반은 내일 다시 · 표본 전인 소액 세트도 7일 지출 3만↑에 구매 0이거나 450% 미만이면 테스트 기준으로 OFF(450% 미만은 금·토·일 보류) · 돌기 시작한 지 3일 안 된 세트는 안 봄 · 상품 전체 3일 450% 미만(10건↑)이면 그 상품 유지 세트도 절반, 상품이 550%↑로 살아나면 원복 · 상품 3일 900%↑(20건↑)면 유지 세트도 +20%. 체크는 처음엔 전부 풀려 있어요 — 줄마다 체크하거나 맨 위 <b>[전체 선택]</b>. 체크한 것만 임시 저장에 들어가고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요. 절반·원복·증액 줄 끝 <b>[OFF]</b>는 그 세트를 끄기로 임시 저장(다시 누르면 취소). OFF 줄 끝 <b>[절반]</b>은 끄지 않고 일예산을 절반으로 임시 저장(다시 누르면 취소).`)}
       <div>후보 세트 지출 합 — 7일 ${admgrW(Math.round(R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)).reduce((a, x) => a + x.sp7, 0)))} · 3일 ${admgrW(Math.round(R.filter(x => ['off', 'half', 'back', 'up'].includes(x.act)).reduce((a, x) => a + x.sp3, 0)))}</div>
       <div>대상 세트 일예산 ${admgrW(S.a)} → ${admgrW(S.b)} · 켜진 일예산 전체 ${admgrW(B.total)} → 약 ${admgrW(B.total - S.a + S.b)}${dow === 5 || dow === 6 ? ' · 금·토요일엔 증액 후보를 내지 않아요' : ''}</div></div>
-    <div class="table-wrap m-rows-wrap" style="max-height:62vh;overflow:auto;"><table class="m-rows" style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>7일 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>3일 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>일예산</th><th>결과</th><th></th></tr></thead>
+    <label style="display:flex;align-items:center;gap:8px;margin:8px 0 6px;font-size:.8rem;font-weight:700;color:#374151;cursor:pointer;width:max-content;"><input type="checkbox" id="adj-all" style="width:18px;height:18px;" onchange="admgrAdjAll(this.checked)" /> 전체 선택 <span id="adj-n" style="font-weight:600;color:#6b7280;"></span></label>
+    <div class="table-wrap m-rows-wrap" style="max-height:62vh;overflow:auto;" onchange="admgrAdjSync()"><table class="m-rows" style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>7일 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>3일 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매 · 구매당</small></th><th>일예산</th><th>결과</th><th></th></tr></thead>
       <tbody>${sec('off', 'OFF', '#b91c1c')}${sec('half', '절반으로', '#b45309')}${sec('back', '원복 (상품 회복)', '#2563eb')}${sec('up', '증액', '#15803d')}</tbody></table>${info('hold', '오늘 구매 기준 건수↑ — OFF·절반 내일 다시')}${info('watch', '유지 (7일 ROAS 450~900%)')}${info('cool', '감액 뒤 대기 (3일)')}</div>
     <div class="m-foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button><button class="btn-analyze" onclick="admgrAdjApply()">체크한 것 임시 저장에 넣기</button></div>`;
   admgrAbmWide();
-  $('admgr-budget-modal').classList.add('show');
+  $('admgr-budget-modal').classList.add('show'); admgrAdjSync();
+}
+/* 체크는 처음엔 전부 풀려 있고, 맨 위 [전체 선택]으로 한 번에 — 이미 임시 저장된 줄(data-pend)은 전체 선택에서 뺀다 (2026-11-18 사용자 요청) */
+const admgrAdjCks = () => [...document.querySelectorAll('#abm-body .adj-ck:not([data-pend])')];
+function admgrAdjAll(on) { admgrAdjCks().forEach(e => { e.checked = on; }); admgrAdjSync(); }
+function admgrAdjSync() {
+  const L = admgrAdjCks(), n = document.querySelectorAll('#abm-body .adj-ck:checked').length, all = $('adj-all'), c = L.filter(e => e.checked).length;
+  if (all) { all.checked = L.length > 0 && c === L.length; all.indeterminate = c > 0 && c < L.length; all.disabled = !L.length; }
+  if ($('adj-n')) $('adj-n').textContent = `${n}개 선택`;
+}
+function admgrAdjRedraw() {   // 줄 끝 [절반]·[OFF]로 창을 다시 그릴 때 체크와 스크롤 위치를 그대로 둔다 (2026-11-18 — 누를 때마다 체크가 처음 상태로 돌아가던 것)
+  const ck = new Set([...document.querySelectorAll('#abm-body .adj-ck:checked')].map(e => e.dataset.id)), w = document.querySelector('#abm-body .table-wrap'), top = w ? w.scrollTop : 0;
+  renderAdmgr(true); admgrAdjModal();
+  document.querySelectorAll('#abm-body .adj-ck').forEach(e => { e.checked = ck.has(e.dataset.id); }); admgrAdjSync();
+  const w2 = document.querySelector('#abm-body .table-wrap'); if (w2) w2.scrollTop = top;
 }
 const admgrHalfOf = b => b >= 2000 ? Math.max(1000, Math.round(b / 2000) * 1000) : 0;   // 일예산 절반(천 원 단위) — 세트 예산이 없거나(CBO) 2천 원 미만이면 0 = 못 줄임
 function admgrAdjHalf(id) {   // OFF 후보를 끄지 않고 절반으로 — 예산 임시 저장, 끄기 임시 저장은 지움. 다시 누르면 취소 (2026-11-17 사용자 요청)
@@ -512,11 +527,10 @@ function admgrAdjHalf(id) {   // OFF 후보를 끄지 않고 절반으로 — �
   else if (!to) { toast('세트 예산이 없어서(캠페인 예산) 절반으로 줄일 수 없어요'); return; }
   else { admgrDraft[id] = to; delete admgrSDraft[id]; toast("절반 임시 저장 — 상단 '게시'로 반영"); }
   lsSet('adc_admgr_draft', admgrDraft); lsSet('adc_admgr_sdraft', admgrSDraft);
-  const w = document.querySelector('#abm-body .table-wrap'), top = w ? w.scrollTop : 0;
-  renderAdmgr(true); admgrAdjModal();
-  const w2 = document.querySelector('#abm-body .table-wrap'); if (w2) w2.scrollTop = top;
+  admgrAdjRedraw();
 }
 function admgrAdjApply() {
+  if (!document.querySelector('#abm-body .adj-ck:checked')) { toast('체크한 세트가 없어요 — 줄을 체크하거나 맨 위 [전체 선택]을 누르세요'); return; }
   let n = 0;
   const A = admgrAlert, log = { items: { ...((A.dropLog && A.dropLog.items) || {}) } }; let logChanged = false;
   document.querySelectorAll('.adj-ck:checked').forEach(el => { const id = el.dataset.id; if (el.dataset.act === 'off') admgrSDraft[id] = { level: 'adset', status: 'PAUSED' }; else admgrDraft[id] = Number(el.dataset.to); n++;

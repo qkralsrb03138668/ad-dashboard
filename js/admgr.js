@@ -1547,8 +1547,9 @@ function admgrFastOff(id, adj) {   // adj = 예산 조정 후보 창에서 누�
   if (admgrSDraft[id]) { delete admgrSDraft[id]; toast('OFF 임시 저장을 취소했어요'); }
   else { admgrSDraft[id] = { level: 'adset', name: r.name, status: 'PAUSED' }; delete admgrDraft[id]; toast("OFF 임시 저장 — 상단 '게시'로 반영"); }
   lsSet('adc_admgr_sdraft', admgrSDraft); lsSet('adc_admgr_draft', admgrDraft);
+  if (adj) { admgrAdjRedraw(); return; }   // 예산 조정 후보 창: 체크·스크롤 유지
   const w = document.querySelector('#abm-body .table-wrap'), top = w ? w.scrollTop : 0;
-  renderAdmgr(true); (adj ? admgrAdjModal : admgrFastModal)();
+  renderAdmgr(true); admgrFastModal();
   const w2 = document.querySelector('#abm-body .table-wrap'); if (w2) w2.scrollTop = top;
 }
 function admgrFastApply() {
