@@ -149,6 +149,10 @@ function admgrDraftTargets() {
   }
   return out;
 }
+function admgrPubProgress(done, total, ms) {   // 게시 진행률 — pct = 끝난 비율, left = 남은 초(끝난 것 평균 시간 × 남은 개수 · 하나도 안 끝났거나 다 끝났으면 null)
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  return { pct, left: done > 0 && done < total ? Math.max(1, Math.round(ms / done * (total - done) / 1000)) : null };
+}
 function admgrPublishDropRepeats() {   // 경고에 뜬 세트만 임시 저장에서 빼고 게시 확인창을 다시 연다
   for (const id of (admgrPublishDrafts.repeat || [])) delete admgrDraft[id];
   lsSet('adc_admgr_draft', admgrDraft); closeModal('admgr-budget-modal'); renderAdmgr(true); admgrPublishDrafts();
@@ -174,12 +178,20 @@ async function admgrPublishDrafts() {
   const capCfg = typeof admgrAlertCfg === 'function' ? admgrAlertCfg() : { cap: 0 }, B = typeof admgrBudgetTotal === 'function' ? admgrBudgetTotal(true) : null;
   const capWarn = B && capCfg.cap > 0 && B.after > capCfg.cap ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-weight:700;">⚠ 게시하면 켜진 일예산 합계가 ${comma(B.after)}원 — 상한 ${comma(capCfg.cap)}원을 ${comma(B.after - capCfg.cap)}원 넘어요</div>` : '';
   admgrConfirmModal(`임시 저장 ${targets.length}개 게시`, `${repWarn}${capWarn}${lines}<br/><span style="color:#9ca3af;font-size:.72rem;">Meta에 즉시 반영돼요 · 순서대로 처리(개당 1초쯤)</span>`, `${targets.length}개 게시`, async () => {
-    /* 진행 중 → 결과 알림창 (2026-09-07 사용자 요청: 적용됐는지 안 됐는지 창으로) */
-    const results = [];
-    const prog = () => { const el = $('abm-body'); if (el) el.innerHTML = `<div style="font-size:.85rem;padding:8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> Meta에 게시 중… <b>${results.length}/${targets.length}</b><div style="font-size:.72rem;color:#9ca3af;margin-top:6px;">창을 닫지 말고 잠시 기다려 주세요</div></div>`; };
-    $('abm-title').textContent = '임시 저장 게시 중'; $('abm-sub').style.display = 'none'; prog(); $('admgr-budget-modal').classList.add('show');
+    /* 진행 중 → 결과 알림창 (2026-09-07 사용자 요청: 적용됐는지 안 됐는지 창으로). 2026-11-18: 진행률 % 막대 · 지금 처리 중인 세트 · 끝난 것 ✓/✗ · 남은 시간 */
+    const results = [], t0 = Date.now(), what = t => t.kind === 'status' ? (t.status === 'ACTIVE' ? '켜기' : '끄기') : `${comma(t.from)} → ${comma(t.to)}`;
+    const prog = cur => { const el = $('abm-body'); if (!el) return; const P = admgrPubProgress(results.length, targets.length, Date.now() - t0), fail = results.filter(r => !r.ok).length;
+      $('abm-title').textContent = `임시 저장 게시 중 — ${P.pct}%`;
+      el.innerHTML = `<div style="font-size:.85rem;padding:4px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;"><b style="font-size:1.5rem;color:#4f46e5;">${P.pct}%</b><span style="color:#374151;"><b>${results.length}</b> / ${targets.length}개 완료${fail ? ` · <b style="color:#dc2626;">실패 ${fail}</b>` : ''}${P.left != null ? ` · 약 ${P.left}초 남음` : ''}</span></div>
+        <div style="height:10px;background:#eef0f4;border-radius:9px;overflow:hidden;margin:6px 0 10px;"><div style="height:100%;width:${P.pct}%;background:#4f46e5;border-radius:9px;"></div></div>
+        ${cur ? `<div style="background:#f5f6ff;border-radius:8px;padding:8px 10px;"><i class="fa-solid fa-spinner fa-spin"></i> 지금 Meta에 보내는 중 (${results.length + 1}번째)<div style="font-weight:700;margin-top:2px;word-break:break-all;">${esc(cur.name)} · ${what(cur)}</div></div>` : ''}
+        ${results.length ? `<div style="max-height:32vh;overflow:auto;margin-top:8px;font-size:.76rem;line-height:1.6;color:#374151;">${results.slice().reverse().map(r => `<div style="display:flex;gap:8px;padding:2px 0;"><span style="flex:none;font-weight:800;color:${r.ok ? '#15803d' : '#dc2626'};">${r.ok ? '✓' : '✗'}</span><span style="min-width:0;word-break:break-all;">${esc(r.t.name)} · ${what(r.t)}${r.ok ? '' : ` <span style="color:#dc2626;">${esc(r.err || '실패')}</span>`}</span></div>`).join('')}</div>` : ''}
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:8px;">창을 닫지 말고 잠시 기다려 주세요 · 하나씩 순서대로 보내요</div></div>`; };
+    $('abm-sub').style.display = 'none'; prog(targets[0]); $('admgr-budget-modal').classList.add('show');
     let stopped = false;
     for (const t of targets) {   // ponytail: 순차 실행 (Meta 호출 한도 배려)
+      prog(t);
       try {
         if (t.kind === 'status') {
           await metaBudgetCall({ action: 'setstatus' }, { object_id: t.id, object_name: t.name, level: t.level, status: t.status, pin: w.pin });
@@ -193,8 +205,8 @@ async function admgrPublishDrafts() {
         results.push({ t, ok: false, err: e.message });
         if (String(e.message).includes('PIN')) { admgrPinInvalidate(); stopped = true; break; }
       }
-      prog();
     }
+    prog(null);
     lsSet('adc_admgr_draft', admgrDraft); lsSet('adc_admgr_sdraft', admgrSDraft);
     admgrPublishResult(results, targets.length, stopped);
     admgrFetch();

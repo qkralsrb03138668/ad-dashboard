@@ -982,6 +982,10 @@ test('admgrHalfOf (11/17 OFF 후보 [절반]): 일예산 절반을 천 원 단�
   const h = vm.runInContext('admgrHalfOf', ctx);
   assert.deepEqual([30000, 15000, 2000, 1500, 0, undefined].map(h), [15000, 8000, 1000, 0, 0, 0]);
 });
+test('admgrPubProgress (11/18 게시 진행률): 끝난 비율 %와 남은 초 — 시작 전·완료 뒤엔 남은 시간 없음', () => {
+  const P = ctx.admgrPubProgress;
+  assert.deepEqual([P(0, 15, 0), P(3, 15, 4500), P(15, 15, 22000), P(0, 0, 0)].map(x => [x.pct, x.left]), [[0, null], [20, 18], [100, null], [0, null]]);
+});
 test('admgrAlertBrief: 알림 문구에서 태그·작은 설명을 뺀 한 줄 (폰 접힌 알림판)', () => {
   assert.equal(ctx.admgrAlertBrief('<b>예산 조정 후보</b> OFF 2 · 절반 2 <small>최근 7일 ROAS · <b>기본값</b></small>'), '예산 조정 후보 OFF 2 · 절반 2');
 });
