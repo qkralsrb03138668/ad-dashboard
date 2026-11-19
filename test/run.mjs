@@ -1003,6 +1003,15 @@ test('admgrHierMerge: 지표는 더하고 상태·예산은 나중 기간 것, �
   assert.equal([S.s2.spend, S.s3.spend, a.campaigns[0].adsets[0].spend].join(' '), '40 10 60');   // 원본은 안 건드림
 });
 
+test('bydateOnPlan: 소재 꺼짐 → 소재만 · 세트 꺼짐 → 세트(같이 도는 소재 수) · 둘 다 → 둘 다 · 캠페인 꺼짐·거부는 막음', () => {
+  const f = g('bydateOnPlan'), A = { id: 'a1', adset_id: 's1', adset_name: '세트1', status: 'PAUSED', effective_status: 'PAUSED' },
+    B = { id: 'a2', adset_id: 's2', adset_name: '세트2', status: 'ACTIVE', effective_status: 'ADSET_PAUSED' }, B2 = { ...B, id: 'a3' }, B3 = { ...B, id: 'a4', status: 'PAUSED', effective_status: 'PAUSED' };
+  assert.equal(f(A, [A, B]).jobs.map(j => j.level + j.id).join(','), 'ada1');
+  const p = f(B, [A, B, B2, B3]); assert.equal(p.jobs.map(j => j.level + j.id).join(','), 'adsets2'); assert.equal(p.jobs[0].with, 1);
+  assert.equal(f(B3, [B, B3]).jobs.map(j => j.level + j.id).join(','), 'ada4,adsets2');
+  assert.ok(f({ ...A, effective_status: 'CAMPAIGN_PAUSED' }, []).block); assert.ok(f({ ...A, effective_status: 'DISAPPROVED' }, []).block); assert.ok(f({ ...A, effective_status: '' }, []).block);
+});
+
 console.log(`\n모두 통과 (${n}개)`);
 
 function loadSource() {

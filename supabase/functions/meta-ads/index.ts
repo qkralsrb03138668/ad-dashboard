@@ -557,7 +557,7 @@ async function mycreAce(): Promise<AceRule> {
   const n = (v: unknown, d: number, lo: number, hi: number) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : d; };
   return { top: n(a?.top, ACE_DEFAULT.top, 1, 100), roas: n(a?.roas, ACE_DEFAULT.roas, 0, 100), pur: n(a?.pur, ACE_DEFAULT.pur, 0, 100000) };
 }
-const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v11:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
+const mycreKey = (today: string, camps: { id: string }[], ace: AceRule = ACE_DEFAULT, range: MyRange | null = null) => { let h = 5381; for (const ch of camps.map((x) => x.id).sort().join(",") + `|${ace.top}|${ace.roas}|${ace.pur}`) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return `meta:mycre:v12:${today}:${camps.length}-${h.toString(36)}:${range ? range.since + "_" + range.until : "all"}`; };
 /* 내 소재 성과의 기간 (2026-09-22 사용자 요청: 누적 대신 오늘·어제·최근 7/14/30일·직접 설정) — 최근 N일은 광고관리자·Meta와 같이 오늘을 빼고 센다 */
 type MyRange = { since: string; until: string; label: string };
 function mycreRange(url: URL, today: string): MyRange {
@@ -748,7 +748,7 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       id: String(a.id), key: String(a.mkey ?? a.id), n: M.length, name: String(a.name ?? ""), adset_id: String(a.adset_id ?? ""), adset_name: String(a.adset_name ?? ""), reg_date: String(a.reg_date ?? ""),
       maker: String(a._maker ?? makerOf(a)), tag: tag ? tag[1] : "", kind: String(cr?.kind ?? (a.is_video ? "video" : String(a.mkey ?? "").startsWith("i:") ? "image" : "")),
       hidden: sts.length > 0 && M.every((m) => !!state.get(String(m.id))?.hidden), camp: String(a.camp ?? ""),
-      st: stOf(a, verdict), active: on, gone: !!a.gone,
+      st: stOf(a, verdict), active: on, gone: !!a.gone, status: String(a.status ?? ""), effective_status: String(a.effective_status ?? ""),
       promoted: /\[→[^\]]+\]/.test(M.map((m) => String(m.adset_name ?? "")).join(" ")) || new Set(M.map((m) => String(m.camp ?? ""))).size > 1,
       roas: sp > 0 ? Math.round(num(a.value) / sp * 100) / 100 : null, purchases: num(a.purchases),
       spend: Math.round(sp), share, ace: on && sp >= cut && ro >= ace.roas && num(a.purchases) >= ace.pur, heavy: on && sp >= cut && ro < ace.roas,   // 주력 = 돈도 실리고 효율도 남 · heavy = 돈은 실리는데 효율이 애매
@@ -756,7 +756,8 @@ async function buildMycre(c: Creds, today: string, camps: { id: string; name: st
       diag: diagOf(a), trend: trendOf(a),
       ai: vt || it ? { hook: vt ? String(vt.hook ?? "") : "", cuts: vt ? num(vt.cuts) : null, cut: it ? String(it.cut ?? "") : "", text: it ? !!it.text : null, size: it ? !!it.size : null } : null,
       // 이 소재가 들어가 있는 곳 (테스트 세트 → CBO …) — 비중·ROAS만, 금액 없음
-      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", reg_date: String(m.reg_date ?? ""), spend: Math.round(ms),
+      sets: M.map((m) => { const ms = num(m.spend); return { id: String(m.id), adset_id: String(m.adset_id ?? ""), adset_name: String(m.adset_name ?? ""), camp: String(m.camp ?? ""), active: m.effective_status === "ACTIVE", status: String(m.status ?? ""), effective_status: String(m.effective_status ?? ""),   // 소재 자체 상태·실제 상태 — 광고 소재 현황 [켜기]가 소재를 켤지 세트를 켤지 정한다 (2026-11-19)
+        reg_date: String(m.reg_date ?? ""), spend: Math.round(ms),
         share: liveSpend > 0 ? Math.round(ms / liveSpend * 1000) / 10 : 0, roas: ms > 0 ? Math.round(num(m.value) / ms * 100) / 100 : null, purchases: num(m.purchases), clicks: num(m.clicks),
         purchases_7d: num(m.purchases_7d ?? m.purchases), roas_7d: ms > 0 ? Math.round(num(m.value_7d ?? m.value) / ms * 100) / 100 : null }; }).sort((x, y) => String(x.reg_date).localeCompare(String(y.reg_date))),
       verdict_at: sts.find((x) => x.verdict_at)?.verdict_at ?? null, asset_req_at: sts.find((x) => x.asset_req_at)?.asset_req_at ?? null, asset_done_at: sts.find((x) => x.asset_done_at)?.asset_done_at ?? null,

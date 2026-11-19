@@ -375,6 +375,38 @@ function bydateRangeApply() {
   if (a > b) [a, b] = [b, a];
   bydate.range = { preset: 'custom', since: a, until: b }; bydate.customOpen = false; bydateHas() ? renderBydate() : bydateFetch();
 }
+/* 꺼진 소재 다시 켜기 (2026-11-19 사용자 요청) — 권한은 광고관리자 켜기/끄기와 같다(dnrbCan('toggle') · 쓰기 토큰 · PIN). 이 화면엔 '게시'가 없어서 임시 저장 없이 확인창 → 바로 Meta에 보낸다.
+   소재만 꺼졌으면(status PAUSED) 소재를, 세트가 꺼져서 같이 멈춘 거면(effective_status ADSET_PAUSED) 세트를 켠다 — 세트를 켜면 그 세트의 켜져 있던 다른 소재도 같이 돈다. 캠페인이 꺼진 건 광고관리자에서 */
+const BD_OFF_WHY = { PAUSED: '소재 꺼짐', ADSET_PAUSED: '세트 꺼짐', CAMPAIGN_PAUSED: '캠페인 꺼짐', DISAPPROVED: '거부됨', WITH_ISSUES: '문제 있음', PENDING_REVIEW: '검토중', IN_PROCESS: '검토중', DELETED: '삭제됨', ARCHIVED: '보관됨' };
+const bydateCanOn = () => typeof admgr === 'object' && !admgr.demo && !!(admgr.write.st && admgr.write.st.allowed) && typeof dnrbCan === 'function' && dnrbCan('toggle');
+function bydateOnPlan(r, all) {   // 순수 계산 — 무엇을 켜야 하나 { jobs: [{level, id, name, with}], block: 못 켜는 이유 }
+  const es = r.effective_status || '';
+  if (!es) return { jobs: [], block: '상태를 아직 못 받았어요 — 새로고침한 뒤 다시 눌러주세요' };
+  if (es === 'CAMPAIGN_PAUSED') return { jobs: [], block: '캠페인이 꺼져 있어요 — 광고관리자에서 캠페인을 먼저 켜주세요' };
+  if (es !== 'PAUSED' && es !== 'ADSET_PAUSED') return { jobs: [], block: `${BD_OFF_WHY[es] || es} 상태라 여기서 켤 수 없어요` };
+  const jobs = [];
+  if (r.status === 'PAUSED') jobs.push({ level: 'ad', id: r.id, name: r.name || r.adset_name });
+  if (es === 'ADSET_PAUSED' || all.some(x => x.adset_id === r.adset_id && x.effective_status === 'ADSET_PAUSED'))   // 소재도 세트도 꺼진 경우 — 같은 세트의 다른 소재가 '세트 꺼짐'이면 세트도 같이
+    jobs.push({ level: 'adset', id: r.adset_id, name: r.adset_name, with: all.filter(x => x.adset_id === r.adset_id && x.id !== r.id && x.status === 'ACTIVE').length });
+  return { jobs, block: jobs.length ? '' : '켤 대상을 못 찾았어요' };
+}
+function bydateOn(id) {
+  const all = bydate.flat || [], r = all.find(x => x.id === id); if (!r) return;
+  const P = bydateOnPlan(r, all); if (P.block) { toast(P.block); return; }
+  if (!admgr.write.pin) { admgrPinPrompt(() => bydateOn(id)); return; }
+  const set = P.jobs.find(j => j.level === 'adset');
+  admgrConfirmModal('꺼진 소재 다시 켜기', `<b>${esc(mySet(r))}</b><br/>${P.jobs.map(j => j.level === 'ad' ? '· 소재 켜기' : `· 세트 켜기 — <b>${esc(j.name)}</b>${j.with ? ` (이 세트의 다른 소재 ${j.with}개도 같이 다시 돌아요)` : ''}`).join('<br/>')}
+    <br/><span style="color:#b45309;font-size:.74rem;">게시 단계 없이 바로 Meta에 반영돼요${set ? ' · 세트 일예산대로 지출이 다시 시작돼요' : ''}</span>`, '지금 켜기', async () => {
+    try { for (const j of P.jobs) await metaBudgetCall({ action: 'setstatus' }, { object_id: j.id, object_name: j.name, level: j.level, status: 'ACTIVE', pin: admgr.write.pin }); }
+    catch (e) { toast('켜기 실패: ' + e.message); if (/PIN/.test(e.message)) admgrPinInvalidate(); return; }
+    for (const a of bydate.data.ads || []) for (const s of (a.sets && a.sets.length ? a.sets : [a])) {   // 서버는 2분 안 캐시를 다시 주므로 화면은 먼저 고쳐 둔다
+      if (set && s.adset_id === r.adset_id && s.effective_status === 'ADSET_PAUSED') s.effective_status = 'ACTIVE';
+      if (s.id === r.id) { s.status = 'ACTIVE'; s.effective_status = 'ACTIVE'; }
+      if (s.effective_status === 'ACTIVE') s.active = true;
+    }
+    toast('켰어요 — Meta 반영·검토에 1~2분 걸릴 수 있어요'); renderBydate();
+  });
+}
 function bydateSort(k) { bydate.sort = k; renderBydate(); }
 function bydateStf(k) { bydate.stf = k; renderBydate(); }
 async function bydateThumbs(rows) {   // 썸네일 — 세트 100개씩 차례로 (다 받을 때까지 그릴 때마다 다음 묶음)
@@ -388,6 +420,7 @@ async function bydateThumbs(rows) {   // 썸네일 — 세트 100개씩 차례�
 function renderBydate() {
   const box = $('bydate-body'); if (!box) return;
   if (!bydate.data && !bydate.loading && !bydate.err) { bydateFetch(); return; }
+  if (!bydate.wst && typeof admgrWriteInit === 'function' && typeof admgr === 'object' && !admgr.write.st) { bydate.wst = true; admgrWriteInit().then(() => renderBydate()); }   // [켜기] 권한 확인 — 한 번만
   const rg = bydate.range, [from, to] = bydateSpan();
   const pbtn = (k, label) => `<button class="${rg.preset === k ? 'on' : ''}" onclick="bydateRangeSet('${k}')" ${bydate.loading ? 'disabled' : ''}>${label}</button>`;
   const head = `<div class="my-period"><b class="bd-lbl">업로드 날짜</b><span class="ag-seg">${Object.entries(BD_PRESETS).map(([k, [l]]) => pbtn(k, l)).join('')}${pbtn('custom', rg.preset === 'custom' ? `<i class="fa-regular fa-calendar"></i> ${esc(rg.since)} ~ ${esc(rg.until)}` : '<i class="fa-regular fa-calendar"></i> 직접 설정')}</span>
@@ -397,8 +430,9 @@ function renderBydate() {
     ${bydate.err ? `<div class="info-bar" style="color:#b91c1c;margin-bottom:12px;"><i class="fa-solid fa-triangle-exclamation"></i> 불러오기 실패: ${esc(bydate.err)}${bydate.data ? ' — 마지막으로 받아둔 것을 보여줘요' : ''}</div>` : ''}`;
   if (!bydate.data) { box.innerHTML = head + `<div class="empty-state"><p>${bydate.loading ? '소재를 불러오는 중… (처음엔 10초쯤 걸려요)' : ''}</p></div>`; return; }
 
-  const all = (bydate.data.ads || []).flatMap(a => (a.sets && a.sets.length ? a.sets : [a]).map(s => ({ ...s, purchases: s.purchases_7d ?? s.purchases, roas: s.roas_7d !== undefined ? s.roas_7d : s.roas, kind: a.kind, st: !(s.active ?? s.effective_status === 'ACTIVE') ? 'off' : /test/i.test(s.adset_name || '') ? 'eval' : 'live', maker: myMaker(a) })))   // 구매·ROAS = 클릭 후 7일 (2026-10-27 사용자: 조회 제외)
-    .filter(r => r.reg_date >= from && r.reg_date <= to);
+  const flatAll = (bydate.data.ads || []).flatMap(a => (a.sets && a.sets.length ? a.sets : [a]).map(s => ({ ...s, name: a.name, purchases: s.purchases_7d ?? s.purchases, roas: s.roas_7d !== undefined ? s.roas_7d : s.roas, kind: a.kind, st: !(s.active ?? s.effective_status === 'ACTIVE') ? 'off' : /test/i.test(s.adset_name || '') ? 'eval' : 'live', maker: myMaker(a) })));   // 구매·ROAS = 클릭 후 7일 (2026-10-27 사용자: 조회 제외)
+  bydate.flat = flatAll; const canOn = bydateCanOn();
+  const all = flatAll.filter(r => r.reg_date >= from && r.reg_date <= to);
   const stN = {}; for (const r of all) stN[r.st] = (stN[r.st] || 0) + 1;   // 상태별 개수 (2026-10-27 사용자 요청: 상태별로 보기) — 이 기간에 있는 상태만 버튼으로
   if (bydate.stf && !stN[bydate.stf]) bydate.stf = '';
   const rows = bydate.stf ? all.filter(r => r.st === bydate.stf) : all;
@@ -414,8 +448,8 @@ function renderBydate() {
   const dow = d => '일월화수목금토'[new Date(d + 'T00:00:00').getDay()];
   const tr = r => { const st = BD_ST[r.st], src = bydate.thumbs[r.id];
     return `<tr><td style="text-align:left;"><div class="bd-ad"><span class="tt-th" onclick="showMetaPreview('${r.id}')" title="미리보기">${src ? `<img src="${esc(src)}" loading="lazy" alt="">` : ''}</span>
-        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[key !== 'upload' ? fmtMD(r.reg_date) + ' 업로드' : '', r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.active ? '켜짐' : '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
-      <td class="ctr">${st[1] ? `<span class="status-badge ${st[0]}">${st[1]}</span>` : ''}</td>
+        <div><b>${esc(mySet(r))}</b><div class="my-sub">${[key !== 'upload' ? fmtMD(r.reg_date) + ' 업로드' : '', r.kind === 'video' ? '릴스·영상' : r.kind === 'image' ? '이미지' : '', MAKER_NAMES[r.maker] || '', r.st !== 'off' ? '켜짐' : BD_OFF_WHY[r.effective_status] || '꺼짐'].filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
+      <td class="ctr">${st[1] ? `<span class="status-badge ${st[0]}">${st[1]}</span>` : ''}${r.st === 'off' && canOn && (r.effective_status === 'PAUSED' || r.effective_status === 'ADSET_PAUSED') ? `<div><button class="btn-ghost" style="padding:1px 9px;font-size:.66rem;margin-top:3px;" onclick="bydateOn('${r.id}')" title="${r.effective_status === 'ADSET_PAUSED' ? '세트가 꺼져 있어요 — 세트를 다시 켜요' : '이 소재를 다시 켜요'} (PIN 필요 · 바로 Meta에 반영)"><i class="fa-solid fa-power-off"></i> 켜기</button></div>` : ''}</td>
       <td class="num ${key === 'spend' ? 'bd-on' : ''}">${won(r.spend || 0)}</td><td class="num ${key === 'purchases' ? 'bd-on' : ''}">${comma(r.purchases || 0)}</td>
       <td class="num">${per(r.spend || 0, r.purchases)}</td><td class="num">${per(r.spend || 0, r.clicks)}</td>
       <td class="num ${key === 'roas' ? 'bd-on' : ''}"><b style="color:${myRoasColor(r.roas)};">${r.roas == null ? '—' : r.roas.toFixed(2)}</b></td></tr>`; };
