@@ -563,7 +563,10 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
   if (admgr.judgeFilter !== 'all' && !todo.some(t => t[0] === admgr.judgeFilter)) admgr.judgeFilter = 'all';   // 역할·탭을 바꿔 그 칩이 없으면 전체로
   let judgeChips = '';
   if (todo.length) {
-    const chip = (k, label, n, fn) => `<button class="filter-tab ${admgr.judgeFilter === k ? 'active' : ''}" onclick="${fn || `admgrJudgeSet('${k}')`}">${label}${n == null ? '' : ' ' + n}</button>`;
+    /* 칩에는 이름·개수만 — 규칙 설명(<small class="ag-muted">)은 마우스를 올리면 (2026-11-19 사용자 요청: '당일 증액' 설명이 칩 하나로 화면 폭을 다 썼다) */
+    const tipRe = /\s*<small class="ag-muted">([\s\S]*?)<\/small>/;
+    const chip = (k, label, n, fn) => { const tip = (label.match(tipRe) || [])[1];
+      return `<button class="filter-tab ${admgr.judgeFilter === k ? 'active' : ''}"${tip ? ` title="${esc(tip)}"` : ''} onclick="${fn || `admgrJudgeSet('${k}')`}">${label.replace(tipRe, '')}${n == null ? '' : ' ' + n}</button>`; };
     judgeChips = `<div class="filter-tabs ag-judge" style="margin-bottom:12px;">
       <span class="ag-lbl">오늘 할 일</span>
       ${chip('all', '전체', vis.length)}${todo.map(([k, l, p, fn]) => chip(k, l, p ? vis.filter(p).length : null, fn)).join('')}
