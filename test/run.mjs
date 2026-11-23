@@ -375,8 +375,8 @@ test('admgrSeasonCalc·admgrHygieneCalc: 작년 기간 구매순 + 끌올됨 표
 });
 
 test('admgrAdjCalc(예전 규칙 keepFrom 5.5): 450% 미만 OFF · 450~550% 절반 · 550~900% 유지 · 900%↑ 증액 · 대기 (기본값 창 · 오늘 10/28 수)', () => {
-  vm.runInContext('ADMGR_ADJ.keepFrom = 5.5', ctx);   // 11/13부터 기본은 4.5(450~550% 유지) — 이 검사는 5.5로 되돌렸을 때 예전 규칙이 그대로인지
-  try { adjOld(); } finally { vm.runInContext('ADMGR_ADJ.keepFrom = 4.5', ctx); }
+  vm.runInContext('ADMGR_ADJ.keepFrom = 5.5; ADMGR_ADJ.halfFrom = 4.5', ctx);   // 11/13부터 기본은 4.5(450~550% 유지) · 11/23부터 halfFrom 3.5(10건↑·350~450% 절반) — 이 검사는 둘 다 되돌렸을 때 예전 규칙이 그대로인지
+  try { adjOld(); } finally { vm.runInContext('ADMGR_ADJ.keepFrom = 4.5; ADMGR_ADJ.halfFrom = 3.5', ctx); }
 });
 function adjOld() {
   const f = g('admgrAdjCalc');
@@ -445,7 +445,7 @@ test('admgrAdjCalc(11/13 규칙): 7일 450~550%는 절반 없이 유지 — 감�
     one(W(130000, 10, 5.2), W(30000, 1, 1), cut),                 // 감액 뒤 520% → 유지 (예전: OFF)
     one(W(350000, 20, 5), W(60000, 9, 3.9), [], 60000),           // 하루 5만↑·3일 390% → 유지 (예전: 바로 OFF)
     one(W(140000, 10, 4.5), W(30000, 1, 1)),                      // 딱 450% → 유지
-    one(W(140000, 10, 4.4), W(30000, 1, 1)),                      // 440% → OFF
+    one(W(140000, 9, 4.4), W(30000, 1, 1)),                       // 440%·9건 → OFF (10건↑이면 절반 — 아래 11/23 검사)
     one(W(130000, 10, 3.5), W(50000, 3, 6)),                      // 350%·3일 회복(하루 2만 미만) → 절반
     one(W(350000, 20, 3.5), W(60000, 5, 6), [], 60000),           // 하루 5만↑·350%·3일 회복 → 절반
     one(W(130000, 10, 4), W(50000, 5, 6), cut),                   // 감액 뒤 400% → 회복해도 OFF
@@ -455,6 +455,19 @@ test('admgrAdjCalc(11/13 규칙): 7일 450~550%는 절반 없이 유지 — 감�
   const N = (id, name) => S(id, 40000, { name }), ps = [N('m1', '슬리즈 원피스_R1_44_261020'), N('m2', '슬리즈 원피스_P4_44_261020')];
   const p7 = new Map([['m1', W(140000, 10, 5)], ['m2', W(140000, 10, 5)]]), p3 = new Map([['m1', { ...W(60000, 8, 3.5), name: ps[0].name }], ['m2', { ...W(20000, 4, 6), name: ps[1].name }]]);
   assert.equal(f(ps, p7, p3, [], '2026-10-28', 3).map(x => x.s.id + ':' + x.act + (x.prodDrop ? ':prod' : '')).join(), 'm1:half:prod,m2:watch');
+});
+
+test('admgrAdjCalc(11/23 규칙): 7일 구매 10건↑·350~450%는 OFF 대신 절반 — 9건·350% 미만은 OFF, 절반 뒤 3일은 대기, 그 뒤에도 450% 미만이면 OFF', () => {
+  const f = g('admgrAdjCalc');
+  const S = (id, budget, extra) => ({ id, name: 'x' + id, status: 'ACTIVE', budget, created: '2026-10-01T00:00:00+0900', ...extra });
+  const W = (spend, purchases, roas) => ({ spend, purchases, value: spend * roas, purchases_7d: 0, value_7d: 0 });
+  const cutOn = d => [{ level: 'adset', object_id: 'q', time: d + 'T03:00:00Z', old_value: 80000, new_value: 40000 }];
+  const one = (p7, roas, hist = [], sp7 = 140000, extra = {}, hour = null) => { const x = f([S('q', 40000, extra)], new Map([['q', W(sp7, p7, roas)]]), new Map([['q', W(30000, 1, 1)]]), hist, '2026-10-28', 3, undefined, {}, hour)[0]; return x.act + (x.would ? ':' + x.would : '') + (x.act === 'half' ? ':' + x.to : ''); };
+  assert.equal([one(10, 4.4), one(10, 3.5), one(9, 4.4), one(10, 3.49), one(20, 4, [], 350000),   // 440%·350% → 절반 / 9건 → OFF / 349% → OFF / 하루 5만↑도 절반
+    one(10, 4, cutOn('2026-10-27')), one(10, 3, cutOn('2026-10-27')), one(10, 4, cutOn('2026-10-23')),   // 어제 절반 → 대기 / 대기 중 300% → OFF / 5일 전 절반 뒤에도 400% → OFF
+    one(10, 4, [], 140000, { purchases: 2 }, 11)].join(),                                               // 오늘 2건(4만 세트 기준 2건↑) → 절반 보류
+    'half:20000,half:20000,off,off,half:20000,cool,off,off,hold:half');
+  assert.match(f([S('q', 40000)], new Map([['q', W(140000, 12, 4)]]), new Map([['q', W(30000, 1, 1)]]), [], '2026-10-28', 3)[0].why, /400%.*12건.*OFF 대신 절반/);
 });
 
 test('admgrFastRevertOf·admgrFastRecent (11/2): 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기, 이틀 지출 없으면 판단 안 함, 3일 안 올린 세트는 쉼', () => {
