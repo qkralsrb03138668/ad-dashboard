@@ -492,9 +492,15 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   assert.equal(f({ ...base, id: 's4', budget: 15000, purchases: 0 }, 11.5), null);                  // 7일 4건
   assert.equal(f({ ...base, id: 's8', budget: 15000, purchases: 0 }, 11.5), null);                  // 7일 800%
   assert.equal(f({ ...base, id: 's', budget: 15000, purchases: 0 }, 17), null);                     // 17시 뒤엔 안 뜸
+  /* 11시 전 (11/23): 오늘 구매를 안 보는 소액 길은 아침부터 · 오늘 건수 길은 그대로 11시부터 */
+  const em = f({ ...base, id: 's', budget: 15000, purchases: 0 }, 9.5); assert.equal(em.to, 30000); assert.equal(em.multi, true);
+  assert.equal(f({ ...base, id: 's', budget: 15000, purchases: 2 }, 9.5).multi, true);              // 11시 전엔 오늘 2건이어도 7일 성적(소액 길)으로만
+  assert.equal(f({ ...base, id: 's8', budget: 15000, purchases: 2 }, 9.5), null);                   // 7일 800% · 오늘 2건 → 11시 전엔 아님 (11시부터는 오늘 건수 길로 후보)
+  assert.equal(f({ ...base, id: 's8', budget: 15000, purchases: 2 }, 11.5).multi, false);
   /* 연속 우수 (11/6): 어제까지 3일 매일 900%↑ · 3일 6건↑ → 3일 쉼 없이 · 오늘 건수 무관 */
   const D = (sp, p, v) => new Map([['g', { sp, p, v }]]), boost = "admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(-1) } } };";
   ctx.__d = [D(18000, 3, 200000), D(19000, 10, 390000), D(40000, 6, 480000)]; vm.runInContext("admgr.fast.days = __d;" + boost, ctx);
+  assert.equal(f({ ...base, purchases: 0 }, 9.5).streak, true);                                  // 연속 우수도 11시 전부터 (11/23)
   const sk = f({ ...base, purchases: 0 }, 11.5);                                                // 어제 올렸고 오늘 0건이어도 후보
   assert.equal(sk.to, 60000); assert.equal(sk.streak, true); assert.equal(sk.h7.d3, true); assert.equal(sk.h7.p, 19);
   vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 60000, new_value: 30000, time: new Date().toISOString() }];", ctx);

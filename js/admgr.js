@@ -554,7 +554,7 @@ function renderAdmgrHier(R, setsInSel, adsInSel, cfg) {
       if (admgr.fast.days) {
         if (vis.some(r => admgrFastRevertOf(r))) todo.push(['fastback', '<span class="ag-dot amber"></span>증액 되돌리기 <small class="ag-muted">올린 뒤 이틀 ROAS 550%↓</small>', r => !!admgrFastRevertOf(r), 'admgrFastModal()']);
       }
-      if (admgrKstHour() >= ADMGR_TODAY_UP.from && admgrKstHour() < ADMGR_TODAY_UP.to) todo.push(['todayup', '<span class="ag-dot green"></span>당일 증액 <small class="ag-muted">오늘 구매 기준 건수↑ · 7일 450%↑(표본 모자라면 오늘까지) · 승격 후보 포함 · 소액은 7일 5건↑·900%↑ · 3일 매일 900%↑는 쉼 없이 매일</small>', r => !!admgrTodayUpOf(r), 'admgrFastModal()']);   // 11~17시만 (2026-11-02)
+      if (admgrKstHour() < ADMGR_TODAY_UP.to) todo.push(['todayup', '<span class="ag-dot green"></span>당일 증액 <small class="ag-muted">오늘 구매 기준 건수↑(11시부터) · 7일 450%↑(표본 모자라면 오늘까지) · 승격 후보 포함 · 소액은 7일 5건↑·900%↑ · 3일 매일 900%↑는 쉼 없이 매일 — 이 둘은 아침부터</small>', r => !!admgrTodayUpOf(r), 'admgrFastModal()']);   // 17시까지 — 11시 전엔 소액·연속 우수만 (2026-11-23)
       if (promo.size) todo.push(['promo', '<span class="ag-dot green"></span>승격 후보 <small class="ag-muted">CBO로</small>', r => promo.has(r.id)]);
     }
   }
@@ -1484,13 +1484,16 @@ function admgrTestGood(r) {   // 승격 후보 = 아직 _test인데 테스트 �
   return admgrTestRowSets().vis.some(a => String(a.adset_id) === String(r.id) && !a.gone && (a.st === 'good' || (admgrRecommend(a) || {}).k === 'good'));
 }
 function admgrTodayUpOf(r, hour = admgrKstHour()) {   // 당일 증액 후보면 {k: 오늘 구매, need: 기준 건수, h7, to, test: 승격 후보(테스트 세트)}
-  if (admgr.preset !== 'today' || hour < ADMGR_TODAY_UP.from || hour >= ADMGR_TODAY_UP.to) return null;
+  if (admgr.preset !== 'today' || hour >= ADMGR_TODAY_UP.to) return null;
+  /* 11시 전(early)엔 오늘 구매를 안 보는 두 길(소액 7일 5건·900%↑ · 연속 우수)만 (2026-11-23 사용자 확정) — 11시 시작은 오늘 구매가 쌓이길 기다리려던 건데 이 둘은 어제까지 성적만 봐서
+     아침 9시에 봐도 판정이 같다. 11/22 11~17시에 이미 후보였던 스완 플리츠 R3(7일 5건·1092%)가 창을 놓쳐 11/23 아침에도 안 보였다 (.insight-tmp/todayup-why.mjs) */
+  const early = hour < ADMGR_TODAY_UP.from;
   if (r._cbo || r.status !== 'ACTIVE' || !(r.budget > 0) || r.budget >= ADMGR_TODAY_UP.maxBudget) return null;
   if (typeof admgrAlert === 'undefined' || !admgrAlert.adjHist) return null;   // Meta 예산 이력을 받기 전엔 3일 쉼을 확인할 수 없어 후보를 안 띄움 — 화면을 연 직후 몇 초 동안 쉬어야 할 세트 5개가 더 잡혀 알림이 16 → 11로 바뀌던 것 (2026-11-06)
   const test = admgrIsTest(r); if (test && !admgrTestGood(r)) return null;   // 테스트 세트는 우수(승격 후보)만
   const U = ADMGR_TODAY_UP, k = admgrPJ(r), need = admgrTodayNeed(r.budget, hour), streak = admgrStreakOf(r); let h7, multi = false;
   if (streak) h7 = { spend: streak.sp, p: streak.p, roas: streak.roas, d3: true };   // 연속 우수 — 3일 성적으로 표시
-  else if (k >= need) { h7 = admgrHist7(r, true); if (!h7 || h7.roas < ADMGR_ROAS.off) return null; }   // 7일 표본 모자라면 오늘까지 합산(테스트 막 끝난 세트)
+  else if (!early && k >= need) { h7 = admgrHist7(r, true); if (!h7 || h7.roas < ADMGR_ROAS.off) return null; }   // 7일 표본 모자라면 오늘까지 합산(테스트 막 끝난 세트)
   else {   // 소액 세트는 오늘 구매가 모자라도 어제까지 7일 구매 5건↑·ROAS 900%↑면 후보 (2026-11-05 사용자 확정)
     h7 = r.budget <= U.smallBudget ? admgrHist7(r) : null; if (!h7 || h7.p < U.smallPur || h7.roas < ADMGR_ROAS.up) return null; multi = true; }
   if (admgrCutRecent(r) || (!streak && admgrUpRecent(r))) return null;   // 3일 안에 올렸거나 줄인 세트는 쉼 — 연속 우수는 올린 뒤에도 안 쉼
@@ -1537,7 +1540,7 @@ function admgrFastModal() {
   const sec = (k, t, c, note) => L[k].length ? `<tr class="m-sec"><td colspan="7" style="text-align:left;padding-top:12px;font-weight:800;font-size:.8rem;color:${c};">${t} ${L[k].length}${note ? ` <small style="font-weight:600;color:#9ca3af;">${note}</small>` : ''}</td></tr>${L[k].sort((a, b) => (b.t ? b.t.h7.roas : 0) - (a.t ? a.t.h7.roas : 0)).map(x => row(x, k)).join('')}` : '';
   const n = L.today.length + L.clash.length + L.back.length;
   $('abm-title').textContent = `증액 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
-  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">${admgrRuleFold(`<b>당일 증액</b>(11~17시): 오늘 구매가 기준 건수(일예산 2만당 1건 · 최소 2건 · 14시부터 +1건) 이상이고 7일 ROAS 450%↑인 운영 세트 → 2배(10만↑ +50% · 30만↑ 안 올림). 테스트 종료로 막 넘어와 7일 표본(5건 또는 5만)이 모자라면 오늘까지 합쳐서 봐요. 아직 _test인 세트도 우수(승격 후보)면 같은 기준으로 들어가요. 올린 세트는 3일 쉬고, 이틀 ROAS 550% 미만이면 되돌리기. 일예산 2.5만 이하 소액 세트는 오늘 구매가 모자라도 7일 구매 5건↑·ROAS 900%↑면 후보예요. 줄인 세트도 3일 동안은 후보에서 빠져요. <b>연속 우수</b>(어제까지 3일 매일 ROAS 900%↑ · 3일 구매 6건↑)는 올린 뒤에도 쉬지 않고 오늘 건수와 무관하게 매일 후보예요 — 하루라도 900% 밑이면 다시 3일 쉼. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요(전체 선택에서도 빠져요). 체크는 처음엔 전부 풀려 있어요 — 줄마다 체크하거나 맨 위 <b>[전체 선택]</b>. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영. 줄 끝 <b>[OFF]</b>는 그 세트를 끄기로 임시 저장(광고세트 탭 토글과 같음).`)}</div>
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">${admgrRuleFold(`<b>당일 증액</b>(11~17시 · 소액 세트와 연속 우수는 아침부터 17시까지): 오늘 구매가 기준 건수(일예산 2만당 1건 · 최소 2건 · 14시부터 +1건) 이상이고 7일 ROAS 450%↑인 운영 세트 → 2배(10만↑ +50% · 30만↑ 안 올림). 테스트 종료로 막 넘어와 7일 표본(5건 또는 5만)이 모자라면 오늘까지 합쳐서 봐요. 아직 _test인 세트도 우수(승격 후보)면 같은 기준으로 들어가요. 올린 세트는 3일 쉬고, 이틀 ROAS 550% 미만이면 되돌리기. 일예산 2.5만 이하 소액 세트는 오늘 구매가 모자라도 7일 구매 5건↑·ROAS 900%↑면 후보예요. 줄인 세트도 3일 동안은 후보에서 빠져요. <b>연속 우수</b>(어제까지 3일 매일 ROAS 900%↑ · 3일 구매 6건↑)는 올린 뒤에도 쉬지 않고 오늘 건수와 무관하게 매일 후보예요 — 하루라도 900% 밑이면 다시 3일 쉼. 예산 조정 후보(7일)에서 OFF·절반인 세트는 겹쳐서 그대로 두는 게 기본이에요(전체 선택에서도 빠져요). 체크는 처음엔 전부 풀려 있어요 — 줄마다 체크하거나 맨 위 <b>[전체 선택]</b>. 체크한 것만 임시 저장, 상단 <b>[게시]</b>로 반영. 줄 끝 <b>[OFF]</b>는 그 세트를 끄기로 임시 저장(광고세트 탭 토글과 같음).`)}</div>
     ${n ? `${admgrCkAllHtml()}<div class="table-wrap m-rows-wrap" style="max-height:62vh;overflow:auto;" onchange="admgrAdjSync()"><table class="m-rows" style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>일예산</th><th>어제까지 성적</th><th>오늘</th><th>결과</th><th></th></tr></thead>
       <tbody>${sec('today', '당일 증액 후보', '#15803d', '오늘 구매 기준 건수↑ · 7일 450%↑ (소액은 7일 5건↑·900%↑)')}${sec('clash', '겹침 — 그대로', '#b45309', '오늘은 좋지만 7일은 예산 조정 후보')}${sec('back', '되돌리기', '#b45309', '2배 올린 뒤 이틀 ROAS 550% 미만')}</tbody></table></div>`
       : '<div class="empty-state" style="padding:20px;"><p>오늘은 증액 후보가 없어요.</p></div>'}
