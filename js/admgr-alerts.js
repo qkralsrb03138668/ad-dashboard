@@ -543,6 +543,87 @@ function admgrAdjApply() {
   admgrSetView('set'); renderAdmgr();
 }
 
+/* ── 테스트 OFF 후보 (2026-11-23 사용자 확정) ──
+   테스트 소재 탭의 'OFF 추천'(admgrRecommend — D+2 · 구매 0·3만↑ / ROAS 450% 미만, 금~일엔 450% 미만은 월요일 판정)을 알림판 줄 + 체크 창으로. 기준은 안 바꾼다.
+   왜: OFF 추천이 테스트 소재 탭 안에서만 보였고, 예산 조정 후보는 3일 지나고 표본(5건·5만)이 찬 테스트 세트만 본다 → 그 전까지 첫 화면에 신호가 없었다.
+   11/19 밤에 켠 소프트 레이온 폴라 티셔츠 8세트가 금~일 58만(164%)을 쓰는 동안 구매 0인 4세트는 일요일 아침에 이미 OFF 추천이었다 (.insight-tmp/test-burn.mjs).
+   상품 합계를 같이 보여주는 이유(.insight-tmp/test-burn-sim.mjs, 11/10~11/22 테스트 227세트): 세트 하나의 '구매 0·3만↑' 뒤 지출은 763%로 살아난 게 많았고,
+   손해를 예고한 건 상품 묶음 30만↑·300% 미만(그 뒤 241%)과 세트 5만↑·200% 미만(220%)뿐 — 그래서 상품 합계가 그 선을 넘으면 '상품 전체 부진' 표시만 붙인다(판정은 그대로).
+   예산 조정 후보에 이미 OFF로 뜬 세트는 뺀다(두 줄에 같은 세트가 세어지지 않게). 끄기 = 세트 끄기 임시 저장(admgrSDraft) → 상단 [게시] */
+const ADMGR_TESTOFF = { prodSpend: 300000, prodRoas: 3, days: 14, stale: 30 * 60000 };
+async function admgrTestOffEnsure() {   // 테스트 소재 목록이 없거나 30분 넘었으면 조용히 다시 — admgrTestFetch는 체크 해제·전체 다시 그리기를 해서 안 쓴다
+  const t = admgr.test;
+  if (admgr.demo || !admgrCfg() || t.loading || t.offBusy || (t.at && Date.now() - t.at < ADMGR_TESTOFF.stale) || Date.now() - (t.offFailAt || 0) < 5 * 60000) return;
+  t.offBusy = true;
+  try { const [data, st] = await Promise.all([metaGet({ action: 'testads' }), metaGet({ action: 'state_list' })]);
+    t.data = data; t.state = new Map((Array.isArray(st) ? st : []).map(r => [r.ad_id, r])); t.loaded = true; t.at = Date.now(); renderAdmgr(true); }
+  catch (e) { t.offFailAt = Date.now(); }   // 실패하면 5분 쉼
+  t.offBusy = false;
+}
+/* 순수 계산 — 테스트용. sets: 광고세트 행 · ads: 테스트 소재(st 포함) · recOf: admgrRecommend · skip: 예산 조정 후보에 이미 OFF인 세트 id
+   세트 안에서 돌고 있는 소재(평가중·우수·애매)가 전부 OFF 추천일 때만 후보 — 하나라도 우수·애매·지켜보기면 안 넣는다. 전부 OFF 추천 또는 주말 보류면 hold */
+function admgrTestOffCalc(sets, ads, recOf, skip = new Set(), prodOf = admgrProductOf) {
+  const by = new Map(), prod = new Map();
+  for (const a of ads) { if (a.gone) continue; const k = String(a.adset_id); (by.get(k) || by.set(k, []).get(k)).push(a);
+    const dp = admgrDPlus(a); if (dp != null && dp > ADMGR_TESTOFF.days) continue;   // 상품 합계는 최근 2주 안에 시작한 테스트만 (예전 묶음과 안 섞이게)
+    const pk = prodOf(a), o = prod.get(pk) || { n: 0, sp: 0, p: 0, v: 0 }; o.n++; o.sp += a.spend || 0; o.p += a.purchases || 0; o.v += a.value || 0; prod.set(pk, o); }
+  const off = [], hold = []; let dup = 0;
+  for (const s of sets) {
+    if (s.status !== 'ACTIVE' || s._cbo || !admgrIsTest(s)) continue;
+    const live = (by.get(String(s.id)) || []).filter(a => ['eval', 'good', 'meh'].includes(a.st)); if (!live.length) continue;
+    const recs = live.map(a => a.st === 'eval' ? recOf(a) : null), isOff = r => r && r.k === 'off', isHold = r => r && r.k === 'wait' && r.weekend;
+    if (!recs.every(r => isOff(r) || isHold(r))) continue;
+    const t = live.reduce((x, a) => ({ sp: x.sp + (a.spend || 0), p: x.p + (a.purchases || 0), v: x.v + (a.value || 0) }), { sp: 0, p: 0, v: 0 }), pk = prodOf(live[0]), P = prod.get(pk) || { n: 0, sp: 0, p: 0, v: 0 };
+    const row = { s, sp: t.sp, p: t.p, roas: t.sp ? t.v / t.sp : 0, dp: Math.max(...live.map(a => admgrDPlus(a) ?? 0)), why: recs.map(r => r.why).filter((w, i, L) => L.indexOf(w) === i).join(' / '), prod: pk,
+      P: { ...P, roas: P.sp ? P.v / P.sp : 0, bad: P.sp >= ADMGR_TESTOFF.prodSpend && P.v / P.sp < ADMGR_TESTOFF.prodRoas } };
+    if (!recs.every(isOff)) hold.push(row); else if (skip.has(s.id)) dup++; else off.push(row);
+  }
+  return { off, hold, dup };
+}
+function admgrTestOffRows() {
+  const t = admgr.test; if (!admgr.data || admgr.demo) return null;
+  setTimeout(() => admgrTestOffEnsure(), 0);
+  if (!t.loaded || !t.at) return null;   // 브라우저에 남아 있던 예전 목록(t.at 없음)으로는 판정하지 않는다 — 새로 받은 뒤에만
+  const adj = typeof admgrAdjRows === 'function' ? admgrAdjRows() : null;
+  return admgrTestOffCalc(admgrRows().sets, admgrTestRowSets().vis, admgrRecommend, new Set((adj || []).filter(x => x.act === 'off').map(x => x.s.id)));
+}
+function admgrCheckTestOff() {
+  if (!dnrbCan('toggle')) return [];
+  const T = admgrTestOffRows(); if (!T) return [];
+  const n = T.off.filter(x => !admgrSDraft[x.s.id]).length; if (!n) return [];
+  const prods = new Set(T.off.map(x => x.prod)).size, bad = new Set(T.off.filter(x => x.P.bad).map(x => x.prod)).size;
+  return [{ key: 'testoff:' + todayStr(0), lvl: 'red', text: `<b>테스트 OFF 후보</b> ${n}개 <small>상품 ${prods}개${bad ? ` · 상품 전체 부진 ${bad}개` : ''} · 테스트 소재 탭 OFF 추천과 같은 기준${T.hold.length ? ` · 주말 보류 ${T.hold.length}` : ''}${T.dup ? ` · 예산 조정 후보에 있는 ${T.dup}개는 뺌` : ''}</small>`, act: { label: '보기', onclick: 'admgrTestOffModal()' } }];
+}
+admgrAlert.checks.push(admgrCheckTestOff);
+function admgrTestOffModal() {
+  const T = admgrTestOffRows() || { off: [], hold: [], dup: 0 }, man = v => admgrW(Math.round(v || 0)), P = r => Math.round(r * 100).toLocaleString() + '%', J = admgrTJudge;
+  const can = admgr.write.st && admgr.write.st.allowed && !admgr.demo && dnrbCan('toggle');
+  const row = x => { const pend = admgrSDraft[x.s.id] || admgrDraft[x.s.id];
+    return `<tr${pend ? ' style="opacity:.55;"' : ''}><td>${can ? `<input type="checkbox" class="toff-ck m-ck" data-id="${esc(x.s.id)}"${pend ? ' data-skip="1"' : ''} />` : ''}</td>
+      <td class="name-cell" style="text-align:left;white-space:normal;min-width:240px;">${esc(admgrBase(x.s.name))}<div style="color:#6b7280;font-size:.66rem;white-space:normal;">${esc(x.why)}${pend ? ' · <b style="color:#b45309;">임시 저장됨 · 아직 게시 전</b>' : ''}</div></td>
+      <td data-l="누적" style="white-space:nowrap;"><b>${x.p ? P(x.roas) : '구매 0'}</b><div style="font-size:.7rem;color:#374151;line-height:1.5;">지출 <b>${man(x.sp)}</b> · ${x.p}건</div></td>
+      <td data-l="시작" style="white-space:nowrap;">D+${x.dp}</td><td data-l="일예산" style="white-space:nowrap;">${man(x.s.budget)}</td><td style="white-space:nowrap;"><b style="color:#b91c1c;">OFF</b></td></tr>`; };
+  const groups = [...new Set(T.off.map(x => x.prod))].map(k => ({ k, L: T.off.filter(x => x.prod === k).sort((a, b) => b.sp - a.sp) })).sort((a, b) => (b.L[0].P.bad - a.L[0].P.bad) || (b.L[0].P.sp - a.L[0].P.sp));
+  const sec = g => { const p = g.L[0].P;
+    return `<tr class="m-sec"><td colspan="6" style="text-align:left;padding-top:12px;font-size:.8rem;"><b style="color:#1e1b4b;">${esc(g.k)}</b> <span style="color:#6b7280;font-weight:600;">후보 ${g.L.length}개 · 상품 합계(최근 2주 테스트 ${p.n}개) 지출 ${man(p.sp)} · ROAS ${p.sp ? P(p.roas) : '—'} · ${p.p}건</span>${p.bad ? ` <span class="status-badge badge-red" style="font-size:.6rem;" title="상품 합계 ${man(ADMGR_TESTOFF.prodSpend)}↑ · ROAS ${P(ADMGR_TESTOFF.prodRoas)} 미만 — 11/10~11/22 기록에선 이 뒤로도 241%에 그쳤어요">상품 전체 부진</span>` : ''}</td></tr>${g.L.map(row).join('')}`; };
+  const hold = T.hold.length ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:.74rem;color:#6b7280;">주말 보류 ${T.hold.length}개 — 월요일에 판정 (손대지 않음)</summary>${T.hold.map(x => `<div style="font-size:.72rem;color:#6b7280;padding:2px 0;">${esc(admgrBase(x.s.name))} — 지출 ${man(x.sp)} · ${x.p}건 · ROAS ${P(x.roas)}</div>`).join('')}</details>` : '';
+  $('abm-title').textContent = `테스트 OFF 후보 — ${fmtMD(todayStr(0))}`; $('abm-sub').style.display = 'none';
+  $('abm-body').innerHTML = `<div style="font-size:.74rem;color:#4b5563;line-height:1.6;">${admgrRuleFold(`테스트 소재 탭의 <b>OFF 추천</b>과 같은 기준이에요: 시작 D+${J.days}부터 · 구매 0인데 ${man(J.spend)} 넘게 썼거나 누적 ROAS ${P(ADMGR_ROAS.off)} 미만. 금·토·일엔 ${P(ADMGR_ROAS.off)} 미만 OFF를 월요일로 미뤄요(구매 0은 주말에도 후보). 세트 안에서 도는 소재가 전부 OFF 추천일 때만 올라와요. 상품별로 묶어 <b>상품 합계</b>를 같이 보여줘요 — 세트 하나가 ${man(J.spend)} 쓴 시점의 성적은 그 뒤와 잘 안 맞아서, 상품 전체가 나쁜지 같이 보고 고르세요(합계 ${man(ADMGR_TESTOFF.prodSpend)}↑ · ${P(ADMGR_TESTOFF.prodRoas)} 미만이면 '상품 전체 부진'). 예산 조정 후보에 이미 OFF로 뜬 세트는 여기서 뺐어요${T.dup ? `(${T.dup}개)` : ''}. 체크는 처음엔 전부 풀려 있어요 — 체크한 세트만 끄기로 임시 저장하고, 상단 <b>[게시]</b>를 눌러야 Meta에 반영돼요.`)}</div>
+    ${T.off.length ? `${can ? admgrCkAllHtml() : ''}<div class="table-wrap m-rows-wrap" style="max-height:62vh;overflow:auto;" onchange="admgrAdjSync()"><table class="m-rows" style="font-size:.74rem;width:100%;"><thead><tr><th></th><th style="text-align:left;">세트</th><th>누적 ROAS<br><small style="font-weight:600;color:#9ca3af;">지출 · 구매</small></th><th>시작</th><th>일예산</th><th>결과</th></tr></thead><tbody>${groups.map(sec).join('')}</tbody></table>${hold}</div>`
+      : `<div class="empty-state" style="padding:24px 0;"><p>지금은 OFF 후보가 없어요</p></div>${hold}`}
+    <div class="m-foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn-ghost" onclick="closeModal('admgr-budget-modal')">닫기</button>${can && T.off.length ? `<button class="btn-analyze" onclick="admgrTestOffApply()">체크한 세트 끄기로 임시 저장</button>` : ''}</div>`;
+  admgrAbmWide();
+  $('admgr-budget-modal').classList.add('show'); admgrAdjSync();
+}
+function admgrTestOffApply() {
+  const ids = [...document.querySelectorAll('#abm-body .toff-ck:checked')].map(e => e.dataset.id), byId = new Map(admgrRows().sets.map(r => [r.id, r]));
+  if (!ids.length) { toast('체크한 세트가 없어요 — 줄을 체크하거나 맨 위 [전체 선택]을 누르세요'); return; }
+  for (const id of ids) { const r = byId.get(id); if (!r) continue; admgrSDraft[id] = { level: 'adset', name: r.name, status: 'PAUSED' }; delete admgrDraft[id]; }
+  lsSet('adc_admgr_sdraft', admgrSDraft); lsSet('adc_admgr_draft', admgrDraft);
+  closeModal('admgr-budget-modal'); toast(`${ids.length}개를 끄기로 임시 저장했어요 — 표에서 확인한 뒤 상단 [게시]를 누르세요`);
+  admgrSetView('set'); renderAdmgr();
+}
+
 /* ── 검사 ⑪ 7일 점검표 (2026-11-02 사용자 확정 — Desktop/클ㄹ드/답변-예산운영방식.md): 어제까지 7일 공헌이익(매출×36% − 광고비 · 택배·포장은 고정비에 넣은 기준) · ROAS · 테스트 지출 비중.
    월요일에 보면 지난주 월~일. 유지선 = 공헌이익 1,700만(주 고정비 1,154만 + 여유) · ROAS 500% · 테스트 25%. 알림은 숫자만 — 방식을 바꾸는 건 4주 연속 1,700만 미만 또는 2주 연속 450% 미만일 때만 */
 const ADMGR_WEEKLY = { contrib: 0.36, minContrib: 17000000, minRoas: 5, testShare: 0.25 };

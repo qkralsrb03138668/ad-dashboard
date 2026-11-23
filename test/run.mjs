@@ -532,6 +532,23 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'x', old_value: 60000, new_value: 30000, time: new Date().toISOString() }];", ctx); assert.equal(f(base, 11.5).to, 60000);   // 다른 세트 감액은 무관
   vm.runInContext("admgrAlert.adjHist = null; admgrAlert.h7 = null; admgr.fast.boost = null;", ctx);
 });
+test('admgrTestOffCalc (11/23 테스트 OFF 후보): 도는 소재가 전부 OFF 추천인 켜진 테스트 세트만 · 주말 보류는 따로 · 예산 조정 후보 OFF와 겹치면 뺌 · 상품 합계 30만↑·300% 미만이면 부진', () => {
+  const f = g('admgrTestOffCalc'), day = vm.runInContext('todayStr(-3)', ctx), rec = a => a.k ? { k: a.k, weekend: !!a.wk, why: a.k + (a.wk ? ' 주말' : '') } : null;
+  const S = (id, name, o = {}) => ({ id, name, status: 'ACTIVE', budget: 15000, ...o });
+  const A = (id, set, name, o = {}) => ({ id, adset_id: set, adset_name: name, st: 'eval', spend: 40000, purchases: 0, value: 0, reg_date: day, k: 'off', ...o });
+  const sets = [S('a', '폴라 티셔츠_P1_17_261117_test'), S('b', '폴라 티셔츠_P2_17_261117_test'), S('c', '니트_P1_29_261119_test'), S('d', '코트_P1_98_261119_test'),
+    S('e', '폴라 티셔츠_P9_17_261001'), S('f', '폴라 티셔츠_P3_17_261117_test', { status: 'PAUSED' }), S('h', '팬츠_P1_23_261117_test'), S('i', '원피스_P1_44_261119_test', { _cbo: true })];
+  const ads = [A('1', 'a', sets[0].name, { spend: 200000, purchases: 2, value: 100000 }), A('2', 'b', sets[1].name, { spend: 150000 }), A('3', 'c', sets[2].name, { k: 'wait', wk: true, purchases: 1, value: 80000 }),
+    A('4', 'd', sets[3].name), A('5', 'd', sets[3].name, { k: 'good' }), A('6', 'e', sets[4].name), A('7', 'f', sets[5].name, { st: 'off' }), A('8', 'h', sets[6].name), A('9', 'i', sets[7].name),
+    A('10', 'a', sets[0].name, { gone: true, spend: 999999 }), A('11', 'b', sets[1].name, { st: 'off', spend: 10000 })];
+  const r = f(sets, ads, rec, new Set(['h']));
+  assert.equal(r.off.map(x => x.s.id).join(), 'a,b');            // d(우수 소재 섞임) · e(test 아님) · f(꺼짐) · i(CBO) 제외
+  assert.equal(r.hold.map(x => x.s.id).join(), 'c'); assert.equal(r.dup, 1);   // 주말 보류 · 예산 조정 후보와 겹침
+  const a = r.off[0]; assert.equal(a.sp, 200000); assert.equal(a.p, 2); assert.equal(a.roas, 0.5); assert.equal(a.dp, 3); assert.equal(a.prod, '폴라 티셔츠');
+  assert.equal(a.P.n, 5); assert.equal(a.P.sp, 440000); assert.equal(a.P.bad, true);   // 상품 합계 = 종료 안 된 테스트 소재(꺼진 것 포함, 종료 10번 제외) 44만 · 23%
+  assert.equal(f(sets, ads.map(x => x.id === '1' ? { ...x, value: 1400000 } : x), rec).off[1].P.bad, false);   // 상품 합계 318% → 부진 아님
+  assert.equal(f(sets, ads.map(x => x.id === '2' ? { ...x, st: 'meh' } : x), rec).off.map(x => x.s.id).join(), 'a,h');   // 사용자가 애매로 판정한 소재는 후보 아님 · skip 없으면 h도 후보
+});
 test('admgrTodoCount (11/5 오늘 할 일 → 알림판): 당일 증액·되돌리기 건수 — 예산 조정 후보(OFF·절반) 겹침은 뺌 · 임시 저장한 세트는 넣고 게시 전 건수로', () => {
   const sets = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id })), up = new Set(['a', 'b', 'c']), back = new Set(['c', 'd', 'e']);
   const r = g('admgrTodoCount')(sets, new Set(['b']), { e: 30000 }, x => up.has(x.id), x => back.has(x.id));

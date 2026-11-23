@@ -18,7 +18,7 @@ async function admgrTestFetch() {
       t.data = data;
       t.state = new Map((Array.isArray(stRows) ? stRows : []).map(r => [r.ad_id, r]));
     }
-    t.loaded = true;
+    t.loaded = true; t.at = Date.now();   // 받은 시각 — 테스트 OFF 후보(알림판)가 30분 넘은 목록은 다시 받는다 (2026-11-23)
     t.sel.clear();
     if (!admgr.demo) lsSet('adc_admgr_test', { data: t.data, state: [...t.state.entries()] });
     setTimeout(() => admgrTrendEnsure(), 0);   // 일별 스냅샷(추세·피로도)은 뒤따라 — 표는 먼저 그린다
