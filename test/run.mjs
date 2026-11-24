@@ -470,6 +470,13 @@ test('admgrAdjCalc(11/23 규칙): 7일 구매 10건↑·350~450%는 OFF 대신 �
   assert.match(f([S('q', 40000)], new Map([['q', W(140000, 12, 4)]]), new Map([['q', W(30000, 1, 1)]]), [], '2026-10-28', 3)[0].why, /400%.*12건.*OFF 대신 절반/);
 });
 
+test('admgrAdjCalc(11/24): 오늘 올린 세트는 오늘 증액 후보에서 빠짐 — 감액 뒤 원래 금액으로 되올린 것(원복)도 포함, 어제 원복은 그대로 증액 후보', () => {
+  const f = g('admgrAdjCalc'), S = { id: 'q', name: 'xq', status: 'ACTIVE', budget: 40000, created: '2026-10-01T00:00:00+0900' }, W = (spend, purchases, roas) => ({ spend, purchases, value: spend * roas, purchases_7d: 0, value_7d: 0 });
+  const ev = (d, o, n) => ({ level: 'adset', object_id: 'q', time: d + 'T03:00:00Z', old_value: o, new_value: n }), cut = ev('2026-10-24', 40000, 20000);
+  const act = hist => f([S], new Map([['q', W(140000, 12, 10)]]), new Map([['q', W(60000, 5, 10)]]), hist, '2026-10-28', 3).map(x => x.act).join('') || '-';   // 900%↑인데 증액을 못 하면 줄이 안 나온다
+  assert.equal([act([]), act([cut, ev('2026-10-28', 20000, 40000)]), act([cut, ev('2026-10-27', 20000, 40000)]), act([ev('2026-10-27', 20000, 40000)])].join(), 'up,-,up,-');   // 이력 없음 / 오늘 원복 → 빠짐 / 어제 원복 → 후보 / 어제 증액 → 3일 쉼(기존)
+});
+
 test('admgrFastRevertOf·admgrFastRecent (11/2): 올린 뒤 이틀 ROAS 550% 미만 → 되돌리기, 이틀 지출 없으면 판단 안 함, 3일 안 올린 세트는 쉼', () => {
   const D = (sp, p, v) => new Map([['r', { sp, p, v }]]);
   const setDays = (a, b, c) => { ctx.__d = [a, b, c]; vm.runInContext("admgr.fast.days = __d;", ctx); };
@@ -516,6 +523,15 @@ test('admgrTodayNeed·admgrTodayUpOf (11/2 당일 증액): 기준 건수 = 일�
   assert.equal(f({ ...base, purchases: 0 }, 9.5).streak, true);                                  // 연속 우수도 11시 전부터 (11/23)
   const sk = f({ ...base, purchases: 0 }, 11.5);                                                // 어제 올렸고 오늘 0건이어도 후보
   assert.equal(sk.to, 60000); assert.equal(sk.streak, true); assert.equal(sk.h7.d3, true); assert.equal(sk.h7.p, 19);
+  /* 같은 날 두 번은 안 올림 (11/24): 오늘 Meta 이력에 증액이 있거나, 오늘 기록대로 예산이 올라가 있으면 연속 우수도 내일부터 */
+  vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 15000, new_value: 30000, time: new Date().toISOString() }];", ctx);
+  assert.equal(f({ ...base, purchases: 0 }, 11.5), null);
+  vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 15000, new_value: 30000, time: new Date(Date.now() - 864e5).toISOString() }];", ctx);
+  assert.equal(f({ ...base, purchases: 0 }, 11.5).streak, true);                                // 어제 올린 건 그대로 후보
+  vm.runInContext("admgrAlert.adjHist = []; admgr.fast.boost = { items: { g: { from: 15000, to: 30000, day: todayStr(0) } } };", ctx);
+  assert.equal(f({ ...base, purchases: 0 }, 11.5), null);                                       // 오늘 기록 + 예산이 올린 값 → 이력이 늦어도 빠짐
+  assert.equal(f({ ...base, budget: 15000, purchases: 0 }, 11.5).streak, true);                 // 임시 저장만 하고 게시 전(예산 그대로)이면 후보
+  vm.runInContext(boost, ctx);
   vm.runInContext("admgrAlert.adjHist = [{ level: 'adset', object_id: 'g', old_value: 60000, new_value: 30000, time: new Date().toISOString() }];", ctx);
   assert.equal(f({ ...base, purchases: 0 }, 11.5), null);                                       // 줄인 뒤 3일 쉼은 그대로
   vm.runInContext("admgrAlert.adjHist = [];", ctx);

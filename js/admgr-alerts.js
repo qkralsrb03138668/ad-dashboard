@@ -383,7 +383,8 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, d
   // 시간순으로 본다. 감액 뒤 원래 예산 이하로 되올린 건 '원복'(주말 모드·낮 감액 23:45 원복 등) — 감액도 증액도 아닌 것으로 지운다 (2026-10-28)
   for (const e of [...(hist || [])].sort((x, y) => String(x.time).localeCompare(String(y.time)))) { if (e.level !== 'adset' || !(e.old_value > 0)) continue; const d = admgrKstDay(e.time), o = last.get(e.object_id) || {};
     if (e.new_value < e.old_value) { if (!o.cut) o.cutFrom = e.old_value; o.cut = d; }
-    else if (e.new_value > e.old_value) { if (o.cut && e.new_value <= o.cutFrom) { delete o.cut; delete o.cutFrom; } else { o.up = d; delete o.cut; delete o.cutFrom; } }
+    else if (e.new_value > e.old_value) { o.rose = d;   // 원복이든 증액이든 마지막으로 올린 날 — 오늘 올린 세트는 오늘 증액 후보에서 뺀다 (2026-11-24: 11/20 절반 4→2만이던 르노 P7이 11/23 09:56 당일 증액 2→4만(원복으로 셈) 뒤 10:20 +30%로 또 올라감)
+      if (o.cut && e.new_value <= o.cutFrom) { delete o.cut; delete o.cutFrom; } else { o.up = d; delete o.cut; delete o.cutFrom; } }
     last.set(e.object_id, o); }
   const coolFrom = admgrShiftDay(today, -(C.cool - 1)), backFrom = admgrShiftDay(today, -C.back), ageTo = admgrShiftDay(today, -C.minAge);
   const r1k = v => Math.max(1000, Math.round(v / 1000) * 1000), out = [];
@@ -421,7 +422,7 @@ function admgrAdjCalc(sets, s7, s3, hist, today, dow, prodOf = admgrProductOf, d
     const pd = prod3.get(pkey(s.name)), pr3 = pd && pd.sp > 0 ? pd.v / pd.sp : null, dl = dropLog[s.id];
     if (dl && pd && pd.p >= C.prodPur3 && pr3 >= R.keep && s.budget <= dl.to) { out.push({ ...base, act: 'back', to: dl.from, why: `${String(dl.day).slice(5)} 상품이 식어 절반 → 상품 3일 ROAS ${pc(pr3)}(${pd.p}건)로 회복 — 원래 예산으로` }); continue; }
     if (r7 < R.up && pd && pd.p >= C.prodPur3 && pr3 < R.off && !(r3 >= R.keep)) { const h = holdOr('half'); if (h) { out.push(h); continue; } out.push({ ...base, act: 'half', prodDrop: true, to: r1k(s.budget / 2), why: `상품 전체 3일 ROAS ${pc(pr3)}(${pd.p}건)로 꺾임 — 세트 7일 ${pc(r7)}지만 절반` }); continue; }
-    const upOk = dow !== 5 && dow !== 6 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom);
+    const upOk = dow !== 5 && dow !== 6 && p7 >= C.upMinPur && !(L.up && L.up >= coolFrom) && L.rose !== today;
     if (r7 < R.up && upOk && pd && pd.p >= C.prodUpPur3 && pr3 >= R.up && r3 != null && r3 >= R.keep) { out.push({ ...base, act: 'up', prodUp: true, to: r1k(s.budget * 1.2), why: `상품 전체 3일 ROAS ${pc(pr3)}(${pd.p}건)로 뜨는 중 — 세트 7일 ${pc(r7)}지만 +20%` }); continue; }
     if (r7 < R.up) { out.push({ ...base, act: 'watch', to: s.budget, why: `7일 ROAS ${pc(KB)}~${pc(R.up)} — 유지` }); continue; }
     if (upOk) out.push({ ...base, act: 'up', to: r1k(s.budget * (r7 >= R.upBig ? 1.3 : 1.2)), why: r7 >= R.upBig ? `7일 ROAS ${pc(R.upBig)}↑ → +30%` : `7일 ROAS ${pc(R.up)}~${pc(R.upBig)} → +20%` });
