@@ -8,6 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runCopy, claudeModel, COPY_MODELS } from './claude.mjs';   // Opus 5 · 높음 → 한도 시 Fable 5.1 · 높음 자동 전환, 실패 이유 한국어
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cfgSrc = fs.readFileSync(path.join(root, 'config.js'), 'utf8');
@@ -49,6 +51,37 @@ ${facts}`;
   return text;
 }
 
+/* 상세 이미지 속 글 (2026-11-26 사용자 요청: 신상품은 후기가 없어 근거가 얇다) — 다나로브 상세는 거의 이미지라 글이 안 잡힌다.
+   상품 페이지 상세 영역(prdDetail~prdInfo)의 이미지를 받아 맥 내장 Vision(scripts/ocr.swift)으로 읽는다 — 구독 사용량 없음, 상품당 10초 안팎.
+   운영자 코멘트·소재 혼용률·사이즈표·모델 키·후기 캡처가 들어 있다. 실패하면 빈 문자열 (기존처럼 생성) */
+const OCR_BIN = path.join(root, 'scripts/.bin/ocr'), OCR_SRC = path.join(root, 'scripts/ocr.swift');
+async function detailText(pageUrl) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gencopy-'));
+  try {
+    if (!(fs.existsSync(OCR_BIN) && fs.statSync(OCR_BIN).mtimeMs >= fs.statSync(OCR_SRC).mtimeMs)) {
+      fs.mkdirSync(path.dirname(OCR_BIN), { recursive: true });
+      execFileSync('xcrun', ['swiftc', '-O', '-o', OCR_BIN, OCR_SRC], { stdio: 'ignore' });
+    }
+    const html = await (await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
+    const a = html.indexOf('id="prdDetail"'), b = html.indexOf('id="prdInfo"', a);
+    if (a < 0) return '';
+    const srcs = [...html.slice(a, b > a ? b : undefined).matchAll(/<img[^>]*?\b(?:ec-data-src|src)="([^"]+)"/g)].map(m => m[1])
+      .filter(u => !/\/_idio\/|echosting|\/web\/upload\/test\/|\/icon/.test(u));   // 공통 배너(VIP·TOP)·아이콘 제외
+    const files = [];
+    for (const [i, u] of [...new Set(srcs)].slice(0, 25).entries()) {
+      try {
+        const r = await fetch(new URL(u, pageUrl), { headers: { 'User-Agent': 'Mozilla/5.0' } });   // URL()이 띄어쓰기·한글 경로를 알아서 인코딩
+        if (!r.ok) continue;
+        const f = path.join(dir, String(i).padStart(2, '0') + path.extname(new URL(u, pageUrl).pathname).slice(0, 6));
+        fs.writeFileSync(f, Buffer.from(await r.arrayBuffer())); files.push(f);
+      } catch { /* 한 장 실패는 건너뜀 */ }
+    }
+    if (!files.length) return '';
+    return execFileSync(OCR_BIN, files, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 120000 })
+      .split('\n').map(l => l.trim()).filter(l => [...l].length >= 2).join('\n').slice(0, 6000);
+  } catch { return ''; }
+  finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
 const dry = process.argv.includes('--dry'), flagged = process.argv.includes('--flagged');
 const only = process.argv.filter(a => /^\d+$/.test(a)).map(Number);
 let targets;   // [{product_no, product_name, creatives:[...]}]
@@ -101,7 +134,10 @@ for (const t of targets) {
     const ui = { note: '', onTick: null };
     ui.onTick = process.stdout.isTTY ? s => process.stdout.write(`\r\x1b[2K${label}${ui.note} ${mmss(s)}`) : null;   // 터미널이면 같은 줄에 경과 시간 갱신 (로그 파일엔 안 찍음)
     process.stdout.write(label);
-    const message = await generate(f.facts, f.url, ui);
+    const seen = await detailText(f.url);   // 상세 이미지 속 글 → 근거에 추가
+    const facts = seen ? `${f.facts}\n\n[상세 이미지 속 글 — 맥 글자 인식이라 오타·순서 섞임이 있을 수 있음. 운영자 코멘트·소재·사이즈표·모델 정보·후기 캡처가 섞여 있다. 후기 캡처 내용은 출처를 말하지 말고 직접 느낀 것처럼. 정보가 많아도 다 넣지 말고 고객이 가장 망설일 점 위주로 2~3개만 골라 — 총 18~24줄 규칙은 그대로]\n${seen}` : f.facts;
+    if (!ui.onTick) process.stdout.write(seen ? ` (상세 이미지 글 ${seen.length}자)` : ' (상세 이미지 글 없음)');
+    const message = await generate(facts, f.url, ui);
     console.log(` — ${message.length}자`);
     if (dry) { console.log('\n' + message + '\n'); ok++; continue; }   // 화면 출력까지가 성공
     const text = { message, title: '', description: '', cta: 'LEARN_MORE' };
