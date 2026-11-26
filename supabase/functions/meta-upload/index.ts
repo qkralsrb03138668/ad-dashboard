@@ -651,8 +651,9 @@ Deno.serve(async (req) => {
       let applied = 0;
       const t = (body.text ?? null) as Rec | null;
       if (body.apply_product && row?.product_no && t && String(t.message ?? "").trim()) {
-        const others = await dbRest(`creatives?product_no=eq.${row.product_no}&status=eq.registered&id=neq.${id}&select=id,url`);
+        const others = await dbRest(`creatives?product_no=eq.${row.product_no}&status=eq.registered&id=neq.${id}&select=id,url,text`);
         for (const o of (others.ok ? await others.json() : []) as Rec[]) {
+          if ((o.text as Rec | null)?.style === "test") continue;   // '테스트' 문구 소재는 상품 문구를 고쳐도 그대로 (2026-11-26)
           const pr = await dbRest(`creatives?id=eq.${o.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ text: { ...t, link: o.url || t.link }, regen: false }) });
           if (pr.ok) applied++;
         }

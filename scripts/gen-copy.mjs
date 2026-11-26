@@ -10,6 +10,7 @@ import { runCopy, claudeModel, COPY_MODELS } from './claude.mjs';   // Opus 5 ·
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { TEST_RULES, shopReviews } from './copy-test-prompt.mjs';   // '테스트' 문구 (2026-11-26)
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cfgSrc = fs.readFileSync(path.join(root, 'config.js'), 'utf8');
@@ -28,16 +29,16 @@ const SYSTEM = `${P.COPY_PROMPT_ORIGINAL}\n\n${P.COPY_LONG_RULES}\n\n${P.COPY_EX
 
 /* 출력 검증 — 영어 서술·과정 설명·도구 언급이 섞이면 실패 처리 (2026-09-13 실사례: WebFetch 외 도구가 거부되자 "the browser and curl tools were declined, so I'm writing from…" 영어 설명을 카피에 넣었다) */
 const { stripNotes, badCopy } = P;   // 공용 (ad-copy-prompt.ts) — 서버와 같은 규칙
-async function generate(facts, url, ui) {   // ui = { onTick, note } — 경과 시간 표시·재시도 표시
+async function generate(facts, url, ui, test = false) {   // ui = { onTick, note } — 경과 시간 표시·재시도 표시 · test = '테스트' 구성(다섯 단계)
   const ask = async (extra) => {
-    const prompt = `아래 상품의 광고 문구를 운영자 후기형(기본)으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써.
+    const prompt = `아래 상품의 광고 문구를 ${test ? "'5. 테스트 구성'(부르기 → 공감 → 해결 → 증거·걸리는 점 → 권유)" : '운영자 후기형(기본)'}으로 써줘. 상품 페이지(${url})를 WebFetch로 열어 컬러·옵션·후기·상세 이미지 속 텍스트를 확인하고, 카페24에서 받은 상품 정보도 근거로 써.
 쓸 수 있는 도구는 WebFetch 하나뿐이다. 페이지가 이미지 위주라 정보가 적어도 다른 도구를 찾지 말고, 있는 정보(상품명·옵션·가격·후기)만으로 쓴다.
 출력은 한국어 카피 본문만. 영어·과정 설명·도구 언급·"정보가 부족해서" 같은 사족은 단 한 줄도 넣지 마.${extra}
 
 [카페24 상품 정보]
 ${facts}`;
     // --restricted --tools WebFetch: Bash·브라우저 MCP 등이 아예 없어서 모델이 시도하거나 거부당할 일이 없다. --strict-mcp-config: 이 맥의 MCP 서버 제외
-    const out = await runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--allowedTools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', SYSTEM], { onTick: ui && ui.onTick });   // 모델: 사용자 지정 Opus 5 · 높음 (한도면 Fable 5.1 · 높음)
+    const out = await runCopy(prompt, ['--restricted', '--tools', 'WebFetch', '--allowedTools', 'WebFetch', '--strict-mcp-config', '--append-system-prompt', test ? `${SYSTEM}\n\n${TEST_RULES}` : SYSTEM], { onTick: ui && ui.onTick });   // 모델: 사용자 지정 Opus 5 · 높음 (한도면 Fable 5.1 · 높음)
     return P.tidyCopy(stripNotes(out));   // 사족 제거 → 빈 줄 하나 · 한 줄 18자 이내 (서버와 같은 규칙)
   };
   let text = await ask('');
@@ -82,23 +83,36 @@ async function detailText(pageUrl) {
   } catch { return ''; }
   finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
-const dry = process.argv.includes('--dry'), flagged = process.argv.includes('--flagged');
+const dry = process.argv.includes('--dry'), flagged = process.argv.includes('--flagged'), testArg = process.argv.includes('--test');
+/* '테스트' 요청 — 화면이 공유 상태 gencopy_style {ids:{소재id:'test'}}에 적고 regen을 켠다. 테스트 문구는 그 소재에만 넣고 상품 고정 문구는 건드리지 않는다 */
+async function styleClear(ids) {
+  for (let i = 0; i < 2 && ids.length; i++) {
+    try {
+      const g = await api('client-log', { action: 'state_get', key: 'gencopy_style' }); const m = { ...((g.data || {}).ids || {}) };
+      for (const id of ids) delete m[id];
+      const r = await api('client-log', { action: 'state_set' }, { key: 'gencopy_style', base: g.ver ?? null, data: { ids: m } });
+      if (!r.conflict) return;
+    } catch { return; }
+  }
+}
 const only = process.argv.filter(a => /^\d+$/.test(a)).map(Number);
 let targets;   // [{product_no, product_name, creatives:[...]}]
 if (only.length) {   // 지정 상품은 저장본이 있어도 다시 생성(덮어씀) + 그 상품의 대기 소재 문구도 갱신
   const { rows } = await api('meta-upload', { action: 'creatives_list', status: 'registered', limit: 500 });
-  targets = only.map(no => ({ product_no: no, product_name: (rows.find(r => r.product_no === no) || {}).product_name || '', creatives: rows.filter(r => r.product_no === no) }));
+  targets = only.map(no => ({ product_no: no, product_name: (rows.find(r => r.product_no === no) || {}).product_name || '', creatives: rows.filter(r => r.product_no === no), style: testArg ? 'test' : '' }));   // --dry --test 2549 = 테스트 문구 미리보기
 }
 else {
   const { rows } = await api('meta-upload', { action: 'creatives_list', status: 'registered', limit: 500 });
-  const regen = rows.filter(r => r.product_no && r.regen);                          // 대시보드에서 '문구 다시 생성' 표시한 소재 → 저장본 있어도 새로
+  const styleIds = ((await api('client-log', { action: 'state_get', key: 'gencopy_style' }).catch(() => ({}))).data || {}).ids || {};
+  const testRows = rows.filter(r => r.product_no && r.regen && styleIds[r.id] === 'test');
+  const regen = rows.filter(r => r.product_no && r.regen && styleIds[r.id] !== 'test');   // 대시보드에서 '문구 다시 생성' 표시한 소재 → 저장본 있어도 새로
   const need = flagged ? [] : rows.filter(r => r.product_no && !r.regen && !(r.text && r.text.message));
   const byNo = new Map();
   const put = (r, force) => { if (!byNo.has(r.product_no)) byNo.set(r.product_no, { product_no: r.product_no, product_name: r.product_name, creatives: [], force: false }); const t = byNo.get(r.product_no); t.creatives.push(r); if (force) t.force = true; };
   for (const r of regen) put(r, true);
   for (const r of need) put(r, false);
   for (const t of byNo.values()) if (t.force) {   // 다시 생성하는 상품은 그 상품의 대기 소재 전부에 새 문구를 넣는다 (소재끼리 다른 문구가 되지 않게)
-    for (const r of rows) if (r.product_no === t.product_no && !t.creatives.some(x => x.id === r.id)) t.creatives.push(r);
+    for (const r of rows) if (r.product_no === t.product_no && !t.creatives.some(x => x.id === r.id) && !(r.text && r.text.style === 'test') && styleIds[r.id] !== 'test') t.creatives.push(r);   // 테스트 문구 소재는 그대로
   }
   if (regen.length) console.log(`↻ 다시 생성 표시된 소재 ${regen.length}개 (상품 ${new Set(regen.map(r => r.product_no)).size}개)`);
   const plain = [...byNo.values()].filter(t => !t.force);
@@ -111,7 +125,9 @@ else {
       byNo.delete(c.product_no);
     }
   }
-  targets = [...byNo.values()];
+  const tests = new Map(); for (const r of testRows) { if (!tests.has(r.product_no)) tests.set(r.product_no, { product_no: r.product_no, product_name: r.product_name, creatives: [], style: 'test' }); tests.get(r.product_no).creatives.push(r); }
+  if (testRows.length) console.log(`🧪 테스트 문구 요청 ${testRows.length}개 (상품 ${tests.size}개)`);
+  targets = [...byNo.values(), ...tests.values()];
 }
 if (!targets.length) { if (!flagged) console.log('✅ 문구가 필요한 대기 소재가 없어요'); process.exit(0); }   // 자동 실행은 할 일 없으면 조용히
 if (flagged) console.log(`\n── ${new Date().toLocaleString('ko-KR')} 자동 실행`);
@@ -135,20 +151,24 @@ for (const t of targets) {
     ui.onTick = process.stdout.isTTY ? s => process.stdout.write(`\r\x1b[2K${label}${ui.note} ${mmss(s)}`) : null;   // 터미널이면 같은 줄에 경과 시간 갱신 (로그 파일엔 안 찍음)
     process.stdout.write(label);
     const seen = await detailText(f.url);   // 상세 이미지 속 글 → 근거에 추가
-    const facts = seen ? `${f.facts}\n\n[상세 이미지 속 글 — 맥 글자 인식이라 오타·순서 섞임이 있을 수 있음. 운영자 코멘트·소재·사이즈표·모델 정보·후기 캡처가 섞여 있다. 후기 캡처 내용은 출처를 말하지 말고 직접 느낀 것처럼. 정보가 많아도 다 넣지 말고 고객이 가장 망설일 점 위주로 2~3개만 골라 — 총 18~24줄 규칙은 그대로]\n${seen}` : f.facts;
-    if (!ui.onTick) process.stdout.write(seen ? ` (상세 이미지 글 ${seen.length}자)` : ' (상세 이미지 글 없음)');
-    const message = await generate(facts, f.url, ui);
+    const test = t.style === 'test';
+    const revs = test ? await shopReviews(t.product_no) : [];   // 테스트 문구는 쇼핑몰 후기도 근거로 (자동 문장 뺀 것)
+    let facts = seen ? `${f.facts}\n\n[상세 이미지 속 글 — 맥 글자 인식이라 오타·순서 섞임이 있을 수 있음. 운영자 코멘트·소재·사이즈표·모델 정보·후기 캡처가 섞여 있다. 후기 캡처 내용은 출처를 말하지 말고 직접 느낀 것처럼. 정보가 많아도 다 넣지 말고 고객이 가장 망설일 점 위주로 2~3개만 골라 — 총 18~24줄 규칙은 그대로]\n${seen}` : f.facts;
+    if (revs.length) facts += `\n\n[쇼핑몰 후기 — 최근 ${revs.length}개, 자동 문장 제외. 여러 번 나온 말이 부르기·해결의 재료. 출처는 말하지 말 것]\n${revs.map(r => '- ' + r).join('\n')}`;
+    if (!ui.onTick) process.stdout.write(`${test ? ' [테스트]' : ''}${seen ? ` (상세 이미지 글 ${seen.length}자)` : ' (상세 이미지 글 없음)'}${test ? ` (후기 ${revs.length}개)` : ''}`);
+    const message = await generate(facts, f.url, ui, test);
     console.log(` — ${message.length}자`);
     if (dry) { console.log('\n' + message + '\n'); ok++; continue; }   // 화면 출력까지가 성공
-    const text = { message, title: '', description: '', cta: 'LEARN_MORE' };
-    await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });
+    const text = { message, title: '', description: '', cta: 'LEARN_MORE', ...(test ? { style: 'test' } : {}) };
+    if (!test) await api('cafe24-perf', { action: 'copy_save' }, { product_no: t.product_no, product_name: t.product_name, text });   // 테스트 문구는 상품에 고정하지 않음
     for (const cr of t.creatives) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, text: { ...text, link: cr.url || f.url }, regen: false });
-    ok++; console.log(`✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
-    prog.results.push({ no: t.product_no, name: t.product_name || '', ok: true, n: t.creatives.length, at: new Date().toISOString() });
+    if (test) await styleClear(t.creatives.map(c => c.id));
+    ok++; console.log(test ? `✓ 테스트 문구 — 요청한 소재 ${t.creatives.length}개에만 채움 (상품 고정 문구는 그대로)` : `✓ 상품에 고정 + 소재 ${t.creatives.length}개에 채움`);
+    prog.results.push({ no: t.product_no, name: t.product_name || '', ok: true, n: t.creatives.length, test, at: new Date().toISOString() });
   } catch (e) {
     const m = String(e.message).split('\n')[0]; failed.push(`#${t.product_no} ${m}`); console.log(`\n✗ #${t.product_no}: ${m}`);
     prog.results.push({ no: t.product_no, name: t.product_name || '', ok: false, err: m.slice(0, 200), at: new Date().toISOString() });
-    if (flagged && !dry) for (const cr of t.creatives) if (cr.regen) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, regen: false }).catch(() => {});   // 요청 풀기 — 1분마다 같은 실패 반복 방지
+    if (flagged && !dry) { for (const cr of t.creatives) if (cr.regen) await api('meta-upload', { action: 'creative_save' }, { id: cr.id, regen: false }).catch(() => {}); if (t.style === 'test') await styleClear(t.creatives.map(c => c.id)); }   // 요청 풀기 — 1분마다 같은 실패 반복 방지
   }   // 이유는 claude.mjs가 한국어로 정리
 }
 prog.phase = 'done'; prog.cur = null; prog.done_at = new Date().toISOString(); await progSave();
